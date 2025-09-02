@@ -243,7 +243,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			log.Printf("⚠️ Используем краткое описание для: %s", news.Title)
 		}
 
-		log.Printf("Переводим новость %d/%d на украин��кий: %s", i+1, maxNews, news.Title)
+		log.Printf("Переводим новость %d/%d на україн��кий: %s", i+1, maxNews, news.Title)
 
 		// Определяем исходный язык для перевода
 		sourceLang := "da" // По умолчанию датский
@@ -276,4 +276,16 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 
 	log.Printf("Обработано %d новостей с полным контентом и украинскими переводами", len(result))
 	return result, nil
+}
+
+// FormatNews returns a formatted string for a news item with clear structure and markdown
+func FormatNews(news News) string {
+	return strings.TrimSpace(
+		"🇩🇰 *" + news.Title + "*\n" +
+			"🇺🇦 *" + news.TitleUK + "*\n" +
+			"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+			"\n*Оригінал:*\n> " + strings.ReplaceAll(news.Content, "\n", "\n> ") +
+			"\n\n*Українською:*\n> " + strings.ReplaceAll(news.ContentUK, "\n", "\n> ") +
+			"\n━━━━━━━━━━━━━━━━━━━━━━━━━━",
+	)
 }

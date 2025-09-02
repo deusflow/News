@@ -155,7 +155,7 @@ func Run() {
 	if err != nil {
 		log.Fatalf("Ошибка фильтрации/перевода: %v", err)
 	}
-	fmt.Printf("Релевантных новостей: %d\n", len(filtered))
+	fmt.Printf("Релевантних новин: %d\n", len(filtered))
 
 	// Показываем превью первых 2 новостей в консоли
 	for i, n := range filtered {
@@ -163,13 +163,7 @@ func Run() {
 			break
 		}
 		fmt.Println("---")
-		fmt.Printf("[%s, score: %d, source: %s (%s)] %s\n", n.Category, n.Score, n.SourceName, n.SourceLang, n.Title)
-		if n.TitleUK != "" {
-			fmt.Printf("UK: %s\n", n.TitleUK)
-		}
-		fmt.Printf("Контент: %d символов\n", len(n.Content))
-		fmt.Printf("Категории источника: %v\n", n.SourceCategories)
-		fmt.Printf("%s\n", n.Link)
+		fmt.Println(news.FormatNews(n))
 	}
 
 	if len(filtered) == 0 {
