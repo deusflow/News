@@ -48,17 +48,32 @@ var denmarkKeywords = []string{
 	"minister", "министр", "міністр",
 	"valg", "election", "выборы", "вибори",
 	"eu", "europe", "европа", "європа",
-	"samråd", "consultation", "консультація", "консультац��ї",
+	"samråd", "consultation", "консультація", "консультації",
 	"corona", "covid", "visa", "візи",
 
-	// визовые и беженские темы — базовые ключевые слова включены, дополнительные бусты ниже
+	// визовые и беженские темы — базовые ключевые слова включены, дополнительные б��сты ниже
 	"refugee", "беженцы", "біженці", "asylum", "убежище", "притулок",
 	"residence permit", "вид на жительство", "посвідка на проживання",
+
+	// Добавляем более общие ключевые слова для тестирования
+	"nyheder", "news", "новости", "новини",
+	"verden", "world", "світ", "мир",
+	"samfund", "society", "суспільство", "общество",
+
+	// Еще более общие слова для захвата большего колва новостей
+	"danske", "danish", "viborg", "датське",
+	"københav", "copenhagen", "копенгаген", "копенгага",
+	"aarhus", "odense", "aalborg",
+	"region", "kommune", "borgere", "citizens",
+	"beslutning", "decision", "рішення", "решение",
+	"lov", "law", "закон", "право",
+	"nye", "new", "новий", "новый",
+	"stor", "large", "великий", "большой",
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
 var refugeeBoostKeywords = []string{
-	"refugee", "беж��н", "біжен",
+	"refugee", "viborg",
 	"flygtning", "refugee visa", "temporary protection", "тимчасовий захист",
 }
 
@@ -115,9 +130,9 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		return "ukraine", score
 	}
 
-	// Important Denmark news
+	// Important Denmark news - ОЧЕНЬ мягкие критерии для тест
 	if containsAny(text, denmarkKeywords) {
-		score := 50
+		score := 30
 		// Extra points for politics and economy
 		if containsAny(text, []string{"regering", "minister", "minister"}) {
 			score += 20
@@ -135,6 +150,12 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		}
 
 		return "denmark", score
+	}
+
+	// ВРЕМЕННО: Захватываем ВСЕ новости для тестирования системы перевода
+	// Если в заголовке или описании есть хоть какие-то слова - пропускаем
+	if len(strings.Fields(text)) > 3 {
+		return "general", 20 // Минимальный балл для общих новостей
 	}
 
 	return "", 0
@@ -159,7 +180,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		}
 		seen[item.Link] = struct{}{}
 
-		// Вычисляем категорию и важность
+		// Вычисляем категорию и важност��
 		category, score := calculateNewsScore(item)
 		if score == 0 {
 			continue // Пропускаем неважные новости
@@ -222,7 +243,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			log.Printf("⚠️ Используем краткое описание для: %s", news.Title)
 		}
 
-		log.Printf("Переводим новость %d/%d на украинский: %s", i+1, maxNews, news.Title)
+		log.Printf("Переводим новость %d/%d на украин��кий: %s", i+1, maxNews, news.Title)
 
 		// Определяем исходный язык для перевода
 		sourceLang := "da" // По умолчанию датский
@@ -230,24 +251,24 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			sourceLang = news.SourceLang
 		}
 
-		// Оптимизация: один запрос на перевод для заголов��а + контента
+		// Оптимизация: один запрос на перевод для заголовка + контента
 		separator := "\n\n---SPLIT---\n\n"
 		combined := news.Title + separator + news.Content
-		translatedCombined, err := translate.TranslateTextUkr(combined, sourceLang, "uk")
+		translatedCombined, err := translate.TranslateText(combined, sourceLang, "uk")
 		if err == nil {
 			parts := strings.SplitN(translatedCombined, "---SPLIT---", 2)
 			if len(parts) == 2 {
 				news.TitleUK = strings.TrimSpace(parts[0])
 				news.ContentUK = strings.TrimSpace(parts[1])
 			} else {
-				// На случай, если разделитель удалился/изменился
-				news.TitleUK, _ = translate.TranslateTextUkr(news.Title, sourceLang, "uk")
-				news.ContentUK, _ = translate.TranslateTextUkr(news.Content, sourceLang, "uk")
+				// На случай, если разделитель удалился/изменилс��
+				news.TitleUK, _ = translate.TranslateText(news.Title, sourceLang, "uk")
+				news.ContentUK, _ = translate.TranslateText(news.Content, sourceLang, "uk")
 			}
 		} else {
 			// Фоллбек к прежней логике
-			news.TitleUK, _ = translate.TranslateTextUkr(news.Title, sourceLang, "uk")
-			news.ContentUK, _ = translate.TranslateTextUkr(news.Content, sourceLang, "uk")
+			news.TitleUK, _ = translate.TranslateText(news.Title, sourceLang, "uk")
+			news.ContentUK, _ = translate.TranslateText(news.Content, sourceLang, "uk")
 		}
 
 		result = append(result, news)

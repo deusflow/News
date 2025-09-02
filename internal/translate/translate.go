@@ -1,7 +1,6 @@
 package translate
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,12 +11,10 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/sashabaranov/go-openai"
 )
 
-// TranslateTextUkr translates text with best available service
-func TranslateTextUkr(text, from, to string) (string, error) {
+// TranslateText translates text with best available service
+func TranslateText(text, from, to string) (string, error) {
 	// If text is empty, return as is
 	if text == "" {
 		return text, nil
@@ -37,25 +34,23 @@ func TranslateTextUkr(text, from, to string) (string, error) {
 		text = text[:4000] + "..."
 	}
 
-	// First try Google Translate (FREE!)
-	result, err := translateWithGoogleTranslate(text, from, to)
+	// First try Hugging Face MarianMT (FREE and high quality!)
+	result, err := translateWithHuggingFace(text, from, to)
+	if err == nil && result != "" && result != text {
+		log.Printf("✅ Hugging Face MarianMT %s->%s ok", from, to)
+		return result, nil
+	}
+	log.Printf("⚠️ Hugging Face MarianMT not work for %s->%s: %v", from, to, err)
+
+	// Then try Google Translate (FREE!)
+	result, err = translateWithGoogleTranslate(text, from, to)
 	if err == nil && result != "" && result != text {
 		log.Printf("✅ Google Translate %s->%s ok", from, to)
 		return result, nil
 	}
 	log.Printf("⚠️ Google Translate not work for %s->%s: %v", from, to, err)
 
-	// Then try OpenAI (if token is set)
-	if openaiToken := os.Getenv("OPENAI_API_KEY"); openaiToken != "" {
-		result, err := translateWithOpenAI(text, from, to)
-		if err == nil && result != "" && result != text {
-			log.Printf("✅ OpenAI translate %s->%s ok", from, to)
-			return result, nil
-		}
-		log.Printf("⚠️ OpenAI not work for %s->%s: %v", from, to, err)
-	}
-
-	log.Printf("⚠️ All translate services not work for %s->%s, use original", from, to)
+	log.Printf("⚠️ All FREE translation services not work for %s->%s, use original", from, to)
 	return originalText, nil
 }
 
@@ -162,56 +157,91 @@ func cleanTextForTranslation(text string) string {
 	return strings.Join(cleanLines, " ")
 }
 
-// translateWithOpenAI performs quality AI translation through OpenAI (only to Ukrainian)
-func translateWithOpenAI(text, from, to string) (string, error) {
-	if to != "uk" && to != "ukrainian" {
-		return text, nil
+// translateWithHuggingFace uses Hugging Face MarianMT models (FREE and high quality)
+func translateWithHuggingFace(text, from, to string) (string, error) {
+	// Map language codes to Hugging Face model names
+	var modelName string
+	switch {
+	case from == "da" && (to == "uk" || to == "ukrainian"):
+		// Use Finnish-Ugric to Ukrainian model (covers more languages including Danish)
+		modelName = "Helsinki-NLP/opus-mt-fiu-uk"
+	case from == "en" && (to == "uk" || to == "ukrainian"):
+		modelName = "Helsinki-NLP/opus-mt-en-uk"
+	default:
+		return "", fmt.Errorf("no suitable MarianMT model for %s->%s", from, to)
 	}
 
-	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+	// Hugging Face Inference API endpoint
+	apiURL := fmt.Sprintf("https://api-inference.huggingface.co/models/%s", modelName)
 
-	// Use the from parameter to determine source language for better translation
-	sourceLang := "Danish"
-	if from == "en" {
-		sourceLang = "English"
-	} else if from == "de" {
-		sourceLang = "German"
-	} else if from == "sv" {
-		sourceLang = "Swedish"
-	} else if from == "no" {
-		sourceLang = "Norwegian"
-	}
-
-	prompt := fmt.Sprintf(`Translate the following %s news text to Ukrainian language. 
-Keep the meaning, tone and journalistic style of the original.
-Translate only the text itself, without additional comments.
-Use modern Ukrainian vocabulary.
-
-Text to translate:
-%s`, sourceLang, text)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
+	// Prepare request body
+	requestBody := map[string]interface{}{
+		"inputs": text,
+		"options": map[string]interface{}{
+			"wait_for_model": true,
 		},
-		MaxCompletionTokens: 2000,
-	})
+	}
 
+	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	if len(resp.Choices) == 0 {
-		return "", errors.New("no response from OpenAI")
+	// Create HTTP client with timeout
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Create request
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
 	}
 
-	translation := strings.TrimSpace(resp.Choices[0].Message.Content)
-	return translation, nil
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use HF token if available (increases rate limits)
+	if hfToken := os.Getenv("HUGGINGFACE_API_KEY"); hfToken != "" {
+		req.Header.Set("Authorization", "Bearer "+hfToken)
+	}
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP error: %v", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close HF response body: %v", closeErr)
+		}
+	}()
+
+	if resp.StatusCode == 503 {
+		return "", fmt.Errorf("model loading, try again later")
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("hugging Face API returned status: %d", resp.StatusCode)
+	}
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %v", err)
+	}
+
+	// Parse response
+	var response []map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	if len(response) == 0 {
+		return "", errors.New("empty response from Hugging Face")
+	}
+
+	// Extract translation
+	if translationText, ok := response[0]["translation_text"].(string); ok {
+		return strings.TrimSpace(translationText), nil
+	}
+
+	return "", errors.New("no translation found in response")
 }
