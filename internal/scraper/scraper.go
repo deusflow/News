@@ -356,21 +356,21 @@ func cleanContent(content string) string {
 	}
 
 	// Join paragraphs
-	result_text := strings.Join(cleanLines, "\n\n")
+	resultText := strings.Join(cleanLines, "\n\n")
 
 	// Final clean
-	for strings.Contains(result_text, "  ") {
-		result_text = strings.ReplaceAll(result_text, "  ", " ")
+	for strings.Contains(resultText, "  ") {
+		resultText = strings.ReplaceAll(resultText, "  ", " ")
 	}
-	for strings.Contains(result_text, "\n\n\n") {
-		result_text = strings.ReplaceAll(result_text, "\n\n\n", "\n\n")
+	for strings.Contains(resultText, "\n\n\n") {
+		resultText = strings.ReplaceAll(resultText, "\n\n\n", "\n\n")
 	}
 
-	result_text = strings.TrimSpace(result_text)
+	resultText = strings.TrimSpace(resultText)
 
 	// Limit length, keep full paragraphs
-	if len(result_text) > 1800 {
-		paragraphs := strings.Split(result_text, "\n\n")
+	if len(resultText) > 1800 {
+		paragraphs := strings.Split(resultText, "\n\n")
 		var selectedParagraphs []string
 		totalLength := 0
 
@@ -384,11 +384,11 @@ func cleanContent(content string) string {
 		}
 
 		if len(selectedParagraphs) > 0 {
-			result_text = strings.Join(selectedParagraphs, "\n\n")
+			resultText = strings.Join(selectedParagraphs, "\n\n")
 		}
 	}
 
-	return result_text
+	return resultText
 }
 
 // ExtractArticlesInBackground gets full content of articles in background

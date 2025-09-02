@@ -17,7 +17,6 @@ func formatNewsMessage(newsList []news.News, max int) string {
 	// Group news by category
 	ukraineNews := []news.News{}
 	denmarkNews := []news.News{}
-
 	for _, n := range newsList {
 		if len(ukraineNews)+len(denmarkNews) >= max {
 			break
@@ -134,10 +133,16 @@ func formatSingleNews(n news.News, number int) string {
 
 // Run запускает основной процесс приложения
 func Run() {
+	// Опционально можно добавить фильтрацию по категориям
+	// Например: rss.FilterFeedsByCategories(feeds, []string{"ukraine", "visas", "technology"})
+
 	feeds, err := rss.LoadFeeds("configs/feeds.yaml")
 	if err != nil {
 		log.Fatalf("Ошибка загрузки списка RSS: %v", err)
 	}
+
+	// Можно добавить фильтрацию по категориям если нужно
+	// feeds = rss.FilterFeedsByCategories(feeds, []string{"ukraine", "denmark", "visas"})
 
 	items, err := rss.FetchAllFeeds(feeds)
 	if err != nil {
@@ -158,11 +163,12 @@ func Run() {
 			break
 		}
 		fmt.Println("---")
-		fmt.Printf("[%s, score: %d] %s\n", n.Category, n.Score, n.Title)
+		fmt.Printf("[%s, score: %d, source: %s (%s)] %s\n", n.Category, n.Score, n.SourceName, n.SourceLang, n.Title)
 		if n.TitleUK != "" {
 			fmt.Printf("UK: %s\n", n.TitleUK)
 		}
 		fmt.Printf("Контент: %d символов\n", len(n.Content))
+		fmt.Printf("Категории источника: %v\n", n.SourceCategories)
 		fmt.Printf("%s\n", n.Link)
 	}
 
@@ -242,7 +248,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 	var b strings.Builder
 
 	// Заголовок сообщения
-	b.WriteString("🇩🇰 <b>Новини Данії</b> 🇺🇦\n")
+	b.WriteString("🇩🇰<b>Новини Данії</b> 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	// Определяем эмодзи и категорию

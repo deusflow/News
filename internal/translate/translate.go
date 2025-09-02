@@ -16,8 +16,8 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// TranslateText translates text with best available service
-func TranslateText(text, from, to string) (string, error) {
+// TranslateTextUkr translates text with best available service
+func TranslateTextUkr(text, from, to string) (string, error) {
 	// If text is empty, return as is
 	if text == "" {
 		return text, nil
@@ -67,8 +67,8 @@ func translateWithGoogleTranslate(text, from, to string) (string, error) {
 	// Build query params
 	params := url.Values{}
 	params.Set("client", "gtx")
-	params.Set("sl", "da") // source language: Danish
-	params.Set("tl", "uk") // target language: Ukrainian
+	params.Set("sl", from) // source language: use parameter
+	params.Set("tl", to)   // target language: use parameter
 	params.Set("dt", "t")  // return translations
 	params.Set("q", text)
 
@@ -82,10 +82,14 @@ func translateWithGoogleTranslate(text, from, to string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close response body: %v", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("Google Translate API returned status: %d", resp.StatusCode)
+		return "", fmt.Errorf("google Translate API returned status: %d", resp.StatusCode)
 	}
 
 	// Read response
@@ -166,13 +170,25 @@ func translateWithOpenAI(text, from, to string) (string, error) {
 
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
-	prompt := fmt.Sprintf(`Translate the following Danish news text to Ukrainian language. 
+	// Use the from parameter to determine source language for better translation
+	sourceLang := "Danish"
+	if from == "en" {
+		sourceLang = "English"
+	} else if from == "de" {
+		sourceLang = "German"
+	} else if from == "sv" {
+		sourceLang = "Swedish"
+	} else if from == "no" {
+		sourceLang = "Norwegian"
+	}
+
+	prompt := fmt.Sprintf(`Translate the following %s news text to Ukrainian language. 
 Keep the meaning, tone and journalistic style of the original.
 Translate only the text itself, without additional comments.
 Use modern Ukrainian vocabulary.
 
 Text to translate:
-%s`, text)
+%s`, sourceLang, text)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -185,8 +201,7 @@ Text to translate:
 				Content: prompt,
 			},
 		},
-		MaxTokens:   2000,
-		Temperature: 0.3,
+		MaxCompletionTokens: 2000,
 	})
 
 	if err != nil {

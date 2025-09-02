@@ -5,45 +5,53 @@ feeds:
     lang: da
     priority: 5
     active: true
+    categories: [ukraine, denmark, visas, technology, integration, immigration, main]
 
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
     lang: da
     priority: 100
     active: true
+    categories: [denmark, main, ukraine, visas, technology, integration]
 
-  - url: https://tv2.dk/rss/seneste
+  - url: https://www.tv2.dk/rss/seneste
     name: TV2 Seneste
     lang: da
     priority: 90
     active: true
+    categories: [denmark, main, ukraine, visas, technology, integration]
 
   - url: https://www.bt.dk/rss
     name: BT
     lang: da
     priority: 70
     active: true
+    categories: [denmark, main, ukraine, visas, technology]
 
   - url: https://www.thelocal.dk/feeds/rss.php
     name: The Local DK
     lang: en
     priority: 50
     active: true
+    categories: [denmark, ukraine, visas, technology, integration, immigration, main]
 
   - url: https://ekstrabladet.dk/rssfeed/nyheder/
     name: Ekstra Bladet - Nyheder
     lang: da
     priority: 75
     active: true
+    categories: [denmark, main, ukraine, visas, technology]
 
   - url: https://www.altinget.dk/rss
     name: Altinget - Politik & samfund
     lang: da
     priority: 65
     active: true
+    categories: [denmark, main, ukraine, visas, technology, integration, immigration]
 
   - url: https://cphpost.dk/?feed=rss2
     name: The Copenhagen Post (English)
     lang: en
     priority: 40
     active: true
+    categories: [denmark, ukraine, visas, technology, integration, immigration, main]

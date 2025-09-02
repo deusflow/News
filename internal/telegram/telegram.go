@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -55,7 +56,12 @@ func sendMessageOnce(token, chatID, text string) error {
 	if err != nil {
 		return fmt.Errorf("error HTTP request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Printf("Warning: failed to close response body: %v", err)
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
