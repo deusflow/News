@@ -1,0 +1,30 @@
+name: Danish News Bot - Daily Backup
+
+on:
+  schedule:
+    # Резервный запуск 1 раз в день (если основной не сработал)
+    - cron: '0 8 * * *'   # 08:00 UTC (10:00 Киев)
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  send-multiple-news:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run news bot (multiple news mode)
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        BOT_MODE: multiple  # Режим нескольких новостей
+      run: go run cmd/dknews/main.go

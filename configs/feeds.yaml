@@ -1,0 +1,8 @@
+# Проверенные рабочие RSS-источники датских медиа
+feeds:
+  - https://www.dr.dk/nyheder/service/feeds/allenyheder
+  - https://www.tv2.dk/rss/seneste
+  - https://www.bt.dk/rss
+  - https://ekstrabladet.dk/rssfeed/nyheder/
+  - https://jyllands-posten.dk/rss/seneste/
+  - https://politiken.dk/rss/senestenyt/
