@@ -5,6 +5,7 @@ import (
 	"dknews/internal/translate"
 	"github.com/mmcdole/gofeed"
 	"log"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -24,25 +25,43 @@ type News struct {
 
 // Keywords for Ukraine news (high priority)
 var ukraineKeywords = []string{
-	"ukraine", "ukraina", "ukrainer", "україн", "украин",
-	"hjælp ukraine", "help ukraine", "допомог україн",
-	"flygtning", "refugee", "беженц", "біженц",
-	"krig", "war", "війна", "война",
-	"støtte ukraine", "support ukraine", "підтримк україн",
-	"våben ukraine", "weapon ukraine", "зброя україн",
-	"missiler ukraine", "missiles ukraine", "ракети україн",
+	"ukraine", "ukraina", "ukrainer", "українці", "украин",
+	"hjælp ukraine", "help ukraine", "допомога україна",
+	"flygtning", "refugee", "біженці", "біженець",
+	"krig", "war", "støtte ukraine", "support ukraine", "підтримк україни",
+	"våben ukraine", "weapon ukraine", "зброя україни",
+	"missiler ukraine", "missiles ukraine", "ракети україні", "sundhed", "health", "здоров'я",
+	"flygtninge krise", "refugee crisis", "криза біженців",
+	"nato", "нато",
+	"sanction", "санкці",
 }
 
 // Keywords for important Denmark news
 var denmarkKeywords = []string{
-	"danmark", "danish", "данія", "данск",
+	"danmark", "danish", "данія", "данська",
 	"regering", "government", "правительств", "уряд",
-	"politik", "politics", "политик", "політик",
-	"økonomi", "economy", "экономик", "економік",
+	"politik", "politics", "политик", "політика",
+	"økonomi", "economy", "экономик", "економіка",
 	"minister", "министр", "міністр",
-	"valg", "election", "выбор", "вибор",
-	"eu", "europe", "европ", "європ",
-	"samråd", "consultation", "консультац",
+	"valg", "election", "выборы", "вибори",
+	"eu", "europe", "европа", "європа",
+	"samråd", "consultation", "консультація", "консультації",
+	"corona", "covid", "visa", "візи",
+
+	// визовые и беженские темы — базовые ключевые слова включены, дополнительные бусты ниже
+	"refugee", "беженцы", "біженці", "asylum", "убежище", "притулок",
+	"residence permit", "вид на жительство", "посвідка на проживання",
+}
+
+// Extra boost keywords for refugee/visa related stories to increase priority
+var refugeeBoostKeywords = []string{
+	"refugee", "бежен", "біжен",
+	"flygtning", "refugee visa", "temporary protection", "тимчасовий захист",
+}
+
+var visaBoostKeywords = []string{
+	"visa", "visa extension", "продление визы", "продовження візи",
+	"residence permit", "вид на жительство", "залишитися в єс", "stay in eu",
 }
 
 // Words to exclude (not important topics)
@@ -52,14 +71,19 @@ var excludeKeywords = []string{
 	"film", "movie", "фільм", "кіно",
 	"celebrity", "знаменит",
 	"fodbold result", "football result", "результат футбол",
-	"sport result", "спортив результат",
+	"sport result", "спортив результат", "результат спорт",
+	"tv program", "телепрогр", "телепрограма",
+	"horoskop", "гороскоп",
+	"madopskrift", "recipe", "рецепт",
 }
 
-// containsAny checks if string has any keyword
+// containsAny checks if string has any keyword (whole-word aware)
 func containsAny(s string, keywords []string) bool {
 	s = strings.ToLower(s)
 	for _, kw := range keywords {
-		if strings.Contains(s, strings.ToLower(kw)) {
+		pattern := `\\b` + regexp.QuoteMeta(strings.ToLower(kw)) + `\\b`
+		matched, _ := regexp.MatchString(pattern, s)
+		if matched {
 			return true
 		}
 	}
@@ -92,12 +116,21 @@ func calculateNewsScore(item *gofeed.Item) (string, int) {
 	if containsAny(text, denmarkKeywords) {
 		score := 50
 		// Extra points for politics and economy
-		if strings.Contains(text, "regering") || strings.Contains(text, "minister") {
+		if containsAny(text, []string{"regering", "minister", "minister"}) {
 			score += 20
 		}
-		if strings.Contains(text, "politik") || strings.Contains(text, "økonomi") {
+		if containsAny(text, []string{"politik", "økonomi"}) {
 			score += 15
 		}
+
+		// Boost for refugee/visa related stories (they're important for the audience)
+		if containsAny(text, refugeeBoostKeywords) {
+			score += 20
+		}
+		if containsAny(text, visaBoostKeywords) {
+			score += 15
+		}
+
 		return "denmark", score
 	}
 
@@ -263,8 +296,11 @@ func isJunkLine(line string) bool {
 	}
 
 	// Проверяем на повторяющиеся символы (часто мусор)
-	if strings.Count(line, line[:1]) > len(line)/2 && len(line) > 10 {
-		return true
+	if len(line) > 10 {
+		first := line[:1]
+		if strings.Count(line, first) > len(line)/2 {
+			return true
+		}
 	}
 
 	return false
@@ -286,13 +322,13 @@ func finalCleanup(text string) string {
 	text = strings.TrimSpace(text)
 
 	// Ограничиваем общую длину, но сохраняем целые абзацы
-	if len(text) > 1000 {
+	if len(text) > 5000 {
 		paragraphs := strings.Split(text, "\n\n")
 		var selectedParagraphs []string
 		totalLength := 0
 
 		for _, paragraph := range paragraphs {
-			if totalLength+len(paragraph) < 900 {
+			if totalLength+len(paragraph) < 4800 {
 				selectedParagraphs = append(selectedParagraphs, paragraph)
 				totalLength += len(paragraph) + 2 // +2 для \n\n
 			} else {
@@ -389,11 +425,25 @@ func FilterAndTranslate(items []*gofeed.Item) ([]News, error) {
 
 		log.Printf("Переводим новость %d/%d на украинский: %s", i+1, maxNews, news.Title)
 
-		// Переводим заголовок на украинский
-		news.TitleUK, _ = translate.TranslateText(news.Title, "da", "uk")
-
-		// Переводим полный контент на украинский
-		news.ContentUK, _ = translate.TranslateText(news.Content, "da", "uk")
+		// Оптимизация: один запрос на перевод для заголовка + контента
+		separator := "\n\n---SPLIT---\n\n"
+		combined := news.Title + separator + news.Content
+		translatedCombined, err := translate.TranslateText(combined, "da", "uk")
+		if err == nil {
+			parts := strings.SplitN(translatedCombined, "---SPLIT---", 2)
+			if len(parts) == 2 {
+				news.TitleUK = strings.TrimSpace(parts[0])
+				news.ContentUK = strings.TrimSpace(parts[1])
+			} else {
+				// На случай, если разделитель удалился/изменился
+				news.TitleUK, _ = translate.TranslateText(news.Title, "da", "uk")
+				news.ContentUK, _ = translate.TranslateText(news.Content, "da", "uk")
+			}
+		} else {
+			// Фоллбек к прежней логике
+			news.TitleUK, _ = translate.TranslateText(news.Title, "da", "uk")
+			news.ContentUK, _ = translate.TranslateText(news.Content, "da", "uk")
+		}
 
 		result = append(result, news)
 	}

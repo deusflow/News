@@ -1,8 +1,49 @@
-# Проверенные рабочие RSS-источники датских медиа
+# Проверенные рабочие RSS-источники датских медиа (расширённая версия)
 feeds:
-  - https://www.dr.dk/nyheder/service/feeds/allenyheder
-  - https://www.tv2.dk/rss/seneste
-  - https://www.bt.dk/rss
-  - https://ekstrabladet.dk/rssfeed/nyheder/
-  - https://jyllands-posten.dk/rss/seneste/
-  - https://politiken.dk/rss/senestenyt/
+  - url: https://news.google.com/rss?hl=da&gl=DK&ceid=DK:da
+    name: Google News DK
+    lang: da
+    priority: 5
+    active: true
+
+  - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
+    name: DR Nyheder
+    lang: da
+    priority: 100
+    active: true
+
+  - url: https://tv2.dk/rss/seneste
+    name: TV2 Seneste
+    lang: da
+    priority: 90
+    active: true
+
+  - url: https://www.bt.dk/rss
+    name: BT
+    lang: da
+    priority: 70
+    active: true
+
+  - url: https://www.thelocal.dk/feeds/rss.php
+    name: The Local DK
+    lang: en
+    priority: 50
+    active: true
+
+  - url: https://ekstrabladet.dk/rssfeed/nyheder/
+    name: Ekstra Bladet - Nyheder
+    lang: da
+    priority: 75
+    active: true
+
+  - url: https://www.altinget.dk/rss
+    name: Altinget - Politik & samfund
+    lang: da
+    priority: 65
+    active: true
+
+  - url: https://cphpost.dk/?feed=rss2
+    name: The Copenhagen Post (English)
+    lang: en
+    priority: 40
+    active: true
