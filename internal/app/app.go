@@ -223,7 +223,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 
 	// Красивый заголовок
 	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n")
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	// Определяем категорию и эмодзи
 	emoji := "📰"
@@ -231,7 +231,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 
 	if n.Category == "ukraine" {
 		emoji = "🔥"
-		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ - </b>"
+		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>"
 	}
 
 	b.WriteString(categoryText + "\n\n")
@@ -240,13 +240,13 @@ func formatSingleNewsMessage(n news.News, number int) string {
 	b.WriteString(fmt.Sprintf("%s <a href=\"%s\">%s</a>\n\n", emoji, n.Link, n.Title))
 
 	if n.SummaryUkrainian != "" {
-		b.WriteString("🇺🇦 <i>" + limitText(n.SummaryUkrainian, 380) + "</i>\n\n")
+		b.WriteString("🇺🇦 <i>" + limitText(n.SummaryUkrainian, 1000) + "</i>\n\n")
 	}
 	if n.SummaryDanish != "" {
-		b.WriteString("🇩🇰 " + limitText(n.SummaryDanish, 320) + "\n\n")
+		b.WriteString("🇩🇰 " + limitText(n.SummaryDanish, 1000) + "\n\n")
 	}
 
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	b.WriteString("📱 <i>Danish News Bot - DeusFlow</i>")
 
 	return b.String()
