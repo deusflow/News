@@ -84,12 +84,12 @@ func formatSingleNews(n news.News, number int) string {
 
 	// Ukrainian summary (primary)
 	if n.SummaryUkrainian != "" {
-		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n", limitText(n.SummaryUkrainian, 280)))
+		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n", limitText(n.SummaryUkrainian, 1500)))
 	}
 
 	// Danish summary (secondary)
 	if n.SummaryDanish != "" {
-		b.WriteString(fmt.Sprintf("🇩🇰 %s\n", limitText(n.SummaryDanish, 220)))
+		b.WriteString(fmt.Sprintf("🇩🇰 %s\n", limitText(n.SummaryDanish, 1500)))
 	}
 
 	b.WriteString("➖➖➖➖➖➖➖➖➖➖\n\n")
@@ -102,7 +102,7 @@ func limitText(s string, max int) string {
 		return s
 	}
 	cut := s[:max]
-	if i := strings.LastIndex(cut, " "); i > 40 {
+	if i := strings.LastIndex(cut, " "); i > 400 {
 		cut = cut[:i]
 	}
 	return strings.TrimSpace(cut) + "..."

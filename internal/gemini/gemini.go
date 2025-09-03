@@ -65,9 +65,9 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 Содержание: %s
 
 ЗАДАЧИ:
-1. Создай краткую версию новости (до 500 символов, 1-2 предложения, без лишнего фона)
-2. Переведи эту суть на датский (естественно, без дословности)
-3. Переведи эту же суть на украинский (естественно)
+1. Створи стислу версію новини (до 1500 символів)
+2. Переклади цю новина на Данську (естественно, без дословности)
+3. Переклади цю новину на Українську(естественно)
 
 ТРЕБОВАНИЯ:
 - Не переводить имена собственные брендов/организаций.
@@ -76,17 +76,11 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 
 ФОРМАТ Відповіді (НА УКРАЇНСЬКІЙ МОВІ):
 СУТЬ: <коротка суть як тема>
-DANSK: <перевод на датский>
+DANSK: < переклад на данську>
 UKRAINIAN: <переклад  на Українську>
 
 Приклад:
 СУТЬ: Новий продукт Y від компанії X, який революціонізує галузь Z.
-
-DANSK: Firmaet X har lanceret sit nyeste produkt, Y, som allerede bliver omtalt som et teknologisk gennembrud. Ifølge ledelsen i virksomheden vil produktet ikke blot forbedre de eksisterende processer i branche Z, men også ændre hele opfattelsen af, hvordan sektoren skal fungere i fremtiden.
-Produkt Y kombinerer banebrydende forskning, kunstig intelligens og innovative designmetoder. Administrerende direktør i firma X fortæller, at løsningen er resultatet af mange års udvikling og tæt samarbejde med de førende eksperter på området.
-Med Y kan virksomheder reducere omkostninger, øge effektiviteten og skabe nye arbejdspladser. Eksperter forudser allerede nu, at produktet inden for få år bliver en standard i branche Z.
-Firma X planlægger at starte masseproduktion af Y i de kommende måneder, og de første kunder har allerede fået mulighed for at teste produktet. Markedets reaktion har været imponerende: mange virksomheder viser stor interesse for at implementere Y så hurtigt som muligt.
-Analytikere peger på, at vi står foran en ny æra i udviklingen af branche Z, hvor produktet Y kan blive en afgørende drivkraft.
 
 УКРАЇНСЬКА: Компанія X презентувала свій новий продукт Y, який уже називають справжнім технологічним проривом. За словами керівництва компанії, цей продукт здатний не лише вдосконалити існуючі процеси у галузі Z, але й повністю змінити уявлення про те, як має працювати ця сфера в майбутньому.
 
@@ -97,6 +91,12 @@ Analytikere peger på, at vi står foran en ny æra i udviklingen af branche Z, 
 Компанія X планує розпочати масове виробництво Y найближчими місяцями, а перші клієнти вже отримали можливість протестувати новинку. Реакція ринку виявилася надзвичайною: багато компаній заявили про готовність якнайшвидше інтегрувати Y у свої процеси.
 
 Аналітики впевнені, що ми стоїмо на порозі нової ери розвитку галузі Z, і саме продукт Y може стати ключовим елементом цього процесу.
+
+DANSK: Firmaet X har lanceret sit nyeste produkt, Y, som allerede bliver omtalt som et teknologisk gennembrud. Ifølge ledelsen i virksomheden vil produktet ikke blot forbedre de eksisterende processer i branche Z, men også ændre hele opfattelsen af, hvordan sektoren skal fungere i fremtiden.
+Produkt Y kombinerer banebrydende forskning, kunstig intelligens og innovative designmetoder. Administrerende direktør i firma X fortæller, at løsningen er resultatet af mange års udvikling og tæt samarbejde med de førende eksperter på området.
+Med Y kan virksomheder reducere omkostninger, øge effektiviteten og skabe nye arbejdspladser. Eksperter forudser allerede nu, at produktet inden for få år bliver en standard i branche Z.
+Firma X planlægger at starte masseproduktion af Y i de kommende måneder, og de første kunder har allerede fået mulighed for at teste produktet. Markedets reaktion har været imponerende: mange virksomheder viser stor interesse for at implementere Y så hurtigt som muligt.
+Analytikere peger på, at vi står foran en ny æra i udviklingen af branche Z, hvor produktet Y kan blive en afgørende drivkraft.
 
 .
 `, title, content)
