@@ -1,9 +1,10 @@
 package news
 
 import (
+	"dknews/internal/gemini"
 	"dknews/internal/rss"
 	"dknews/internal/scraper"
-	"dknews/internal/translate"
+	"fmt"
 	"log"
 	"regexp"
 	"sort"
@@ -11,19 +12,22 @@ import (
 	"time"
 )
 
-// News is news struct with Ukrainian translation
+// News represents a single news item enriched by Gemini summaries.
 type News struct {
-	Title            string
-	TitleUK          string // Only Ukrainian translation
-	Content          string // Full article content
-	ContentUK        string // Full content in Ukrainian
-	Link             string
-	Published        time.Time
-	Category         string   // Source category (ukraine, denmark, visas, etc.)
-	Score            int      // News importance score
-	SourceName       string   // Name of the source
-	SourceLang       string   // Original language of the source
-	SourceCategories []string // All categories from source
+	Title     string
+	Content   string
+	Link      string
+	Published time.Time
+	Category  string
+	Score     int
+
+	SourceName       string
+	SourceLang       string
+	SourceCategories []string
+
+	Summary          string // Original language summary (or detected)
+	SummaryDanish    string // Danish version of summary
+	SummaryUkrainian string // Ukrainian version of summary
 }
 
 // Keywords for Ukraine news (high priority)
@@ -99,7 +103,7 @@ var excludeKeywords = []string{
 func containsAny(s string, keywords []string) bool {
 	s = strings.ToLower(s)
 	for _, kw := range keywords {
-		pattern := `\\b` + regexp.QuoteMeta(strings.ToLower(kw)) + `\\b`
+		pattern := `\b` + regexp.QuoteMeta(strings.ToLower(kw)) + `\b`
 		matched, _ := regexp.MatchString(pattern, s)
 		if matched {
 			return true
@@ -244,9 +248,21 @@ func calculateNewsScoreEnhanced(item *rss.FeedItem, filter *NewsFilter) (string,
 	return "", 0
 }
 
-// FilterAndTranslate фильтрует, извлекает полный контент и переводит новости
+// Gemini client injection
+var aiClient *gemini.Client
+
+// SetGeminiClient sets the Gemini client for translation and summarization
+func SetGeminiClient(c *gemini.Client) {
+	aiClient = c
+}
+
+// FilterAndTranslate now: filter + scrape + Gemini summarize + multi-language summary.
 func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
-	seen := make(map[string]struct{})
+	if aiClient == nil {
+		return nil, fmt.Errorf("gemini client not initialized; call news.SetGeminiClient")
+	}
+
+	seen := map[string]struct{}{}
 	var candidates []News
 
 	log.Printf("Начинаем фильтрацию из %d новостей", len(items))
@@ -258,7 +274,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		}
 
 		// Дедупликация по ссылке
-		if _, ok := seen[item.Link]; ok {
+		if _, dup := seen[item.Link]; dup {
 			continue
 		}
 		seen[item.Link] = struct{}{}
@@ -269,16 +285,16 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			continue // Пропускаем неважные новости
 		}
 
-		publishedTime := time.Now()
+		published := time.Now()
 		if item.PublishedParsed != nil {
-			publishedTime = *item.PublishedParsed
+			published = *item.PublishedParsed
 		}
 
 		candidates = append(candidates, News{
 			Title:            item.Title,
 			Content:          item.Description, // Пока краткое описание, полный контент добавим после
 			Link:             item.Link,
-			Published:        publishedTime,
+			Published:        published,
 			Category:         category,
 			Score:            score,
 			SourceName:       item.Source.Name,
@@ -286,10 +302,10 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			SourceCategories: item.Source.Categories,
 		})
 
-		log.Printf("Добавлена новость [%s, score: %d, source: %s]: %s", category, score, item.Source.Name, item.Title)
+		log.Printf("Добавлена новость [%s, score:%d, source:%s]: %s", category, score, item.Source.Name, item.Title)
 	}
 
-	// Сортируем по важности (score) и времени
+	// sort
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].Score != candidates[j].Score {
 			return candidates[i].Score > candidates[j].Score // По убыванию важности
@@ -297,78 +313,83 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		return candidates[i].Published.After(candidates[j].Published) // По времени (новые первыми)
 	})
 
-	// Увеличиваем количество обрабатываемых новостей для множественных запусков
-	maxNews := 8 // Увеличиваем до 8 новостей для выбора
-	if len(candidates) < maxNews {
-		maxNews = len(candidates)
+	max := 8
+	if len(candidates) < max {
+		max = len(candidates)
 	}
-
-	// Извлекаем полный контент статей
-	urls := make([]string, maxNews)
-	for i := 0; i < maxNews; i++ {
+	urls := make([]string, max)
+	for i := 0; i < max; i++ {
 		urls[i] = candidates[i].Link
 	}
 
-	log.Printf("Извлекаем полный контент %d статей...", maxNews)
+	log.Printf("Извлекаем полный контент %d статей...", max)
 	fullArticles := scraper.ExtractArticlesInBackground(urls)
 
-	result := make([]News, 0, maxNews)
-
-	// Переводим отобранные новости
-	for i := 0; i < maxNews; i++ {
-		news := candidates[i]
-
-		// Используем полный контент если удалось извлечь
-		if fullArticle, exists := fullArticles[news.Link]; exists {
-			news.Content = fullArticle.Content
-			log.Printf("✅ Используем полный контент (%d символов) для: %s", len(news.Content), news.Title)
+	res := make([]News, 0, max)
+	for i := 0; i < max; i++ {
+		n := candidates[i]
+		if fa, ok := fullArticles[n.Link]; ok && len(fa.Content) > 200 {
+			n.Content = fa.Content
+			log.Printf("✅ Полный контент (%d) для: %s", len(n.Content), n.Title)
 		} else {
-			log.Printf("⚠️ Используем краткое описание для: %s", news.Title)
+			log.Printf("⚠️ Краткое описание для: %s", n.Title)
 		}
 
-		log.Printf("Переводим новость %d/%d на україн��кий: %s", i+1, maxNews, news.Title)
-
-		// Определяем исходный язык для перевода
-		sourceLang := "da" // По умолчанию датский
-		if news.SourceLang != "" {
-			sourceLang = news.SourceLang
-		}
-
-		// Оптимизация: один запрос на перевод для заголовка + контента
-		separator := "\n\n---SPLIT---\n\n"
-		combined := news.Title + separator + news.Content
-		translatedCombined, err := translate.TranslateText(combined, sourceLang, "uk")
-		if err == nil {
-			parts := strings.SplitN(translatedCombined, "---SPLIT---", 2)
-			if len(parts) == 2 {
-				news.TitleUK = strings.TrimSpace(parts[0])
-				news.ContentUK = strings.TrimSpace(parts[1])
-			} else {
-				// На случай, если разделитель удалился/изменилс��
-				news.TitleUK, _ = translate.TranslateText(news.Title, sourceLang, "uk")
-				news.ContentUK, _ = translate.TranslateText(news.Content, sourceLang, "uk")
-			}
+		log.Printf("Gemini summary %d/%d: %s", i+1, max, n.Title)
+		aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
+		if err != nil {
+			log.Printf("❌ Gemini error: %v", err)
+			n.Summary = fallbackSummary(n.Content)
+			n.SummaryDanish = "(Ingen AI)"
+			n.SummaryUkrainian = "(Немає AI)"
 		} else {
-			// Фоллбек к прежней логике
-			news.TitleUK, _ = translate.TranslateText(news.Title, sourceLang, "uk")
-			news.ContentUK, _ = translate.TranslateText(news.Content, sourceLang, "uk")
+			n.Summary = aiResp.Summary
+			n.SummaryDanish = aiResp.Danish
+			n.SummaryUkrainian = aiResp.Ukrainian
 		}
-
-		result = append(result, news)
+		res = append(res, n)
 	}
 
-	log.Printf("Обработано %d новостей с полным контентом и украинскими переводами", len(result))
-	return result, nil
+	log.Printf("Обработано %d новостей с саммаризацией", len(res))
+	return res, nil
 }
 
-// FormatNews returns a formatted string for a news item with clear structure and markdown
-func FormatNews(news News) string {
-	return strings.TrimSpace(
-		"🇩🇰 *" + news.Title + "*\n" +
-			"🇺🇦 *" + news.TitleUK + "*\n" +
-			"━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-			"\n*Оригінал:*\n> " + strings.ReplaceAll(news.Content, "\n", "\n> ") +
-			"\n\n*Українською:*\n> " + strings.ReplaceAll(news.ContentUK, "\n", "\n> ") +
-			"\n━━━━━━━━━━━━━━━━━━━━━━━━━━",
-	)
+func fallbackSummary(content string) string {
+	c := strings.TrimSpace(content)
+	if c == "" {
+		return "(Нет контента)"
+	}
+	sentences := strings.Split(c, ".")
+	var picked []string
+	for _, s := range sentences {
+		s = strings.TrimSpace(s)
+		if len(s) < 25 {
+			continue
+		}
+		picked = append(picked, s)
+		if len(picked) >= 2 {
+			break
+		}
+	}
+	if len(picked) == 0 {
+		if len(c) > 160 {
+			return c[:160] + "..."
+		}
+		return c
+	}
+	return strings.Join(picked, ". ") + "."
+}
+
+// FormatNews produces concise formatted output with summaries.
+func FormatNews(n News) string {
+	var b strings.Builder
+	b.WriteString("🇩🇰 *" + n.Title + "*\n")
+	if n.SummaryUkrainian != "" {
+		b.WriteString("🇺🇦 " + n.SummaryUkrainian + "\n")
+	}
+	if n.SummaryDanish != "" {
+		b.WriteString("🇩🇰 " + n.SummaryDanish + "\n")
+	}
+	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	return b.String()
 }

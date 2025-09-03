@@ -1,6 +1,7 @@
 package app
 
 import (
+	"dknews/internal/gemini"
 	"dknews/internal/news"
 	"dknews/internal/rss"
 	"dknews/internal/telegram"
@@ -10,7 +11,7 @@ import (
 	"strings"
 )
 
-// formatNewsMessage makes better message for Telegram (only Danish + Ukrainian)
+// formatNewsMessage builds grouped message using AI summaries (Ukrainian priority, then Danish)
 func formatNewsMessage(newsList []news.News, max int) string {
 	var b strings.Builder
 
@@ -32,17 +33,17 @@ func formatNewsMessage(newsList []news.News, max int) string {
 	b.WriteString("🇩🇰 <b>Новини Данії</b> 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
-	newsCount := 1
+	count := 1
 
 	// First Ukraine news (priority)
 	if len(ukraineNews) > 0 {
 		b.WriteString("🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>\n\n")
 		for _, n := range ukraineNews {
-			if newsCount > max {
+			if count > max {
 				break
 			}
-			b.WriteString(formatSingleNews(n, newsCount))
-			newsCount++
+			b.WriteString(formatSingleNews(n, count))
+			count++
 		}
 	}
 
@@ -52,11 +53,11 @@ func formatNewsMessage(newsList []news.News, max int) string {
 			b.WriteString("\n🇩🇰 <b>ВАЖЛИВІ НОВИНИ ДАНІЇ</b>\n\n")
 		}
 		for _, n := range denmarkNews {
-			if newsCount > max {
+			if count > max {
 				break
 			}
-			b.WriteString(formatSingleNews(n, newsCount))
-			newsCount++
+			b.WriteString(formatSingleNews(n, count))
+			count++
 		}
 	}
 
@@ -66,7 +67,7 @@ func formatNewsMessage(newsList []news.News, max int) string {
 	return b.String()
 }
 
-// formatSingleNews formats one news only with Ukrainian translation
+// formatSingleNews now uses AI summaries instead of full translations
 func formatSingleNews(n news.News, number int) string {
 	var b strings.Builder
 
@@ -79,51 +80,22 @@ func formatSingleNews(n news.News, number int) string {
 	// Title with link
 	b.WriteString(fmt.Sprintf("%s <b>%d.</b> <a href=\"%s\">%s</a>\n", emoji, number, n.Link, n.Title))
 
-	// Ukrainian translation of title (show only if has translation)
-	if n.TitleUK != "" && n.TitleUK != n.Title {
-		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n", n.TitleUK))
+	// Ukrainian summary (primary)
+	if n.SummaryUkrainian != "" {
+		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n", limitText(n.SummaryUkrainian, 280)))
 	}
 
-	b.WriteString("\n")
+	// Danish summary (secondary)
+	if n.SummaryDanish != "" {
+		b.WriteString(fmt.Sprintf("🇩🇰 %s\n", limitText(n.SummaryDanish, 220)))
+	}
 
-	// Show full content original (limit for Telegram)
+	// Optional original snippet
 	if n.Content != "" {
-		content := n.Content
-		// Remove extra spaces and junk
-		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
-		content = strings.TrimSpace(content)
-
-		// Limit length for Telegram
-		if len(content) > 600 {
-			// Find last full sentence
-			sentences := strings.Split(content[:600], ".")
-			if len(sentences) > 1 {
-				// Remove last incomplete sentence
-				content = strings.Join(sentences[:len(sentences)-1], ".") + "."
-			} else {
-				content = content[:600] + "..."
-			}
+		snippet := cleanAndLimitContent(n.Content, true)
+		if snippet != "" {
+			b.WriteString("📄 <b>Оригінал:</b> " + limitText(snippet, 300) + "\n")
 		}
-		b.WriteString(fmt.Sprintf("📄 <b>Оригінал:</b>\n%s\n\n", content))
-	}
-
-	// Ukrainian translation of full content
-	if n.ContentUK != "" && n.ContentUK != n.Content {
-		contentUK := n.ContentUK
-		// Remove extra spaces
-		contentUK = strings.ReplaceAll(contentUK, "\n\n\n", "\n\n")
-		contentUK = strings.TrimSpace(contentUK)
-
-		// Limit length
-		if len(contentUK) > 600 {
-			sentences := strings.Split(contentUK[:600], ".")
-			if len(sentences) > 1 {
-				contentUK = strings.Join(sentences[:len(sentences)-1], ".") + "."
-			} else {
-				contentUK = contentUK[:600] + "..."
-			}
-		}
-		b.WriteString(fmt.Sprintf("🇺🇦 <b>Українською:</b>\n%s\n\n", contentUK))
 	}
 
 	b.WriteString("➖➖➖➖➖➖➖➖➖➖\n\n")
@@ -131,29 +103,43 @@ func formatSingleNews(n news.News, number int) string {
 	return b.String()
 }
 
-// Run запускает основной процесс приложения
+func limitText(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	if i := strings.LastIndex(cut, " "); i > 40 {
+		cut = cut[:i]
+	}
+	return strings.TrimSpace(cut) + "..."
+}
+
+// Run запускает основной процесс приложения с инициализацией Gemini
 func Run() {
-	// Опционально можно добавить фильтрацию по категориям
-	// Например: rss.FilterFeedsByCategories(feeds, []string{"ukraine", "visas", "technology"})
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("GEMINI_API_KEY не установлен")
+	}
+	gmClient, err := gemini.NewClient(apiKey)
+	if err != nil {
+		log.Fatalf("Ошибка инициализации Gemini: %v", err)
+	}
+	defer gmClient.Close()
+	news.SetGeminiClient(gmClient)
 
 	feeds, err := rss.LoadFeeds("configs/feeds.yaml")
 	if err != nil {
 		log.Fatalf("Ошибка загрузки списка RSS: %v", err)
 	}
-
-	// Можно добавить фильтрацию по категориям если нужно
-	// feeds = rss.FilterFeedsByCategories(feeds, []string{"ukraine", "denmark", "visas"})
-
 	items, err := rss.FetchAllFeeds(feeds)
 	if err != nil {
 		log.Fatalf("Ошибка парсинга RSS: %v", err)
 	}
-
 	fmt.Printf("Собрано новостей: %d\n", len(items))
 
 	filtered, err := news.FilterAndTranslate(items)
 	if err != nil {
-		log.Fatalf("Ошибка фильтрации/перевода: %v", err)
+		log.Fatalf("Ошибка фильтрации/обработки: %v", err)
 	}
 	fmt.Printf("Релевантних новин: %d\n", len(filtered))
 
@@ -175,10 +161,10 @@ func Run() {
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 
 	if token == "" {
-		log.Fatal("TELEGRAM_TOKEN не установлен. Установите переменную окружения.")
+		log.Fatal("TELEGRAM_TOKEN не установлен")
 	}
 	if chatID == "" {
-		log.Fatal("TELEGRAM_CHAT_ID не установлен. Установите переменную окружения.")
+		log.Fatal("TELEGRAM_CHAT_ID не установлен")
 	}
 
 	// Проверяем режим работы - одна новость или несколько
@@ -223,7 +209,7 @@ func sendMultipleNews(newsList []news.News, token, chatID string) {
 
 	// Проверяем длину сообщения (Telegram лимит ~4096 символов)
 	if len(msg) > 4000 {
-		log.Printf("Сообщение слишком длинное (%d символов), берем только 1 новость", len(msg))
+		log.Printf("Сообщение %d символов, сокращаем до 1 новости", len(msg))
 		msg = formatNewsMessage(newsList, 1)
 	}
 
@@ -237,7 +223,7 @@ func sendMultipleNews(newsList []news.News, token, chatID string) {
 	log.Println("Новости успешно отправлены в Telegram!")
 }
 
-// formatSingleNewsMessage форматирует красивое сообщение для одной новости
+// formatSingleNewsMessage адаптирован для саммари
 func formatSingleNewsMessage(n news.News, number int) string {
 	var b strings.Builder
 
@@ -259,25 +245,18 @@ func formatSingleNewsMessage(n news.News, number int) string {
 	// Заголовок новости с ссылкой
 	b.WriteString(fmt.Sprintf("%s <a href=\"%s\">%s</a>\n\n", emoji, n.Link, n.Title))
 
-	// Украинский перевод заголовка (только если качественный)
-	if n.TitleUK != "" && n.TitleUK != n.Title && len(n.TitleUK) > 15 && !strings.Contains(strings.ToLower(n.TitleUK), "д -р") {
-		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n\n", n.TitleUK))
+	if n.SummaryUkrainian != "" {
+		b.WriteString("🇺🇦 <i>" + limitText(n.SummaryUkrainian, 380) + "</i>\n\n")
+	}
+	if n.SummaryDanish != "" {
+		b.WriteString("🇩🇰 " + limitText(n.SummaryDanish, 320) + "\n\n")
 	}
 
 	// Показываем оригинальный текст (только первые 2-3 предложения)
 	if n.Content != "" {
-		content := cleanAndLimitContent(n.Content, true)
-		if len(content) > 80 {
-			b.WriteString(fmt.Sprintf("📄 <b>Оригінал:</b>\n%s\n\n", content))
-		}
-	}
-
-	// Украинский перевод (улучшенный)
-	if n.ContentUK != "" && n.ContentUK != n.Content && len(n.ContentUK) > 80 {
-		contentUK := cleanAndLimitContent(n.ContentUK, false)
-		// Проверяем качество перевода
-		if !isLowQualityTranslation(contentUK) {
-			b.WriteString(fmt.Sprintf("🇺🇦 <b>Українською:</b>\n%s\n\n", contentUK))
+		orig := cleanAndLimitContent(n.Content, true)
+		if len(orig) > 80 {
+			b.WriteString("📄 <b>Оригінал:</b> " + limitText(orig, 500) + "\n\n")
 		}
 	}
 
@@ -288,7 +267,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 	return b.String()
 }
 
-// cleanAndLimitContent очищает и ограничивает контент для красивого отображения
+// cleanAndLimitContent kept for original snippet extraction
 func cleanAndLimitContent(content string, isOriginal bool) string {
 	// Убираем HTML-теги и лишние пробелы
 	content = strings.ReplaceAll(content, "<", "&lt;")
@@ -333,62 +312,15 @@ func cleanAndLimitContent(content string, isOriginal bool) string {
 	return result
 }
 
-// isIrrelevantSentence проверяет, относится ли предложение к основной теме статьи
+// isIrrelevantSentence reused for filtering original content noise
 func isIrrelevantSentence(sentence string) bool {
-	lowerSentence := strings.ToLower(sentence)
+	lower := strings.ToLower(sentence)
 
 	// Фразы, указывающие на другие статьи или нерелевантный контент
-	irrelevantPhrases := []string{
-		"den russiske præsident", "vladimir putin", "kim jong-un",
-		"nordkoreas leder", "kinas hovedstad", "beijing",
-		"militærparade", "anden verdenskrig", "jeffrey epstein",
-		"amerikanske kongres", "føderale efterforskning",
-		"sexforbryder", "dokumenter fra",
-		"læs også", "se også", "følg med på",
-		"dr nyheder har", "indtil videre ikke",
-	}
-
-	for _, phrase := range irrelevantPhrases {
-		if strings.Contains(lowerSentence, phrase) {
+	irrelevant := []string{"læs også", "se også", "følg med på", "dr nyheder har"}
+	for _, ph := range irrelevant {
+		if strings.Contains(lower, ph) {
 			return true
-		}
-	}
-
-	return false
-}
-
-// isLowQualityTranslation проверяет качество перевода
-func isLowQualityTranslation(translation string) bool {
-	lowerTranslation := strings.ToLower(translation)
-
-	// Признаки плохого перевода
-	badTranslationSigns := []string{
-		"д -р", "д-р новини", "житловому житлі",
-		"дорученнями слід дотримуватися",
-		"влаштували поліцію", "не влаштували",
-	}
-
-	for _, sign := range badTranslationSigns {
-		if strings.Contains(lowerTranslation, sign) {
-			return true
-		}
-	}
-
-	// Если слишком много повторяющихся слов
-	words := strings.Fields(translation)
-	if len(words) > 10 {
-		wordCount := make(map[string]int)
-		for _, word := range words {
-			if len(word) > 3 {
-				wordCount[strings.ToLower(word)]++
-			}
-		}
-
-		// Если какое-то слово повторяется больше 3 раз - подозрительно
-		for _, count := range wordCount {
-			if count > 3 {
-				return true
-			}
 		}
 	}
 
