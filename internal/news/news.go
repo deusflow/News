@@ -45,34 +45,48 @@ var ukraineKeywords = []string{
 
 // Keywords for important Denmark news
 var denmarkKeywords = []string{
-	"danmark", "danish", "данія", "данська",
-	"regering", "government", "правительств", "уряд",
-	"politik", "politics", "политик", "політика",
-	"økonomi", "economy", "экономик", "економіка",
-	"minister", "министр", "міністр",
-	"valg", "election", "выборы", "вибори",
-	"eu", "europe", "европа", "європа",
-	"samråd", "consultation", "консультація", "консультації",
-	"corona", "covid", "visa", "візи",
-
-	// визовые и беженские темы — базовые ключевые слова включены, дополнительные б��сты ниже
-	"refugee", "беженцы", "біженці", "asylum", "убежище", "притулок",
-	"residence permit", "вид на жительство", "посвідка на проживання",
-
-	// Добавляем более общие ключевые слова для тестирования
-	"nyheder", "news", "новости", "новини",
-	"verden", "world", "світ", "мир",
-	"samfund", "society", "суспільство", "общество",
-
-	// Еще более общие слова для захвата большего колва новостей
-	"danske", "danish", "viborg", "датське",
-	"københav", "copenhagen", "копенгаген", "копенгага",
-	"aarhus", "odense", "aalborg",
-	"region", "kommune", "borgere", "citizens",
-	"beslutning", "decision", "рішення", "решение",
-	"lov", "law", "закон", "право",
-	"nye", "new", "новий", "новый",
-	"stor", "large", "великий", "большой",
+	"danmark",
+	"regering",
+	"politik",
+	"økonomi",
+	"minister",
+	"valg",
+	"eu",
+	"samråd",
+	"corona",
+	"visum",
+	"flygtning",
+	"asyl",
+	"opholdstilladelse",
+	"nyheder",
+	"verden",
+	"samfund",
+	"danske",
+	"viborg",
+	"københavn",
+	"aarhus",
+	"odense",
+	"aalborg",
+	"region",
+	"kommune",
+	"borgere",
+	"beslutning",
+	"lov",
+	"nye",
+	"stor",
+	"krig",
+	"krigs",
+	"krigsvirkning",
+	"Viborg",
+	"8800 Viborg",
+	"udlændinge",
+	"indvandring",
+	"integration",
+	"arbejde",
+	"bolig",
+	"børn",
+	"skole",
+	"uddannelse",
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
@@ -82,21 +96,23 @@ var refugeeBoostKeywords = []string{
 }
 
 var visaBoostKeywords = []string{
-	"visa", "visa extension", "продление визы", "продовження візи",
-	"residence permit", "вид на жительство", "залишитися в єс", "stay in eu",
+	"visum",
+	"visumforlængelse",
+	"opholdstilladelse",
+	"blive i EU",
 }
 
 // Words to exclude (not important topics)
 var excludeKeywords = []string{
-	"vejr", "weather", "погода",
-	"musik", "music", "музыка", "музик",
-	"film", "movie", "фільм", "кіно",
-	"celebrity", "знаменит",
-	"fodbold result", "football result", "результат футбол",
-	"sport result", "спортив результат", "результат спорт",
-	"tv program", "телепрогр", "телепрограма",
-	"horoskop", "гороскоп",
-	"madopskrift", "recipe", "рецепт",
+	"vejr",
+	"musik",
+	"film",
+	"kendis",
+	"fodboldresultat",
+	"sportsresultat",
+	"tv-program",
+	"horoskop",
+	"madopskrift",
 }
 
 // containsAny checks if string has any keyword (whole-word aware)

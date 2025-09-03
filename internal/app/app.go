@@ -6,8 +6,10 @@ import (
 	"dknews/internal/rss"
 	"dknews/internal/telegram"
 	"fmt"
+	"html"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -88,14 +90,6 @@ func formatSingleNews(n news.News, number int) string {
 	// Danish summary (secondary)
 	if n.SummaryDanish != "" {
 		b.WriteString(fmt.Sprintf("🇩🇰 %s\n", limitText(n.SummaryDanish, 220)))
-	}
-
-	// Optional original snippet
-	if n.Content != "" {
-		snippet := cleanAndLimitContent(n.Content, true)
-		if snippet != "" {
-			b.WriteString("📄 <b>Оригінал:</b> " + limitText(snippet, 300) + "\n")
-		}
 	}
 
 	b.WriteString("➖➖➖➖➖➖➖➖➖➖\n\n")
@@ -229,15 +223,15 @@ func formatSingleNewsMessage(n news.News, number int) string {
 
 	// Красивый заголовок
 	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n")
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	// Определяем категорию и эмодзи
 	emoji := "📰"
-	categoryText := "🇩🇰 <b>НОВИНИ ДАНІЇ</b>"
+	categoryText := "🇩🇰 <b>НОВИНИ ДАНІЇ - Стисло!</b>"
 
 	if n.Category == "ukraine" {
 		emoji = "🔥"
-		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>"
+		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ - </b>"
 	}
 
 	b.WriteString(categoryText + "\n\n")
@@ -252,64 +246,60 @@ func formatSingleNewsMessage(n news.News, number int) string {
 		b.WriteString("🇩🇰 " + limitText(n.SummaryDanish, 320) + "\n\n")
 	}
 
-	// Показываем оригинальный текст (только первые 2-3 предложения)
-	if n.Content != "" {
-		orig := cleanAndLimitContent(n.Content, true)
-		if len(orig) > 80 {
-			b.WriteString("📄 <b>Оригінал:</b> " + limitText(orig, 500) + "\n\n")
-		}
-	}
-
-	// Красивый футер
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	b.WriteString("📱 <i>Danish News Bot</i>")
+	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	b.WriteString("📱 <i>Danish News Bot - DeusFlow</i>")
 
 	return b.String()
 }
 
 // cleanAndLimitContent kept for original snippet extraction
 func cleanAndLimitContent(content string, isOriginal bool) string {
-	// Убираем HTML-теги и лишние пробелы
-	content = strings.ReplaceAll(content, "<", "&lt;")
-	content = strings.ReplaceAll(content, ">", "&gt;")
+	// Strip HTML tags first
+	content = stripHTML(content)
+	// Decode HTML entities
+	content = html.UnescapeString(content)
+	// Collapse whitespace
+	content = strings.ReplaceAll(content, "\r", "")
+	content = strings.ReplaceAll(content, "\t", " ")
+	content = strings.ReplaceAll(content, "\n", " ")
+	content = strings.Join(strings.Fields(content), " ")
+
+	// Trim
 	content = strings.TrimSpace(content)
 
-	// Разделяем на предложения
+	// Split into sentences
 	sentences := strings.Split(content, ".")
 	var cleanSentences []string
-
 	for _, sentence := range sentences {
 		sentence = strings.TrimSpace(sentence)
-
-		// Пропускаем очень короткие и пустые предложения
 		if len(sentence) < 15 {
 			continue
 		}
-
-		// Для оригинала - фильтруем нерелевантные предложения
 		if isOriginal && isIrrelevantSentence(sentence) {
 			continue
 		}
-
 		cleanSentences = append(cleanSentences, sentence)
-
-		// Ограничиваем до 3 предложений для краткости
 		if len(cleanSentences) >= 3 {
 			break
 		}
 	}
-
 	result := strings.Join(cleanSentences, ". ")
 	if result != "" && !strings.HasSuffix(result, ".") {
 		result += "."
 	}
-
-	// Финальная проверка длины
 	if len(result) > 500 {
 		result = result[:500] + "..."
 	}
-
 	return result
+}
+
+var htmlTagRe = regexp.MustCompile(`<[^>]+>`) // simple tag stripper
+
+func stripHTML(s string) string {
+	if s == "" {
+		return s
+	}
+	return htmlTagRe.ReplaceAllString(s, "")
 }
 
 // isIrrelevantSentence reused for filtering original content noise
