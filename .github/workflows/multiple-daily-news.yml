@@ -2,34 +2,70 @@ name: Danish News Bot - Multiple Daily Runs
 
 on:
   schedule:
-    # Расписание по датскому времени (CEST = UTC+2 летом, CET = UTC+1 зимой)
-    - cron: '30 5 * * *'   # 05:30 UTC (07:30 датского времени)
-    - cron: '30 7 * * *'   # 07:30 UTC (09:30 датского времени)
-    - cron: '0 10 * * *'   # 10:00 UTC (12:00 датского времени)
-    - cron: '0 12 * * *'   # 12:00 UTC (14:00 датского времени)
-    - cron: '0 15 * * *'   # 15:00 UTC (17:00 датского времени)
-    - cron: '0 18 * * *'   # 18:00 UTC (20:00 датского времени)
-  workflow_dispatch: # Позволяет запускать вручную для тестирования
+    # Расписание по UTC (GitHub Actions работает в UTC)
+    # Датское время летом (CEST = UTC+2): -2 часа от датского времени
+    # Датское время зимой (CET = UTC+1): -1 час от датского времени
+    - cron: '30 5 * * *'   # 05:30 UTC = 07:30 датского времени (летом)
+    - cron: '30 7 * * *'   # 07:30 UTC = 09:30 датского времени (летом)
+    - cron: '0 10 * * *'   # 10:00 UTC = 12:00 датского времени (летом)
+    - cron: '0 12 * * *'   # 12:00 UTC = 14:00 датского времени (летом)
+    - cron: '0 14 * * *'   # 14:00 UTC = 16:00 датского времени (летом)
+    - cron: '0 17 * * *'   # 17:00 UTC = 19:00 датского времени (летом)
+    - cron: '0 18 * * *'   # 18:00 UTC = 20:00 датского времени (летом)
+    - cron: '0 19 * * *'   # 19:00 UTC = 21:00 датского времени (летом)
+  workflow_dispatch: # Ручной запуск для тестирования
+
+env:
+  GO_VERSION: '1.23'
 
 jobs:
   send-single-news:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
 
     - name: Download dependencies
-      run: go mod download
+      run: |
+        go mod download
+        go mod verify
 
     - name: Run news bot (single news mode)
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        BOT_MODE: single  # Режим одной новости
-      run: go run cmd/dknews/main.go
+        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+        BOT_MODE: single
+        LOG_LEVEL: info
+      run: |
+        echo "🚀 Starting Danish News Bot at $(date)"
+        echo "📅 Current time UTC: $(date -u)"
+        echo "🇩🇰 Danish time: $(TZ='Europe/Copenhagen' date)"
+        echo "🎯 Target chat: $TELEGRAM_CHAT_ID"
+        go run cmd/dknews/main.go
+
+    - name: Check for errors
+      if: failure()
+      run: |
+        echo "❌ Job failed at $(date)"
+        echo "📋 Environment check:"
+        echo "- Go version: $(go version)"
+        echo "- Working directory: $(pwd)"
+        echo "- Files: $(ls -la)"

@@ -237,72 +237,160 @@ func sendMultipleNews(newsList []news.News, token, chatID string) {
 	log.Println("Новости успешно отправлены в Telegram!")
 }
 
-// formatSingleNewsMessage форматирует сообщение для одной новости
+// formatSingleNewsMessage форматирует красивое сообщение для одной новости
 func formatSingleNewsMessage(n news.News, number int) string {
 	var b strings.Builder
 
-	// Заголовок сообщения
-	b.WriteString("🇩🇰<b>Новини Данії</b> 🇺🇦\n")
+	// Красивый заголовок
+	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
-	// Определяем эмодзи и категорию
+	// Определяем категорию и эмодзи
 	emoji := "📰"
-	categoryText := "🇩🇰 <b>ВАЖЛИВІ НОВИНИ ДАНІЇ</b>\n\n"
+	categoryText := "🇩🇰 <b>НОВИНИ ДАНІЇ</b>"
 
 	if n.Category == "ukraine" {
 		emoji = "🔥"
-		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>\n\n"
+		categoryText = "🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>"
 	}
 
-	b.WriteString(categoryText)
+	b.WriteString(categoryText + "\n\n")
 
-	// Заголовок с ссылкой
-	b.WriteString(fmt.Sprintf("%s <a href=\"%s\">%s</a>\n", emoji, n.Link, n.Title))
+	// Заголовок новости с ссылкой
+	b.WriteString(fmt.Sprintf("%s <a href=\"%s\">%s</a>\n\n", emoji, n.Link, n.Title))
 
-	// Украинский перевод заголовка
-	if n.TitleUK != "" && n.TitleUK != n.Title {
-		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n", n.TitleUK))
+	// Украинский перевод заголовка (только если качественный)
+	if n.TitleUK != "" && n.TitleUK != n.Title && len(n.TitleUK) > 15 && !strings.Contains(strings.ToLower(n.TitleUK), "д -р") {
+		b.WriteString(fmt.Sprintf("🇺🇦 <i>%s</i>\n\n", n.TitleUK))
 	}
 
-	b.WriteString("\n")
-
-	// Показываем полный контент оригинала (больше места для одной новости)
+	// Показываем оригинальный текст (только первые 2-3 предложения)
 	if n.Content != "" {
-		content := n.Content
-		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
-		content = strings.TrimSpace(content)
-
-		// Для одной новости можем позволить больше текста
-		if len(content) > 1200 {
-			sentences := strings.Split(content[:1200], ".")
-			if len(sentences) > 1 {
-				content = strings.Join(sentences[:len(sentences)-1], ".") + "."
-			} else {
-				content = content[:1200] + "..."
-			}
+		content := cleanAndLimitContent(n.Content, true)
+		if len(content) > 80 {
+			b.WriteString(fmt.Sprintf("📄 <b>Оригінал:</b>\n%s\n\n", content))
 		}
-		b.WriteString(fmt.Sprintf("📄 <b>Оригінал:</b>\n%s\n\n", content))
 	}
 
-	// Украинский перевод полного контента
-	if n.ContentUK != "" && n.ContentUK != n.Content {
-		contentUK := n.ContentUK
-		contentUK = strings.ReplaceAll(contentUK, "\n\n\n", "\n\n")
-		contentUK = strings.TrimSpace(contentUK)
-
-		if len(contentUK) > 1200 {
-			sentences := strings.Split(contentUK[:1200], ".")
-			if len(sentences) > 1 {
-				contentUK = strings.Join(sentences[:len(sentences)-1], ".") + "."
-			} else {
-				contentUK = contentUK[:1200] + "..."
-			}
+	// Украинский перевод (улучшенный)
+	if n.ContentUK != "" && n.ContentUK != n.Content && len(n.ContentUK) > 80 {
+		contentUK := cleanAndLimitContent(n.ContentUK, false)
+		// Проверяем качество перевода
+		if !isLowQualityTranslation(contentUK) {
+			b.WriteString(fmt.Sprintf("🇺🇦 <b>Українською:</b>\n%s\n\n", contentUK))
 		}
-		b.WriteString(fmt.Sprintf("🇺🇦 <b>Українською:</b>\n%s\n\n", contentUK))
 	}
 
+	// Красивый футер
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	b.WriteString("📱 Danish News Bot | Щодня кілька разів")
+	b.WriteString("📱 <i>Danish News Bot</i>")
 
 	return b.String()
+}
+
+// cleanAndLimitContent очищает и ограничивает контент для красивого отображения
+func cleanAndLimitContent(content string, isOriginal bool) string {
+	// Убираем HTML-теги и лишние пробелы
+	content = strings.ReplaceAll(content, "<", "&lt;")
+	content = strings.ReplaceAll(content, ">", "&gt;")
+	content = strings.TrimSpace(content)
+
+	// Разделяем на предложения
+	sentences := strings.Split(content, ".")
+	var cleanSentences []string
+
+	for _, sentence := range sentences {
+		sentence = strings.TrimSpace(sentence)
+
+		// Пропускаем очень короткие и пустые предложения
+		if len(sentence) < 15 {
+			continue
+		}
+
+		// Для оригинала - фильтруем нерелевантные предложения
+		if isOriginal && isIrrelevantSentence(sentence) {
+			continue
+		}
+
+		cleanSentences = append(cleanSentences, sentence)
+
+		// Ограничиваем до 3 предложений для краткости
+		if len(cleanSentences) >= 3 {
+			break
+		}
+	}
+
+	result := strings.Join(cleanSentences, ". ")
+	if result != "" && !strings.HasSuffix(result, ".") {
+		result += "."
+	}
+
+	// Финальная проверка длины
+	if len(result) > 500 {
+		result = result[:500] + "..."
+	}
+
+	return result
+}
+
+// isIrrelevantSentence проверяет, относится ли предложение к основной теме статьи
+func isIrrelevantSentence(sentence string) bool {
+	lowerSentence := strings.ToLower(sentence)
+
+	// Фразы, указывающие на другие статьи или нерелевантный контент
+	irrelevantPhrases := []string{
+		"den russiske præsident", "vladimir putin", "kim jong-un",
+		"nordkoreas leder", "kinas hovedstad", "beijing",
+		"militærparade", "anden verdenskrig", "jeffrey epstein",
+		"amerikanske kongres", "føderale efterforskning",
+		"sexforbryder", "dokumenter fra",
+		"læs også", "se også", "følg med på",
+		"dr nyheder har", "indtil videre ikke",
+	}
+
+	for _, phrase := range irrelevantPhrases {
+		if strings.Contains(lowerSentence, phrase) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isLowQualityTranslation проверяет качество перевода
+func isLowQualityTranslation(translation string) bool {
+	lowerTranslation := strings.ToLower(translation)
+
+	// Признаки плохого перевода
+	badTranslationSigns := []string{
+		"д -р", "д-р новини", "житловому житлі",
+		"дорученнями слід дотримуватися",
+		"влаштували поліцію", "не влаштували",
+	}
+
+	for _, sign := range badTranslationSigns {
+		if strings.Contains(lowerTranslation, sign) {
+			return true
+		}
+	}
+
+	// Если слишком много повторяющихся слов
+	words := strings.Fields(translation)
+	if len(words) > 10 {
+		wordCount := make(map[string]int)
+		for _, word := range words {
+			if len(word) > 3 {
+				wordCount[strings.ToLower(word)]++
+			}
+		}
+
+		// Если какое-то слово повторяется больше 3 раз - подозрительно
+		for _, count := range wordCount {
+			if count > 3 {
+				return true
+			}
+		}
+	}
+
+	return false
 }

@@ -108,6 +108,27 @@ func containsAny(s string, keywords []string) bool {
 	return false
 }
 
+// NewsFilter contains filtering configuration
+type NewsFilter struct {
+	Categories            []string
+	MinScore              int
+	MaxAge                time.Duration
+	ExcludeKeywords       []string
+	RequiredKeywords      []string
+	EnableContentScraping bool
+}
+
+// DefaultFilter returns default filtering configuration
+func DefaultFilter() *NewsFilter {
+	return &NewsFilter{
+		Categories:            []string{"ukraine", "denmark", "visas", "integration"},
+		MinScore:              20,
+		MaxAge:                24 * time.Hour,
+		ExcludeKeywords:       excludeKeywords,
+		EnableContentScraping: true,
+	}
+}
+
 // calculateNewsScore gets news importance
 func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	text := strings.ToLower(item.Title + " " + item.Description)
@@ -130,7 +151,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		return "ukraine", score
 	}
 
-	// Important Denmark news - ОЧЕНЬ мягкие критерии для тест
+	// Important Denmark news - ОЧЕНЬ мягкие кри��ерии для тест
 	if containsAny(text, denmarkKeywords) {
 		score := 30
 		// Extra points for politics and economy
@@ -156,6 +177,68 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// Если в заголовке или описании есть хоть какие-то слова - пропускаем
 	if len(strings.Fields(text)) > 3 {
 		return "general", 20 // Минимальный балл для общих новостей
+	}
+
+	return "", 0
+}
+
+// Enhanced scoring with more precise keyword matching
+func calculateNewsScoreEnhanced(item *rss.FeedItem, filter *NewsFilter) (string, int) {
+	text := strings.ToLower(item.Title + " " + item.Description)
+
+	// Check exclude keywords first
+	if containsAny(text, filter.ExcludeKeywords) {
+		return "", 0
+	}
+
+	// Ukraine news - highest priority with more nuanced scoring
+	if containsAny(text, ukraineKeywords) {
+		score := 100
+
+		// Critical keywords boost
+		criticalWords := []string{"våben", "weapon", "missiler", "missiles", "angreb", "attack"}
+		if containsAny(text, criticalWords) {
+			score += 30
+		}
+
+		// Support/aid keywords
+		supportWords := []string{"hjælp", "help", "støtte", "support", "bistand", "aid"}
+		if containsAny(text, supportWords) {
+			score += 20
+		}
+
+		// Integration keywords for Ukrainian refugees
+		integrationWords := []string{"integration", "arbejde", "work", "bolig", "housing", "børn", "children"}
+		if containsAny(text, integrationWords) {
+			score += 15
+		}
+
+		return "ukraine", score
+	}
+
+	// Denmark news with better categorization
+	if containsAny(text, denmarkKeywords) {
+		score := 30
+
+		// Government/Politics boost
+		politicsWords := []string{"regering", "government", "minister", "folketinget", "parliament"}
+		if containsAny(text, politicsWords) {
+			score += 25
+		}
+
+		// Immigration/Integration boost
+		immigrationWords := []string{"udlændinge", "foreigners", "indvandring", "immigration", "integration"}
+		if containsAny(text, immigrationWords) {
+			score += 20
+		}
+
+		// Visa/Legal matters boost
+		legalWords := []string{"visa", "opholdstilladelse", "residence", "statsborgerskab", "citizenship"}
+		if containsAny(text, legalWords) {
+			score += 18
+		}
+
+		return "denmark", score
 	}
 
 	return "", 0

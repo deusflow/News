@@ -81,32 +81,99 @@ func extractContentBySource(doc *goquery.Document, url string) string {
 	return cleanContent(content)
 }
 
-// extractDRContent gets content from dr.dk
+// Enhanced content extraction with better article boundary detection
 func extractDRContent(doc *goquery.Document) string {
 	var paragraphs []string
 
-	// Try different selectors for DR
+	// Try different selectors for DR with priority order - более специфичные селекторы
 	selectors := []string{
-		".dre-article-body p",
-		".article-body p",
-		".content p",
-		"article p",
-		".text p",
+		"article .dre-article-body p", // Основное содержимое статьи
+		".dre-article-body p",         // Альтернативный селектор
+		"article[data-article-id] p",  // Статья с ID
+		".article-content p",          // Контент статьи
+		"main article p",              // Главная статья
 	}
 
+	articleFound := false
 	for _, selector := range selectors {
+		paragraphCount := 0
 		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
-			text := strings.TrimSpace(s.Text())
-			if text != "" && len(text) > 10 {
-				paragraphs = append(paragraphs, text)
+			// Останавливаемся после первых 5 параграфов чтобы не захватить другие статьи
+			if paragraphCount >= 5 {
+				return
 			}
+
+			text := strings.TrimSpace(s.Text())
+
+			// Пропускаем пустые и короткие параграфы
+			if text == "" || len(text) < 30 {
+				return
+			}
+
+			// Проверяем на навигационные элементы и элементы других статей
+			if isNavigationOrOtherArticle(text) {
+				return
+			}
+
+			paragraphs = append(paragraphs, text)
+			paragraphCount++
 		})
-		if len(paragraphs) > 0 {
+
+		// Если нашли контент с этим селектором, используем его
+		if len(paragraphs) >= 2 {
+			articleFound = true
 			break
 		}
 	}
 
+	// Если ничего не нашли, пробуем более общий поиск, но с жестким ограничением
+	if !articleFound {
+		doc.Find("p").Each(func(i int, s *goquery.Selection) {
+			if len(paragraphs) >= 3 { // Максимум 3 параграфа для безопасности
+				return
+			}
+
+			text := strings.TrimSpace(s.Text())
+			if len(text) > 50 && !isNavigationOrOtherArticle(text) {
+				paragraphs = append(paragraphs, text)
+			}
+		})
+	}
+
 	return strings.Join(paragraphs, "\n\n")
+}
+
+// isNavigationOrOtherArticle проверяет, является ли текст навигацией или частью другой статьи
+func isNavigationOrOtherArticle(text string) bool {
+	lowerText := strings.ToLower(text)
+
+	// Навигационные элементы
+	navIndicators := []string{
+		"læs også", "se også", "følg", "cookie", "gdpr",
+		"abonnement", "privatlivspolitik", "nyhedsbrev",
+		"log ind", "opret", "del artikel", "print",
+		"reklame", "annonce", "sponsor", "opdateret",
+		"redigeret", "publiceret", "dr nyheder",
+	}
+
+	// Признаки других статей (международные новости, кото��ые не относятся к Дании)
+	otherArticleIndicators := []string{
+		"den russiske præsident", "vladimir putin", "kim jong-un",
+		"nordkoreas leder", "kinas hovedstad", "beijing",
+		"militærparade", "anden verdenskrig", "jeffrey epstein",
+		"amerikanske kongres", "føderale efterforskning",
+		"sexforbryder", "dokumenter fra", "undersøger",
+	}
+
+	allIndicators := append(navIndicators, otherArticleIndicators...)
+
+	for _, indicator := range allIndicators {
+		if strings.Contains(lowerText, indicator) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // extractEkstrabladetContent gets content from ekstrabladet.dk

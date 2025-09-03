@@ -54,26 +54,42 @@ func TranslateText(text, from, to string) (string, error) {
 	return originalText, nil
 }
 
-// translateWithGoogleTranslate uses FREE Google Translate API
+// translateWithGoogleTranslate uses FREE Google Translate API with better error handling
 func translateWithGoogleTranslate(text, from, to string) (string, error) {
+	// Clean text before translation
+	text = preprocessTextForTranslation(text)
+
 	// Use public Google Translate endpoint (free)
 	baseURL := "https://translate.googleapis.com/translate_a/single"
 
-	// Build query params
+	// Build query params with better language mapping
 	params := url.Values{}
 	params.Set("client", "gtx")
-	params.Set("sl", from) // source language: use parameter
-	params.Set("tl", to)   // target language: use parameter
-	params.Set("dt", "t")  // return translations
+	params.Set("sl", mapLanguageCode(from)) // source language
+	params.Set("tl", mapLanguageCode(to))   // target language
+	params.Set("dt", "t")                   // return translations
+	params.Set("ie", "UTF-8")
+	params.Set("oe", "UTF-8")
 	params.Set("q", text)
 
 	fullURL := baseURL + "?" + params.Encode()
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Create HTTP client with timeout and proper headers
+	client := &http.Client{
+		Timeout: 20 * time.Second,
+	}
+
+	// Create request with proper headers
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; NewsBot/1.0)")
+	req.Header.Set("Accept", "application/json")
 
 	// Make request
-	resp, err := client.Get(fullURL)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -99,7 +115,71 @@ func translateWithGoogleTranslate(text, from, to string) (string, error) {
 		return "", fmt.Errorf("error parsing response: %v", err)
 	}
 
+	// Post-process translation
+	translation = postprocessTranslation(translation)
+
 	return translation, nil
+}
+
+// mapLanguageCode maps our language codes to Google's expected codes
+func mapLanguageCode(lang string) string {
+	switch lang {
+	case "da", "danish":
+		return "da"
+	case "uk", "ukrainian":
+		return "uk"
+	case "en", "english":
+		return "en"
+	default:
+		return lang
+	}
+}
+
+// preprocessTextForTranslation cleans text before sending to translation service
+func preprocessTextForTranslation(text string) string {
+	// Remove excessive whitespace
+	text = strings.TrimSpace(text)
+
+	// Remove multiple consecutive spaces
+	for strings.Contains(text, "  ") {
+		text = strings.ReplaceAll(text, "  ", " ")
+	}
+
+	// Remove multiple consecutive newlines
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+
+	// Fix common Danish text issues
+	text = strings.ReplaceAll(text, " .", ".")
+	text = strings.ReplaceAll(text, " ,", ",")
+	text = strings.ReplaceAll(text, " :", ":")
+
+	return text
+}
+
+// postprocessTranslation improves translation quality
+func postprocessTranslation(text string) string {
+	// Fix common Ukrainian translation issues
+	text = strings.ReplaceAll(text, "д -р", "ДР")
+	text = strings.ReplaceAll(text, "Д -р", "ДР")
+	text = strings.ReplaceAll(text, "д-р", "ДР")
+	text = strings.ReplaceAll(text, "житловому житлі", "резиденції")
+	text = strings.ReplaceAll(text, "прем'єр -міністра", "прем'єр-міністра")
+	text = strings.ReplaceAll(text, "Марієнборг", "Марієнборзі")
+	text = strings.ReplaceAll(text, "дорученнями", "справами")
+
+	// Fix spacing issues
+	text = strings.ReplaceAll(text, " -", "-")
+	text = strings.ReplaceAll(text, "- ", "-")
+	text = strings.ReplaceAll(text, " '", "'")
+
+	// Remove excessive whitespace again
+	for strings.Contains(text, "  ") {
+		text = strings.ReplaceAll(text, "  ", " ")
+	}
+
+	return strings.TrimSpace(text)
 }
 
 // parseGoogleTranslateResponse parses Google Translate API response
