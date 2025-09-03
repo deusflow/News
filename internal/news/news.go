@@ -155,7 +155,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		return "ukraine", score
 	}
 
-	// Important Denmark news - ОЧЕНЬ мягкие кри��ерии для тест
+	// Important Denmark news - ОЧЕНЬ мягкие критерии для тест
 	if containsAny(text, denmarkKeywords) {
 		score := 30
 		// Extra points for politics and economy
@@ -261,6 +261,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 	if aiClient == nil {
 		return nil, fmt.Errorf("gemini client not initialized; call news.SetGeminiClient")
 	}
+	log.Println("[Gemini] Starting filter + scrape + summarize pipeline (TranslateAndSummarizeNews)")
 
 	seen := map[string]struct{}{}
 	var candidates []News

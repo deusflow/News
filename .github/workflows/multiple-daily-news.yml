@@ -51,7 +51,7 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         BOT_MODE: single
         LOG_LEVEL: info
       run: |
@@ -59,6 +59,7 @@ jobs:
         echo "📅 Current time UTC: $(date -u)"
         echo "🇩🇰 Danish time: $(TZ='Europe/Copenhagen' date)"
         echo "🎯 Target chat: $TELEGRAM_CHAT_ID"
+        if [ -z "$GEMINI_API_KEY" ]; then echo '❌ GEMINI_API_KEY missing'; exit 1; fi
         go run cmd/dknews/main.go
 
     - name: Check for errors

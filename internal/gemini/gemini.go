@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -40,6 +41,22 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 	ctx := context.Background()
 	model := c.client.GenerativeModel("gemini-1.5-flash")
 
+	// Sanitize & limit content size (avoid over-long prompts)
+	content = strings.ReplaceAll(content, "\r", "")
+	content = strings.TrimSpace(content)
+	// Collapse excessive whitespace
+	content = strings.Join(strings.Fields(content), " ")
+	maxChars := 6000
+	if utf8.RuneCountInString(content) > maxChars {
+		// cut on rune boundary then try to end at sentence
+		runes := []rune(content)
+		trimmed := string(runes[:maxChars])
+		if idx := strings.LastIndex(trimmed, ". "); idx > 1200 { // keep some meaningful size
+			trimmed = trimmed[:idx+1]
+		}
+		content = trimmed + "\n[TRUNCATED]"
+	}
+
 	prompt := fmt.Sprintf(`
 Анализируй эту новость и выполни следующие задачи:
 
@@ -48,16 +65,19 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 Содержание: %s
 
 ЗАДАЧИ:
-1. Создай краткую версию новости (до 1900 символов)
-2. Переведи суть на датский язык (естественно и точно)
-3. Переведи суть на украинский язык (естественно и точно)
+1. Создай краткую версию новости (до 500 символов, 1-2 предложения, без лишнего фона)
+2. Переведи эту суть на датский (естественно, без дословности)
+3. Переведи эту же суть на украинский (естественно)
+
+ТРЕБОВАНИЯ:
+- Не переводить имена собственные брендов/организаций.
+- Избегай вводных слов типа "Новость о том, что".
+- Формат строго по шаблону ниже.
 
 ФОРМАТ ОТВЕТА:
-СУТЬ: [до 1900 символов]
-ДАТСКИЙ: [перевод на датский]
-УКРАИНСКИЙ: [перевод на украинский]
-
-Важно: переводы должны быть естественными, а не дословными. Сохраняй смысл и важные детали, не переводи названия брендов.
+СУТЬ: <краткая суть>
+ДАТСКИЙ: <перевод на датский>
+УКРАИНСКИЙ: <перевод на украинский>
 `, title, content)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
