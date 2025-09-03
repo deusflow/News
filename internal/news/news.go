@@ -32,15 +32,19 @@ type News struct {
 
 // Keywords for Ukraine news (high priority)
 var ukraineKeywords = []string{
-	"ukraine", "ukraina", "ukrainer", "українці", "украин",
-	"hjælp ukraine", "help ukraine", "допомога україна",
-	"flygtning", "refugee", "біженці", "біженець",
-	"krig", "war", "støtte ukraine", "support ukraine", "підтримк україни",
-	"våben ukraine", "weapon ukraine", "зброя україни",
-	"missiler ukraine", "missiles ukraine", "ракети україні", "sundhed", "health", "здоров'я",
-	"flygtninge krise", "refugee crisis", "криза біженців",
-	"nato", "нато",
-	"sanction", "санкці",
+	"ukraine",
+	"ukraina",
+	"ukrainer",
+	"hjælp ukraine",
+	"flygtning",
+	"krig",
+	"støtte ukraine",
+	"våben ukraine",
+	"missiler ukraine",
+	"sundhed",
+	"flygtningekrise",
+	"nato",
+	"sanktion",
 }
 
 // Keywords for important Denmark news
@@ -91,8 +95,17 @@ var denmarkKeywords = []string{
 
 // Extra boost keywords for refugee/visa related stories to increase priority
 var refugeeBoostKeywords = []string{
-	"refugee", "viborg",
-	"flygtning", "refugee visa", "temporary protection", "тимчасовий захист",
+	"refugee",
+	"viborg",
+	"flygtning",
+	"refugee visa",
+	"temporary protection",
+	"asylum",
+	"asylum support",
+	"asylum application",
+	"asylum application form",
+	"asylum application form ukraine",
+	"asylum application form denmark",
 }
 
 var visaBoostKeywords = []string{
