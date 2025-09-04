@@ -33,6 +33,21 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
+    - name: Debug environment
+      run: |
+        echo "📋 Environment Debug:"
+        echo "- Go version: $(go version)"
+        echo "- Working directory: $(pwd)"
+        echo "- GOPATH: $GOPATH"
+        echo "- GOMOD: $GOMOD"
+        echo "- GO111MODULE: $GO111MODULE"
+        echo "- Files in current directory:"
+        ls -la
+        echo "- Content of go.mod:"
+        cat go.mod
+        echo "- Go env:"
+        go env GOMOD GOPATH GOPROXY GO111MODULE
+
     - name: Cache Go modules
       uses: actions/cache@v3
       with:
@@ -43,21 +58,38 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
+    - name: Initialize Go module
+      run: |
+        echo "🔧 Initializing Go module context..."
+        export GO111MODULE=on
+        echo "- Current module: $(go list -m)"
+        echo "- Module directory check:"
+        go list -m -f '{{.Dir}}' || echo "Module dir not found"
+        echo "- Module packages:"
+        go list ./... || echo "Failed to list packages"
+
     - name: Download dependencies
       run: |
         echo "📦 Downloading Go modules..."
+        export GO111MODULE=on
+        go clean -modcache || true
         go mod download
         go mod tidy
         go mod verify
         echo "✅ Dependencies ready"
+        echo "- Module list:"
+        go list -m all | head -5
 
     - name: Build application
       run: |
         echo "🔨 Building application..."
+        export GO111MODULE=on
         echo "📁 Working directory: $(pwd)"
         echo "📄 Module info: $(go list -m)"
+        echo "📦 Available packages:"
+        go list ./internal/... || echo "Failed to list internal packages"
         mkdir -p bin
-        go build -v -o bin/dknews .
+        go build -v -x -o bin/dknews .
         echo "✅ Build completed successfully"
         ls -la bin/
 
@@ -68,6 +100,7 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         BOT_MODE: single
         DEBUG: false
+        GO111MODULE: on
       run: |
         echo "🚀 Starting Danish News Bot at $(date)"
         echo "📅 Current time UTC: $(date -u)"
@@ -90,4 +123,5 @@ jobs:
         echo "- Files: $(ls -la)"
         echo "- Go mod status: $(head -5 go.mod)"
         echo "- Module list: $(go list -m all | head -10)"
+        echo "- GOMOD path: $(go env GOMOD)"
         echo "- Built binary exists: $(ls -la bin/ || echo 'No bin directory')"

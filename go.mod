@@ -2,8 +2,6 @@ module dknews
 
 go 1.23.0
 
-toolchain go1.24.4
-
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/google/generative-ai-go v0.20.1
