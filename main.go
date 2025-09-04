@@ -1,6 +1,6 @@
 package main
 
-import "github.com/deusflow/News/internal/app"
+import "dknews/internal/app"
 
 func main() {
 	app.Run()

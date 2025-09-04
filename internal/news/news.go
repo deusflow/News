@@ -4,15 +4,16 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
-	"github.com/deusflow/News/internal/gemini"
-	"github.com/deusflow/News/internal/metrics"
-	"github.com/deusflow/News/internal/rss"
-	"github.com/deusflow/News/internal/scraper"
 	"log"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"dknews/internal/gemini"
+	"dknews/internal/metrics"
+	"dknews/internal/rss"
+	"dknews/internal/scraper"
 )
 
 // News represents a single news item enriched by Gemini summaries.

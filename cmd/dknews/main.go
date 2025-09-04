@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/deusflow/News/internal/app"
-	"github.com/deusflow/News/internal/metrics"
 	"log"
 	"net/http"
 	"os"
+
+	"dknews/internal/app"
+	"dknews/internal/metrics"
 )
 
 func main() {
