@@ -2,10 +2,10 @@ package gemini
 
 import (
 	"context"
+	"dknews/internal/cache"
+	"dknews/internal/metrics"
+	"dknews/internal/retry"
 	"fmt"
-	"github.com/deusflow/dknews/internal/cache"
-	"github.com/deusflow/dknews/internal/metrics"
-	"github.com/deusflow/dknews/internal/retry"
 	"log"
 	"regexp"
 	"strings"

@@ -1,4 +1,4 @@
-module github.com/deusflow/dknews
+module dknews
 
 go 1.23.0
 
