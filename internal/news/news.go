@@ -1,9 +1,12 @@
 package news
 
 import (
+	"crypto/sha1"
 	"dknews/internal/gemini"
+	"dknews/internal/metrics"
 	"dknews/internal/rss"
 	"dknews/internal/scraper"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"regexp"
@@ -101,7 +104,16 @@ var denmarkKeywords = []string{
 	"børn",
 	"skole",
 	"uddannelse",
-	"skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole",
+	"undervisning",
+	"lærer",
+	"studie",
+	"eksamen",
+	"universitet",
+	"folkeskole",
+	"sprogskole",
+	"friends",
+	"venner",
+	"familie",
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
@@ -117,6 +129,8 @@ var refugeeBoostKeywords = []string{
 	"asylum application form",
 	"asylum application form ukraine",
 	"asylum application form denmark",
+	"families",
+	"family",
 }
 
 var visaBoostKeywords = []string{
@@ -152,25 +166,47 @@ func containsAny(s string, keywords []string) bool {
 	return false
 }
 
-// NewsFilter contains filtering configuration
-type NewsFilter struct {
-	Categories            []string
-	MinScore              int
-	MaxAge                time.Duration
-	ExcludeKeywords       []string
-	RequiredKeywords      []string
-	EnableContentScraping bool
+// makeNewsKey generates a hash key from title and description for deduplication
+func makeNewsKey(title, description string) string {
+	h := sha1.New()
+	h.Write([]byte(strings.ToLower(title + description)))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-// DefaultFilter returns default filtering configuration
-func DefaultFilter() *NewsFilter {
-	return &NewsFilter{
-		Categories:            []string{"ukraine", "denmark", "visas", "integration"},
-		MinScore:              20,
-		MaxAge:                24 * time.Hour,
-		ExcludeKeywords:       excludeKeywords,
-		EnableContentScraping: true,
+// makeSimilarityKey creates a more lenient key for detecting similar news
+func makeSimilarityKey(title string) string {
+	// Remove common words and normalize for similarity detection
+	title = strings.ToLower(title)
+
+	// Remove common Danish words that don't affect content
+	commonWords := []string{"og", "er", "en", "det", "til", "af", "på", "med", "for", "som", "kan", "vil", "har", "skal", "alle", "den", "nye", "stor", "lille"}
+	words := strings.Fields(title)
+	var filtered []string
+
+	for _, word := range words {
+		word = strings.Trim(word, ".,!?:;\"'-")
+		if len(word) > 2 {
+			isCommon := false
+			for _, common := range commonWords {
+				if word == common {
+					isCommon = true
+					break
+				}
+			}
+			if !isCommon {
+				filtered = append(filtered, word)
+			}
+		}
 	}
+
+	// Take only first 5-6 meaningful words for similarity
+	if len(filtered) > 6 {
+		filtered = filtered[:6]
+	}
+
+	h := sha1.New()
+	h.Write([]byte(strings.Join(filtered, " ")))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // calculateNewsScore gets news importance
@@ -199,10 +235,10 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	if containsAny(text, denmarkKeywords) {
 		score := 30
 		// Extra points for politics and economy
-		if containsAny(text, []string{"regering", "minister", "minister", "skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole"}) {
+		if containsAny(text, []string{"regering", "friends", "minister", "skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole"}) {
 			score += 20
 		}
-		if containsAny(text, []string{"politik", "økonomi"}) {
+		if containsAny(text, []string{"politik", "økonomi", "money", "penge"}) {
 			score += 15
 		}
 
@@ -226,68 +262,6 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	return "", 0
 }
 
-// Enhanced scoring with more precise keyword matching
-func calculateNewsScoreEnhanced(item *rss.FeedItem, filter *NewsFilter) (string, int) {
-	text := strings.ToLower(item.Title + " " + item.Description)
-
-	// Check exclude keywords first
-	if containsAny(text, filter.ExcludeKeywords) {
-		return "", 0
-	}
-
-	// Ukraine news - highest priority with more nuanced scoring
-	if containsAny(text, ukraineKeywords) {
-		score := 100
-
-		// Critical keywords boost
-		criticalWords := []string{"våben", "weapon", "missiler", "missiles", "angreb", "attack"}
-		if containsAny(text, criticalWords) {
-			score += 30
-		}
-
-		// Support/aid keywords
-		supportWords := []string{"hjælp", "help", "støtte", "support", "bistand", "aid"}
-		if containsAny(text, supportWords) {
-			score += 20
-		}
-
-		// Integration keywords for Ukrainian refugees
-		integrationWords := []string{"integration", "arbejde", "work", "bolig", "housing", "børn", "children"}
-		if containsAny(text, integrationWords) {
-			score += 15
-		}
-
-		return "ukraine", score
-	}
-
-	// Denmark news with better categorization
-	if containsAny(text, denmarkKeywords) {
-		score := 30
-
-		// Government/Politics boost
-		politicsWords := []string{"regering", "government", "minister", "folketinget", "parliament"}
-		if containsAny(text, politicsWords) {
-			score += 25
-		}
-
-		// Immigration/Integration boost
-		immigrationWords := []string{"udlændinge", "foreigners", "indvandring", "immigration", "integration"}
-		if containsAny(text, immigrationWords) {
-			score += 20
-		}
-
-		// Visa/Legal matters boost
-		legalWords := []string{"visa", "opholdstilladelse", "residence", "statsborgerskab", "citizenship"}
-		if containsAny(text, legalWords) {
-			score += 18
-		}
-
-		return "denmark", score
-	}
-
-	return "", 0
-}
-
 // Gemini client injection
 var aiClient *gemini.Client
 
@@ -298,27 +272,57 @@ func SetGeminiClient(c *gemini.Client) {
 
 // FilterAndTranslate now: filter + scrape + Gemini summarize + multi-language summary.
 func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
+	startTime := time.Now()
+	defer func() {
+		metrics.Global.RecordProcessingTime(time.Since(startTime))
+		metrics.Global.SetLastRun()
+	}()
+
 	if aiClient == nil {
 		return nil, fmt.Errorf("gemini client not initialized; call news.SetGeminiClient")
 	}
 	log.Println("[Gemini] Starting filter + scrape + summarize pipeline (TranslateAndSummarizeNews)")
 
-	seen := map[string]struct{}{}
+	seenLinks := map[string]struct{}{}
+	seenContent := map[string]struct{}{}
+	seenSimilar := map[string]struct{}{} // Новый уровень дедупликации по схожести
 	var candidates []News
 
 	log.Printf("Начинаем фильтрацию из %d новостей", len(items))
 
 	for _, item := range items {
+		metrics.Global.IncrementNewsProcessed()
+
 		// Ограничиваем обработку только свежими новостями (последние 24 часа)
 		if item.PublishedParsed != nil && time.Since(*item.PublishedParsed) > 24*time.Hour {
 			continue
 		}
 
 		// Дедупликация по ссылке
-		if _, dup := seen[item.Link]; dup {
+		if _, dup := seenLinks[item.Link]; dup {
+			log.Printf("🔗 Дубликат по ссылке: %s", item.Title)
+			metrics.Global.IncrementDuplicatesFiltered()
 			continue
 		}
-		seen[item.Link] = struct{}{}
+		seenLinks[item.Link] = struct{}{}
+
+		// Дедупликация по содержанию (заголовок + описание)
+		key := makeNewsKey(item.Title, item.Description)
+		if _, dup := seenContent[key]; dup {
+			log.Printf("📄 Дубликат по содержанию: %s", item.Title)
+			metrics.Global.IncrementDuplicatesFiltered()
+			continue
+		}
+		seenContent[key] = struct{}{}
+
+		// Дедупликация по схожести заголовков (более мягкая)
+		similarKey := makeSimilarityKey(item.Title)
+		if _, dup := seenSimilar[similarKey]; dup {
+			log.Printf("🔄 Похожая новость (пропускаем): %s", item.Title)
+			metrics.Global.IncrementDuplicatesFiltered()
+			continue
+		}
+		seenSimilar[similarKey] = struct{}{}
 
 		// Вычисляем категорию и важност��
 		category, score := calculateNewsScore(item)
@@ -354,20 +358,20 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		return candidates[i].Published.After(candidates[j].Published) // По времени (новые первыми)
 	})
 
-	max := 8
-	if len(candidates) < max {
-		max = len(candidates)
+	newsLimit := 8
+	if len(candidates) < newsLimit {
+		newsLimit = len(candidates)
 	}
-	urls := make([]string, max)
-	for i := 0; i < max; i++ {
+	urls := make([]string, newsLimit)
+	for i := 0; i < newsLimit; i++ {
 		urls[i] = candidates[i].Link
 	}
 
-	log.Printf("Извлекаем полный контент %d статей...", max)
+	log.Printf("Извлекаем полный контент %d статей...", newsLimit)
 	fullArticles := scraper.ExtractArticlesInBackground(urls)
 
-	res := make([]News, 0, max)
-	for i := 0; i < max; i++ {
+	res := make([]News, 0, newsLimit)
+	for i := 0; i < newsLimit; i++ {
 		n := candidates[i]
 		if fa, ok := fullArticles[n.Link]; ok && len(fa.Content) > 200 {
 			n.Content = fa.Content
@@ -376,7 +380,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			log.Printf("⚠️ Краткое описание для: %s", n.Title)
 		}
 
-		log.Printf("Gemini summary %d/%d: %s", i+1, max, n.Title)
+		log.Printf("Gemini summary %d/%d: %s", i+1, newsLimit, n.Title)
 		aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
 		if err != nil {
 			log.Printf("❌ Gemini error: %v", err)

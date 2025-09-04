@@ -2,10 +2,14 @@ package gemini
 
 import (
 	"context"
+	"dknews/internal/cache"
+	"dknews/internal/metrics"
+	"dknews/internal/retry"
 	"fmt"
 	"log"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/generative-ai-go/genai"
@@ -14,6 +18,7 @@ import (
 
 type Client struct {
 	client *genai.Client
+	cache  *cache.Cache
 }
 
 type NewsTranslation struct {
@@ -29,7 +34,10 @@ func NewClient(apiKey string) (*Client, error) {
 		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
-	return &Client{client: client}, nil
+	return &Client{
+		client: client,
+		cache:  cache.New(),
+	}, nil
 }
 
 func (c *Client) Close() {
@@ -39,7 +47,45 @@ func (c *Client) Close() {
 }
 
 func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslation, error) {
-	ctx := context.Background()
+	// Check cache first
+	cacheKey := c.cache.GenerateKey(title, content)
+	if cached, found := c.cache.Get(cacheKey); found {
+		metrics.Global.IncrementSuccessfulTranslations()
+		return cached.(*NewsTranslation), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var result *NewsTranslation
+	var err error
+
+	// Retry logic for API calls
+	retryConfig := retry.RetryConfig{
+		MaxAttempts: 3,
+		Delay:       2 * time.Second,
+		Backoff:     true,
+	}
+
+	err = retry.WithRetry(ctx, retryConfig, func() error {
+		result, err = c.translateWithAPI(ctx, title, content)
+		return err
+	})
+
+	if err != nil {
+		metrics.Global.IncrementFailedTranslations()
+		metrics.Global.SetError(fmt.Sprintf("Gemini API error: %v", err))
+		return nil, err
+	}
+
+	// Cache successful translation for 24 hours
+	c.cache.Set(cacheKey, result, 24*time.Hour)
+	metrics.Global.IncrementSuccessfulTranslations()
+
+	return result, nil
+}
+
+func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*NewsTranslation, error) {
 	model := c.client.GenerativeModel("gemini-1.5-flash")
 
 	// Sanitize & limit content size (avoid over-long prompts)

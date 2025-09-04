@@ -1,14 +1,16 @@
 package app
 
 import (
+	"dknews/internal/config"
 	"dknews/internal/gemini"
+	"dknews/internal/logger"
+	"dknews/internal/metrics"
 	"dknews/internal/news"
 	"dknews/internal/rss"
 	"dknews/internal/telegram"
 	"fmt"
 	"html"
 	"log"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -110,34 +112,53 @@ func limitText(s string, max int) string {
 
 // Run запускает основной процесс приложения с инициализацией Gemini
 func Run() {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("GEMINI_API_KEY не установлен")
-	}
-	gmClient, err := gemini.NewClient(apiKey)
+	// Initialize structured logging
+	logger.Init()
+	logger.Info("Starting Danish News Bot")
+
+	// Load configuration
+	cfg, err := config.Load()
 	if err != nil {
+		logger.Error("Failed to load configuration", "error", err)
+		log.Fatalf("Ошибка конфигурации: %v", err)
+	}
+	logger.Info("Configuration loaded successfully", "mode", cfg.BotMode, "max_news", cfg.MaxNewsLimit)
+
+	// Initialize Gemini client
+	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey)
+	if err != nil {
+		logger.Error("Failed to initialize Gemini client", "error", err)
 		log.Fatalf("Ошибка инициализации Gemini: %v", err)
 	}
 	defer gmClient.Close()
 	news.SetGeminiClient(gmClient)
+	logger.Info("Gemini client initialized successfully")
 
-	feeds, err := rss.LoadFeeds("configs/feeds.yaml")
+	// Load RSS feeds
+	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)
 	if err != nil {
+		logger.Error("Failed to load RSS feeds", "error", err)
 		log.Fatalf("Ошибка загрузки списка RSS: %v", err)
 	}
+	logger.Info("RSS feeds loaded", "count", len(feeds))
+
+	// Fetch news items
 	items, err := rss.FetchAllFeeds(feeds)
 	if err != nil {
+		logger.Error("Failed to fetch RSS feeds", "error", err)
 		log.Fatalf("Ошибка парсинга RSS: %v", err)
 	}
-	fmt.Printf("Собрано новостей: %d\n", len(items))
+	logger.Info("News items fetched", "total", len(items))
 
+	// Filter and translate news
 	filtered, err := news.FilterAndTranslate(items)
 	if err != nil {
+		logger.Error("Failed to filter and translate news", "error", err)
 		log.Fatalf("Ошибка фильтрации/обработки: %v", err)
 	}
-	fmt.Printf("Релевантних новин: %d\n", len(filtered))
+	logger.Info("News filtered and translated", "relevant", len(filtered))
 
-	// Показываем превью первых 2 новостей в консоли
+	// Show preview in console
 	for i, n := range filtered {
 		if i >= 2 {
 			break
@@ -147,74 +168,69 @@ func Run() {
 	}
 
 	if len(filtered) == 0 {
-		log.Println("Нет релевантных новостей для отправки.")
+		logger.Warn("No relevant news found, skipping Telegram send")
 		return
 	}
 
-	token := os.Getenv("TELEGRAM_TOKEN")
-	chatID := os.Getenv("TELEGRAM_CHAT_ID")
-
-	if token == "" {
-		log.Fatal("TELEGRAM_TOKEN не установлен")
-	}
-	if chatID == "" {
-		log.Fatal("TELEGRAM_CHAT_ID не установлен")
-	}
-
-	// Проверяем режим работы - одна новость или несколько
-	mode := os.Getenv("BOT_MODE")
-
-	if mode == "single" {
-		// Режим одной новости - отправляем только первую важную новость
-		sendSingleNews(filtered, token, chatID)
+	// Send to Telegram based on mode
+	if cfg.BotMode == "single" {
+		sendSingleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID)
 	} else {
-		// Режим нескольких новостей - отправляем 2-3 новости одним сообщением
-		sendMultipleNews(filtered, token, chatID)
+		sendMultipleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID)
 	}
+
+	// Log final metrics
+	stats := metrics.Global.GetStats()
+	logger.Info("Processing completed",
+		"total_processed", stats["total_news_processed"],
+		"successful_translations", stats["successful_translations"],
+		"duplicates_filtered", stats["duplicates_filtered"],
+		"processing_time_ms", stats["last_processing_time_ms"],
+	)
 }
 
 // sendSingleNews отправляет одну новость
 func sendSingleNews(newsList []news.News, token, chatID string) {
 	if len(newsList) == 0 {
-		log.Println("Нет новостей для отправки.")
+		logger.Warn("No news to send")
 		return
 	}
 
-	// Берем первую (самую важную) новость
 	selectedNews := newsList[0]
-
-	// Формируем сообщение для одной новости
 	msg := formatSingleNewsMessage(selectedNews, 1)
 
-	log.Printf("Отправляем одну новость длиной %d символов", len(msg))
+	logger.Info("Sending single news", "length", len(msg), "title", selectedNews.Title)
 
 	err := telegram.SendMessage(token, chatID, msg)
 	if err != nil {
+		logger.Error("Failed to send Telegram message", "error", err)
 		log.Fatalf("Ошибка отправки в Telegram: %v", err)
 	}
 
-	log.Printf("Новость успешно отправлена: %s", selectedNews.Title)
+	metrics.Global.IncrementTelegramMessagesSent()
+	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
 // sendMultipleNews отправляет несколько новостей одним сообщением
 func sendMultipleNews(newsList []news.News, token, chatID string) {
-	// Формируем сообщение (берем топ-2 новости для лучшей читаемости)
 	msg := formatNewsMessage(newsList, 2)
 
-	// Проверяем длину сообщения (Telegram лимит ~4096 символов)
+	// Check Telegram message length limit
 	if len(msg) > 4000 {
-		log.Printf("Сообщение %d символов, сокращаем до 1 новости", len(msg))
+		logger.Warn("Message too long, reducing to 1 news", "original_length", len(msg))
 		msg = formatNewsMessage(newsList, 1)
 	}
 
-	log.Printf("Отправляем сообщение длиной %d символов", len(msg))
+	logger.Info("Sending multiple news", "length", len(msg))
 
 	err := telegram.SendMessage(token, chatID, msg)
 	if err != nil {
+		logger.Error("Failed to send Telegram message", "error", err)
 		log.Fatalf("Ошибка отправки в Telegram: %v", err)
 	}
 
-	log.Println("Новости успешно отправлены в Telegram!")
+	metrics.Global.IncrementTelegramMessagesSent()
+	logger.Info("Multiple news sent successfully")
 }
 
 // formatSingleNewsMessage адаптирован для саммари

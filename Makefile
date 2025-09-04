@@ -1,38 +1,53 @@
 # Makefile для удобного управления проектом
 
-# Собрать проект
+.PHONY: build run test clean lint deps health
+
+# Build the application
 build:
-	go build -o bin/dknews cmd/dknews/main.go
+	go build -o bin/dknews ./cmd/dknews
 
-# Запустить проект с автозагрузкой .env
-run:
-	./run.sh
+# Run the application
+run: build
+	./bin/dknews
 
-# Запустить с переменными окружения из .env файла (альтернативный способ)
-run-env:
-	@if [ -f .env ]; then \
-		export $$(cat .env | grep -v '^#' | xargs) && go run cmd/dknews/main.go; \
-	else \
-		echo "Файл .env не найден. Создайте его из .env.example"; \
-	fi
+# Run with monitoring enabled
+run-with-monitoring: build
+	ENABLE_HTTP_MONITORING=true MONITORING_PORT=8080 ./bin/dknews
 
-# Установить зависимости
+# Run tests
+test:
+	go test ./...
+
+# Clean build artifacts
+clean:
+	rm -rf bin/
+
+# Install dependencies
 deps:
 	go mod download
 	go mod tidy
 
-# Проверить код
-check:
+# Check code quality
+lint:
 	go vet ./...
 	go fmt ./...
 
-# Очистить
-clean:
-	rm -rf bin/
+# Check health endpoint (when monitoring is enabled)
+health:
+	curl -s http://localhost:8080/health | jq .
 
-# Тест (сухой прогон без отправки в Telegram)
-test:
-	@echo "Запуск в тестовом режиме..."
-	@export TELEGRAM_TOKEN=test && export TELEGRAM_CHAT_ID=test && go run cmd/dknews/main.go
+# Check metrics endpoint
+metrics:
+	curl -s http://localhost:8080/metrics | jq .
 
-.PHONY: build run run-env deps check clean test
+# Run with debug logging
+debug: build
+	DEBUG=true ./bin/dknews
+
+# Single news mode
+single: build
+	BOT_MODE=single ./bin/dknews
+
+# Development run with monitoring and debug
+dev: build
+	DEBUG=true ENABLE_HTTP_MONITORING=true MONITORING_PORT=8080 ./bin/dknews

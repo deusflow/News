@@ -14,20 +14,6 @@ feeds:
     active: true
     categories: [denmark, main, ukraine, visas, technology, integration]
 
-  - url: https://www.tv2.dk/rss/seneste
-    name: TV2 Seneste
-    lang: da
-    priority: 90
-    active: true
-    categories: [denmark, main, ukraine, visas, technology, integration]
-
-  - url: https://www.bt.dk/rss
-    name: BT
-    lang: da
-    priority: 70
-    active: true
-    categories: [denmark, main, ukraine, visas, technology]
-
   - url: https://www.thelocal.dk/feeds/rss.php
     name: The Local DK
     lang: en
