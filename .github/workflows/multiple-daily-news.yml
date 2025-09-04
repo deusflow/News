@@ -46,7 +46,14 @@ jobs:
     - name: Download dependencies
       run: |
         go mod download
+        go mod tidy
         go mod verify
+
+    - name: Build application
+      run: |
+        echo "🔨 Building application..."
+        go build -o bin/dknews ./cmd/dknews
+        echo "✅ Build completed successfully"
 
     - name: Run news bot (single news mode)
       env:
@@ -54,14 +61,18 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         BOT_MODE: single
-        LOG_LEVEL: info
+        DEBUG: false
       run: |
         echo "🚀 Starting Danish News Bot at $(date)"
         echo "📅 Current time UTC: $(date -u)"
         echo "🇩🇰 Danish time: $(TZ='Europe/Copenhagen' date)"
         echo "🎯 Target chat: $TELEGRAM_CHAT_ID"
+        echo "🤖 Bot mode: $BOT_MODE"
         if [ -z "$GEMINI_API_KEY" ]; then echo '❌ GEMINI_API_KEY missing'; exit 1; fi
-        go run cmd/dknews/main.go
+        if [ -z "$TELEGRAM_TOKEN" ]; then echo '❌ TELEGRAM_TOKEN missing'; exit 1; fi
+        if [ -z "$TELEGRAM_CHAT_ID" ]; then echo '❌ TELEGRAM_CHAT_ID missing'; exit 1; fi
+        echo "🏃 Running bot..."
+        ./bin/dknews
 
     - name: Check for errors
       if: failure()
@@ -71,3 +82,5 @@ jobs:
         echo "- Go version: $(go version)"
         echo "- Working directory: $(pwd)"
         echo "- Files: $(ls -la)"
+        echo "- Go mod status: $(go mod why)"
+        echo "- Built binary exists: $(ls -la bin/ || echo 'No bin directory')"
