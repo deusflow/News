@@ -4,6 +4,9 @@ go 1.23.0
 
 toolchain go1.24.4
 
+// Use local paths for internal packages
+replace github.com/deusflow/News => ./
+
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/google/generative-ai-go v0.20.1
