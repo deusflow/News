@@ -45,15 +45,21 @@ jobs:
 
     - name: Download dependencies
       run: |
+        echo "📦 Downloading Go modules..."
         go mod download
         go mod tidy
         go mod verify
+        echo "✅ Dependencies ready"
 
     - name: Build application
       run: |
         echo "🔨 Building application..."
-        go build -o bin/dknews ./cmd/dknews
+        echo "📁 Working directory: $(pwd)"
+        echo "📄 Module info: $(go list -m)"
+        mkdir -p bin
+        go build -v -o bin/dknews .
         echo "✅ Build completed successfully"
+        ls -la bin/
 
     - name: Run news bot (single news mode)
       env:
@@ -82,5 +88,6 @@ jobs:
         echo "- Go version: $(go version)"
         echo "- Working directory: $(pwd)"
         echo "- Files: $(ls -la)"
-        echo "- Go mod status: $(go mod why)"
+        echo "- Go mod status: $(head -5 go.mod)"
+        echo "- Module list: $(go list -m all | head -10)"
         echo "- Built binary exists: $(ls -la bin/ || echo 'No bin directory')"
