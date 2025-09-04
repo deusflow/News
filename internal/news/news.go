@@ -2,12 +2,12 @@ package news
 
 import (
 	"crypto/sha1"
-	"dknews/internal/gemini"
-	"dknews/internal/metrics"
-	"dknews/internal/rss"
-	"dknews/internal/scraper"
 	"encoding/hex"
 	"fmt"
+	"github.com/deusflow/dknews/internal/gemini"
+	"github.com/deusflow/dknews/internal/metrics"
+	"github.com/deusflow/dknews/internal/rss"
+	"github.com/deusflow/dknews/internal/scraper"
 	"log"
 	"regexp"
 	"sort"
