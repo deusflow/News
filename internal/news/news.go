@@ -45,6 +45,16 @@ var ukraineKeywords = []string{
 	"flygtningekrise",
 	"nato",
 	"sanktion",
+	"skole",
+	"uddannelse",
+	"undervisning",
+	"børn",
+	"lærer",
+	"studie",
+	"eksamen",
+	"universitet",
+	"folkeskole",
+	"sprogskole",
 }
 
 // Keywords for important Denmark news
@@ -91,6 +101,7 @@ var denmarkKeywords = []string{
 	"børn",
 	"skole",
 	"uddannelse",
+	"skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole",
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
@@ -175,7 +186,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	if containsAny(text, ukraineKeywords) {
 		score := 100
 		// Extra points for important words
-		if strings.Contains(text, "våben") || strings.Contains(text, "weapon") || strings.Contains(text, "missiler") {
+		if strings.Contains(text, "skole") || strings.Contains(text, "børn") || strings.Contains(text, "uddannelse") {
 			score += 20
 		}
 		if strings.Contains(text, "hjælp") || strings.Contains(text, "help") {
@@ -188,7 +199,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	if containsAny(text, denmarkKeywords) {
 		score := 30
 		// Extra points for politics and economy
-		if containsAny(text, []string{"regering", "minister", "minister"}) {
+		if containsAny(text, []string{"regering", "minister", "minister", "skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole"}) {
 			score += 20
 		}
 		if containsAny(text, []string{"politik", "økonomi"}) {
