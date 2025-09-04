@@ -1,14 +1,14 @@
 package app
 
 import (
-	"dknews/internal/config"
-	"dknews/internal/gemini"
-	"dknews/internal/logger"
-	"dknews/internal/metrics"
-	"dknews/internal/news"
-	"dknews/internal/rss"
-	"dknews/internal/telegram"
 	"fmt"
+	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/gemini"
+	"github.com/deusflow/News/internal/logger"
+	"github.com/deusflow/News/internal/metrics"
+	"github.com/deusflow/News/internal/news"
+	"github.com/deusflow/News/internal/rss"
+	"github.com/deusflow/News/internal/telegram"
 	"html"
 	"log"
 	"regexp"

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"dknews/internal/app"
-	"dknews/internal/metrics"
 	"encoding/json"
+	"github.com/deusflow/News/internal/app"
+	"github.com/deusflow/News/internal/metrics"
 	"log"
 	"net/http"
 	"os"
