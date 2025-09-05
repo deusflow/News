@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -34,89 +35,6 @@ type News struct {
 	SummaryUkrainian string // Ukrainian version of summary
 }
 
-// Keywords for Ukraine news (high priority)
-var ukraineKeywords = []string{
-	"ukraine",
-	"ukraina",
-	"ukrainer",
-	"hjælp ukraine",
-	"flygtning",
-	"krig",
-	"støtte ukraine",
-	"våben ukraine",
-	"missiler ukraine",
-	"sundhed",
-	"flygtningekrise",
-	"nato",
-	"sanktion",
-	"skole",
-	"uddannelse",
-	"undervisning",
-	"børn",
-	"lærer",
-	"studie",
-	"eksamen",
-	"universitet",
-	"folkeskole",
-	"sprogskole",
-}
-
-// Keywords for important Denmark news
-var denmarkKeywords = []string{
-	"danmark",
-	"regering",
-	"politik",
-	"økonomi",
-	"minister",
-	"valg",
-	"eu",
-	"samråd",
-	"corona",
-	"visum",
-	"flygtning",
-	"asyl",
-	"opholdstilladelse",
-	"nyheder",
-	"verden",
-	"samfund",
-	"danske",
-	"viborg",
-	"københavn",
-	"aarhus",
-	"odense",
-	"aalborg",
-	"region",
-	"kommune",
-	"borgere",
-	"beslutning",
-	"lov",
-	"nye",
-	"stor",
-	"krig",
-	"krigs",
-	"krigsvirkning",
-	"Viborg",
-	"8800 Viborg",
-	"udlændinge",
-	"indvandring",
-	"integration",
-	"arbejde",
-	"bolig",
-	"børn",
-	"skole",
-	"uddannelse",
-	"undervisning",
-	"lærer",
-	"studie",
-	"eksamen",
-	"universitet",
-	"folkeskole",
-	"sprogskole",
-	"friends",
-	"venner",
-	"familie",
-}
-
 // Extra boost keywords for refugee/visa related stories to increase priority
 var refugeeBoostKeywords = []string{
 	"refugee",
@@ -141,6 +59,41 @@ var visaBoostKeywords = []string{
 	"blive i EU",
 }
 
+// Географические / "украинские" термины (про саму Украину и украинцев)
+var ukraineGeoKeywords = []string{
+	"ukraine", "ukraina", "ukrainer", "ukrainsk", "ukrainere", "ukrainske",
+	"ukrainske familier", "ukrainske i danmark", "ukrainere i danmark",
+	"ukrainsk diaspora", "flygtninge fra ukraine",
+}
+
+var denmarkKeywords = []string{
+	"danmark", "danske", "københavn", "aarhus", "aalborg", "viborg",
+	"region", "kommune", "borgere", "lov", "politik", "økonomi",
+	"visum", "opholdstilladelse", "asyl", "integration", "arbejde", "bolig",
+	"udlændinge",
+}
+
+var conflictKeywords = []string{
+	"krig", "krigen", "putin", "zelensky", "invasion", "bomb", "missil", "russisk", "war", "invasion",
+}
+
+// Технологии / инновации / стартапы / исследования
+var techKeywords = []string{
+	"teknologi", "innovation", "startup", "forskning", "research", "patent",
+	"robot", "software", "hardware", "IT", "cloud", "cyber", "data",
+	"machine learning", "deep learning", "artificial intelligence", "AI", "maskinlæring", "LLM",
+}
+
+// Исключительно AI-термины (чтобы точно поймать ИИ-новости)
+var aiKeywords = []string{
+	"ai", "artificial intelligence", "maskinlæring", "neuralt netværk", "large language model", "llm",
+}
+
+// Медицинские / фармацевтические темы
+var medicalKeywords = []string{
+	"lægemidler", "medicin", "vaccine", "klinisk forsøg", "pharma", "biotek", "behandling", "treatment",
+}
+
 // Words to exclude (not important topics)
 var excludeKeywords = []string{
 	"vejr",
@@ -154,13 +107,19 @@ var excludeKeywords = []string{
 	"madopskrift",
 }
 
+// Европа / европейский контекст (шире чем Дания)
+var europeKeywords = []string{
+	"europa", "eu", "european", "eu-lande", "europeisk",
+}
+
 // containsAny checks if string has any keyword (whole-word aware)
-func containsAny(s string, keywords []string) bool {
-	s = strings.ToLower(s)
-	for _, kw := range keywords {
-		pattern := `\b` + regexp.QuoteMeta(strings.ToLower(kw)) + `\b`
-		matched, _ := regexp.MatchString(pattern, s)
-		if matched {
+func containsAny(text string, keywords []string) bool {
+	text = strings.ToLower(text)
+	for _, k := range keywords {
+		if k == "" {
+			continue
+		}
+		if strings.Contains(text, strings.ToLower(k)) {
 			return true
 		}
 	}
@@ -175,86 +134,235 @@ func makeNewsKey(title, description string) string {
 }
 
 // makeSimilarityKey creates a more lenient key for detecting similar news
-func makeSimilarityKey(title string) string {
-	// Remove common words and normalize for similarity detection
-	title = strings.ToLower(title)
+// makeSimilarityKey - менее агрессивная версия.
+// Логика:
+// 1) Берём host из item.Link (если есть) — чтобы ключ был специфичен для источника.
+// 2) Нормализуем заголовок: lowercase, убираем пунктуацию, убираем стоп-слова.
+// 3) Оставляем первые N значимых слов (по умолчанию 6) — чтобы не склеивать слишком разные заголовки.
+// 4) Добавляем временной срез (truncate по окну в hours, по умолчанию 6ч).
+// Результат: host|topWords|windowUnix
+func makeSimilarityKey(item *rss.FeedItem) string {
+	// Параметры: можно менять
+	const (
+		windowHours = 6 // окно времени для дедупа (меньше -> меньше агрессивности)
+		maxWords    = 6 // сколько значимых слов оставить
+	)
 
-	// Remove common Danish words that don't affect content
-	commonWords := []string{"og", "er", "en", "det", "til", "af", "på", "med", "for", "som", "kan", "vil", "har", "skal", "alle", "den", "nye", "stor", "lille"}
-	words := strings.Fields(title)
-	var filtered []string
+	// Helper: получить host из ссылки
+	getHost := func(link string) string {
+		if link == "" {
+			return "unknown"
+		}
+		u, err := url.Parse(link)
+		if err != nil || u.Host == "" {
+			// иногда в feed может быть относительный линк или пустой
+			return "unknown"
+		}
+		return strings.ToLower(u.Host)
+	}
 
-	for _, word := range words {
-		word = strings.Trim(word, ".,!?:;\"'-")
-		if len(word) > 2 {
-			isCommon := false
-			for _, common := range commonWords {
-				if word == common {
-					isCommon = true
-					break
-				}
-			}
-			if !isCommon {
-				filtered = append(filtered, word)
-			}
+	// Helper: нормализация текста — убрать пунктуацию, multiple spaces, lower
+	normalize := func(s string) string {
+		s = strings.ToLower(s)
+		// удалить HTML-теги если вдруг
+		reTags := regexp.MustCompile(`<[^>]*>`)
+		s = reTags.ReplaceAllString(s, " ")
+		// оставить только буквы, цифры и пробелы
+		re := regexp.MustCompile(`[^a-zA-Z0-9\u0080-\uFFFF\s]`)
+		s = re.ReplaceAllString(s, " ")
+		s = strings.Join(strings.Fields(s), " ")
+		return s
+	}
+
+	// Небольшой набор стоп-слов — расширяй по необходимости (датский/английский)
+	stopWords := map[string]bool{
+		"a": true, "an": true, "the": true, "og": true, "i": true, "på": true,
+		"til": true, "af": true, "med": true, "for": true, "er": true, "der": true,
+		"om": true, "en": true, "et": true, "ikke": true,
+	}
+
+	// Собираем текст: title + short description
+	text := strings.TrimSpace(item.Title + " " + item.Description)
+	norm := normalize(text)
+	words := strings.Fields(norm)
+
+	// Оставляем только «значимые» слова
+	significant := make([]string, 0, len(words))
+	for _, w := range words {
+		if len(significant) >= maxWords {
+			break
+		}
+		if stopWords[w] {
+			continue
+		}
+		// игнорируем слишком короткие слова (<=2)
+		if len(w) <= 2 {
+			continue
+		}
+		significant = append(significant, w)
+	}
+	// Если не осталось значимых слов — возьмём первые maxWords из оригинала (без стоп-словой фильтрации)
+	if len(significant) == 0 && len(words) > 0 {
+		for i := 0; i < len(words) && i < maxWords; i++ {
+			significant = append(significant, words[i])
 		}
 	}
 
-	// Take only first 5-6 meaningful words for similarity
-	if len(filtered) > 6 {
-		filtered = filtered[:6]
+	// временной срез: используем PublishedParsed если есть, иначе текущий час
+	var t time.Time
+	if item.PublishedParsed != nil {
+		t = *item.PublishedParsed
+	} else if item.Published != "" {
+		// попробуем распарсить Published (без гарантий) — безопасный fallback
+		if parsed, err := time.Parse(time.RFC1123Z, item.Published); err == nil {
+			t = parsed
+		} else if parsed2, err2 := time.Parse(time.RFC1123, item.Published); err2 == nil {
+			t = parsed2
+		} else {
+			t = time.Now()
+		}
+	} else {
+		t = time.Now()
 	}
+	// Обрезаем время до начала окна (например, 6ч)
+	windowStart := t.Truncate(time.Duration(windowHours) * time.Hour).Unix()
 
-	h := sha1.New()
-	h.Write([]byte(strings.Join(filtered, " ")))
-	return hex.EncodeToString(h.Sum(nil))
+	host := getHost(item.Link)
+
+	// Финальный ключ
+	key := fmt.Sprintf("%s|%s|%d", host, strings.Join(significant, "_"), windowStart)
+	return key
 }
 
-// calculateNewsScore gets news importance
+// calculateNewsScore - новая логика приоритезации
+// calculateNewsScore - переработанная логика приоритезации
 func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	text := strings.ToLower(item.Title + " " + item.Description)
 
-	// Exclude not important topics
+	// Быстрая фильтрация
 	if containsAny(text, excludeKeywords) {
 		return "", 0
 	}
 
-	// Ukraine news - highest priority
-	if containsAny(text, ukraineKeywords) {
-		score := 100
-		// Extra points for important words
-		if strings.Contains(text, "skole") || strings.Contains(text, "børn") || strings.Contains(text, "uddannelse") {
-			score += 20
-		}
-		if strings.Contains(text, "hjælp") || strings.Contains(text, "help") {
-			score += 15
-		}
-		return "ukraine", score
+	// Флаги
+	hasDenmark := containsAny(text, denmarkKeywords)
+	hasUkraineGeo := containsAny(text, ukraineGeoKeywords)
+	hasEurope := containsAny(text, europeKeywords)
+	hasTech := containsAny(text, techKeywords) || containsAny(text, aiKeywords)
+	hasMedical := containsAny(text, medicalKeywords)
+	hasConflict := containsAny(text, conflictKeywords)
+	hasRefugeeBoost := containsAny(text, refugeeBoostKeywords)
+	hasVisaBoost := containsAny(text, visaBoostKeywords)
+
+	// Если это только "международное" упоминание войны/путин и НЕТ локального контекста — пропускаем.
+	if hasConflict && !(hasDenmark || hasUkraineGeo || hasEurope) {
+		return "", 0
 	}
 
-	// Important Denmark news - ОЧЕНЬ мягкие критерии для тест
-	if containsAny(text, denmarkKeywords) {
-		score := 30
-		// Extra points for politics and economy
-		if containsAny(text, []string{"regering", "friends", "minister", "skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole"}) {
-			score += 30
+	// Переменные результата
+	var category string
+	score := 0
+
+	// 1) Если это про технологии/ИИ/медицину — требуем гео-контекст
+	if hasTech || hasMedical {
+		if !(hasDenmark || hasUkraineGeo || hasEurope) {
+			// технология/медицина без локальной привязки — не релевантно
+			return "", 0
 		}
-		if containsAny(text, []string{"politik", "økonomi", "money", "penge"}) {
+		if hasMedical {
+			category = "health"
+		} else {
+			category = "tech"
+		}
+		score = 80
+		// AI-премия
+		if containsAny(text, aiKeywords) {
+			score += 10
+		}
+		// не возвращаем здесь — даём возможность добавить локальные бонусы ниже
+	}
+
+	// 2) Новости про украинцев / проблемы беженцев / визы — высокая приоритетность
+	if hasUkraineGeo || hasRefugeeBoost || hasVisaBoost {
+		// если категория ещё не установлена (не tech/health), установить "ukraine"
+		if category == "" {
+			category = "ukraine"
+			score = 70
+		} else {
+			// если уже tech/health — усиливаем score для локального украинского контекста
+			score += 5
+		}
+		// локальные бонусы
+		if hasDenmark {
 			score += 15
 		}
+		if hasEurope {
+			score += 5
+		}
+		// Откат "войны" как главный фактор, если кроме неё нет соц/визы/интеграции
+		if hasConflict && !(hasRefugeeBoost || hasVisaBoost || hasDenmark) {
+			score -= 15
+		}
+		// Возвращаем, потому что это уже явный приоритетный блок
+		return category, score
+	}
 
-		// Boost for refugee/visa related stories (they're important for the audience)
-		if containsAny(text, refugeeBoostKeywords) {
+	// 3) Общие датские/европейские новости
+	if hasDenmark || hasEurope {
+		// если категория не установлена — сделать denmark
+		if category == "" {
+			category = "denmark"
+			score = 40
+		}
+		// маленький бонус за политику/экономику
+		if containsAny(text, []string{"politik", "regering", "økonomi", "minister"}) {
+			score += 15
+		}
+		// Технологические/медицинские вставки усиливают релевантность даже если категория "denmark"
+		if hasTech && category != "tech" {
+			score += 10
+		}
+		if hasMedical && category != "health" {
+			score += 10
+		}
+		// бонусы для виз/беженцев
+		if hasRefugeeBoost {
 			score += 20
 		}
-		if containsAny(text, visaBoostKeywords) {
+		if hasVisaBoost {
 			score += 25
 		}
-
-		return "denmark", score
+		// если в тексте также есть конфликтный контекст — немного снизим
+		if hasConflict {
+			score -= 5
+		}
+		// конец ветки
+		return category, score
 	}
 
-	return "", 0
+	// 4) Если после всех проверок категория всё ещё пустая — не релевантно
+	if category == "" {
+		return "", 0
+	}
+
+	// 5) Если категория установлена (только tech/health путь оставался), применим общие бонусы
+	if hasDenmark {
+		score += 15
+	}
+	if hasEurope {
+		score += 5
+	}
+	// Если было явно конфликтное содержимое — уменьшаем немного релевантность
+	if hasConflict {
+		score -= 10
+	}
+
+	// Гарантируем неотрицательный скор
+	if score < 0 {
+		score = 0
+	}
+
+	return category, score
 }
 
 // Gemini client injection
@@ -311,7 +419,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		seenContent[key] = struct{}{}
 
 		// Дедупликация по схожести заголовков (более мягкая)
-		similarKey := makeSimilarityKey(item.Title)
+		similarKey := makeSimilarityKey(item)
 		if _, dup := seenSimilar[similarKey]; dup {
 			log.Printf("🔄 Похожая новость (пропускаем): %s", item.Title)
 			metrics.Global.IncrementDuplicatesFiltered()
