@@ -237,7 +237,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		score := 30
 		// Extra points for politics and economy
 		if containsAny(text, []string{"regering", "friends", "minister", "skole", "uddannelse", "undervisning", "børn", "lærer", "studie", "eksamen", "universitet", "folkeskole"}) {
-			score += 20
+			score += 30
 		}
 		if containsAny(text, []string{"politik", "økonomi", "money", "penge"}) {
 			score += 15
@@ -248,16 +248,10 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 			score += 20
 		}
 		if containsAny(text, visaBoostKeywords) {
-			score += 15
+			score += 25
 		}
 
 		return "denmark", score
-	}
-
-	// ВРЕМЕННО: Захватываем ВСЕ новости для тестирования системы перевода
-	// Если в заголовке или описании есть хоть какие-то слова - пропускаем
-	if len(strings.Fields(text)) > 3 {
-		return "general", 20 // Минимальный балл для общих новостей
 	}
 
 	return "", 0

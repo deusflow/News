@@ -14,30 +14,17 @@ feeds:
     active: true
     categories: [denmark, main, ukraine, visas, technology, integration]
 
-  - url: https://www.thelocal.dk/feeds/rss.php
-    name: The Local DK
-    lang: en
-    priority: 50
-    active: true
-    categories: [denmark, ukraine, visas, technology, integration, immigration, main]
 
   - url: https://ekstrabladet.dk/rssfeed/nyheder/
     name: Ekstra Bladet - Nyheder
     lang: da
-    priority: 75
+    priority: 40
     active: true
     categories: [denmark, main, ukraine, visas, technology]
-
-  - url: https://www.altinget.dk/rss
-    name: Altinget - Politik & samfund
-    lang: da
-    priority: 65
-    active: true
-    categories: [denmark, main, ukraine, visas, technology, integration, immigration]
 
   - url: https://cphpost.dk/?feed=rss2
     name: The Copenhagen Post (English)
     lang: en
-    priority: 40
+    priority: 30
     active: true
     categories: [denmark, ukraine, visas, technology, integration, immigration, main]
