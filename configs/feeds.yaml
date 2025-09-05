@@ -1,11 +1,5 @@
 # Проверенные рабочие RSS-источники датских медиа (расширённая версия)
 feeds:
-  - url: https://news.google.com/rss?hl=da&gl=DK&ceid=DK:da
-    name: Google News DK
-    lang: da
-    priority: 5
-    active: true
-    categories: [ukraine, denmark, visas, technology, integration, immigration, main]
 
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
@@ -13,7 +7,6 @@ feeds:
     priority: 100
     active: true
     categories: [denmark, main, ukraine, visas, technology, integration]
-
 
   - url: https://ekstrabladet.dk/rssfeed/nyheder/
     name: Ekstra Bladet - Nyheder
