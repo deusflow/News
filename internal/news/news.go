@@ -491,7 +491,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 		return candidates[i].Published.After(candidates[j].Published) // По времени (новые первыми)
 	})
 
-	newsLimit := 8
+	newsLimit := 5
 	if len(candidates) < newsLimit {
 		newsLimit = len(candidates)
 	}
@@ -526,6 +526,7 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			n.SummaryUkrainian = aiResp.Ukrainian
 		}
 		res = append(res, n)
+		time.Sleep(time.Second * 2)
 	}
 
 	log.Printf("Обработано %d новостей с саммаризацией", len(res))

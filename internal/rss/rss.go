@@ -1,10 +1,11 @@
 package rss
 
 import (
-	"github.com/mmcdole/gofeed"
-	"gopkg.in/yaml.v3"
 	"log"
 	"os"
+
+	"github.com/mmcdole/gofeed"
+	"gopkg.in/yaml.v3"
 )
 
 // FeedSource represents a single RSS feed source with metadata
@@ -25,7 +26,7 @@ type FeedsConfig struct {
 // FeedItem wraps gofeed.Item with source metadata
 type FeedItem struct {
 	*gofeed.Item
-	Source FeedSource
+	Source *FeedSource
 }
 
 // LoadFeeds reads RSS feeds list from YAML file
@@ -70,7 +71,7 @@ func FetchAllFeeds(sources []FeedSource) ([]*FeedItem, error) {
 		for _, item := range feed.Items {
 			feedItem := &FeedItem{
 				Item:   item,
-				Source: source,
+				Source: &source,
 			}
 			allItems = append(allItems, feedItem)
 		}
