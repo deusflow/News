@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"dknews/internal/gemini"
 	"dknews/internal/metrics"
@@ -167,11 +168,20 @@ func makeSimilarityKey(item *rss.FeedItem) string {
 		// удалить HTML-теги если вдруг
 		reTags := regexp.MustCompile(`<[^>]*>`)
 		s = reTags.ReplaceAllString(s, " ")
-		// оставить только буквы, цифры и пробелы
-		re := regexp.MustCompile(`[^a-zA-Z0-9\u0080-\uFFFF\s]`)
-		s = re.ReplaceAllString(s, " ")
-		s = strings.Join(strings.Fields(s), " ")
-		return s
+
+		// Оставить только буквы, цифры и пробелы (Unicode-aware)
+		var b []rune
+		b = make([]rune, 0, len(s))
+		for _, r := range s {
+			if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsSpace(r) {
+				b = append(b, r)
+			} else {
+				// заменяем на пробел, чтобы разделять слова
+				b = append(b, ' ')
+			}
+		}
+		out := strings.Join(strings.Fields(string(b)), " ")
+		return out
 	}
 
 	// Небольшой набор стоп-слов — расширяй по необходимости (датский/английский)
