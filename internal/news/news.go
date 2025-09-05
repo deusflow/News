@@ -113,14 +113,36 @@ var europeKeywords = []string{
 	"europa", "eu", "european", "eu-lande", "europeisk",
 }
 
-// containsAny checks if string has any keyword (whole-word aware)
+// improved containsAny: distinguishes phrases and short words (avoids "ai" matching "said")
 func containsAny(text string, keywords []string) bool {
 	text = strings.ToLower(text)
+
 	for _, k := range keywords {
+		k = strings.ToLower(strings.TrimSpace(k))
 		if k == "" {
 			continue
 		}
-		if strings.Contains(text, strings.ToLower(k)) {
+
+		// If keyword is a phrase (contains space) -> substring match
+		if strings.Contains(k, " ") {
+			if strings.Contains(text, k) {
+				return true
+			}
+			continue
+		}
+
+		// Short tokens (<=3) -> whole word match using word boundary regexp
+		if len(k) <= 3 {
+			// Use regexp.QuoteMeta to avoid accidental meta-chars in keyword
+			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(k) + `\b`)
+			if re.MatchString(text) {
+				return true
+			}
+			continue
+		}
+
+		// Otherwise, simple substring is fine
+		if strings.Contains(text, k) {
 			return true
 		}
 	}
@@ -356,16 +378,6 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	}
 
 	// 5) Если категория установлена (только tech/health путь оставался), применим общие бонусы
-	if hasDenmark {
-		score += 15
-	}
-	if hasEurope {
-		score += 5
-	}
-	// Если было явно конфликтное содержимое — уменьшаем немного релевантность
-	if hasConflict {
-		score -= 10
-	}
 
 	// Гарантируем неотрицательный скор
 	if score < 0 {
@@ -448,6 +460,14 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			published = *item.PublishedParsed
 		}
 
+		sourceName, sourceLang := "", ""
+		var sourceCategories []string
+		if item.Source != nil {
+			sourceName = item.Source.Name
+			sourceLang = item.Source.Lang
+			sourceCategories = item.Source.Categories
+		}
+
 		candidates = append(candidates, News{
 			Title:            item.Title,
 			Content:          item.Description, // Пока краткое описание, полный контент добавим после
@@ -455,12 +475,12 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 			Published:        published,
 			Category:         category,
 			Score:            score,
-			SourceName:       item.Source.Name,
-			SourceLang:       item.Source.Lang,
-			SourceCategories: item.Source.Categories,
+			SourceName:       sourceName,
+			SourceLang:       sourceLang,
+			SourceCategories: sourceCategories,
 		})
 
-		log.Printf("Добавлена новость [%s, score:%d, source:%s]: %s", category, score, item.Source.Name, item.Title)
+		log.Printf("Добавлена новость [%s, score:%d, source:%s]: %s", category, score, sourceName, item.Title)
 	}
 
 	// sort
