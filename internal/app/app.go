@@ -239,7 +239,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 
 	// Красивый заголовок
 	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n")
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	b.WriteString("━━━━━━━━━━━━━━━\n\n")
 
 	// Определяем категорию и эмодзи
 	emoji := "📰"
@@ -262,7 +262,7 @@ func formatSingleNewsMessage(n news.News, number int) string {
 		b.WriteString("🇩🇰 " + limitText(n.SummaryDanish, 1000) + "\n\n")
 	}
 
-	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	b.WriteString("━━━━━━━━━━━━━━━\n")
 	b.WriteString("📱 <i>Danish News Bot - DeusFlow</i>")
 
 	return b.String()
