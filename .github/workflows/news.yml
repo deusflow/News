@@ -76,3 +76,11 @@ jobs:
           name: run.log
           path: run.log
           if-no-files-found: ignore
+
+      - name: Upload sent_news.json as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sent_news.json
+          path: sent_news.json
+          if-no-files-found: warn
