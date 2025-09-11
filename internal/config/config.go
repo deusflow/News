@@ -27,6 +27,12 @@ type Config struct {
 	RequestTimeout time.Duration
 	RetryAttempts  int
 	RetryDelay     time.Duration
+
+	// Cache settings
+	CacheFilePath   string
+	CacheTTLHours   int
+	DuplicateWindow int // hours for duplicate detection
+
 }
 
 func Load() (*Config, error) {
@@ -46,6 +52,11 @@ func Load() (*Config, error) {
 	cfg.TelegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 
+	// Cache settings
+	cfg.CacheFilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
+	cfg.CacheTTLHours = getEnvIntOrDefault("CACHE_TTL_HOURS", 48)
+	cfg.DuplicateWindow = getEnvIntOrDefault("DUPLICATE_WINDOW_HOURS", 24)
+
 	if mode := os.Getenv("BOT_MODE"); mode != "" {
 		cfg.BotMode = mode
 	}
@@ -61,6 +72,22 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, cfg.Validate()
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
 }
 
 func (c *Config) Validate() error {

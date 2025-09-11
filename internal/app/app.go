@@ -7,6 +7,7 @@ import (
 	"dknews/internal/metrics"
 	"dknews/internal/news"
 	"dknews/internal/rss"
+	"dknews/internal/storage"
 	"dknews/internal/telegram"
 	"fmt"
 	"html"
@@ -15,53 +16,52 @@ import (
 	"strings"
 )
 
-// formatNewsMessage builds grouped message using AI summaries (Ukrainian priority, then Danish)
+// formatNewsMessage builds grouped message using AI summaries (Ukrainian priority, then Danish, then others)
 func formatNewsMessage(newsList []news.News, max int) string {
 	var b strings.Builder
-
-	// Group news by category
-	ukraineNews := []news.News{}
-	denmarkNews := []news.News{}
-	for _, n := range newsList {
-		if len(ukraineNews)+len(denmarkNews) >= max {
-			break
-		}
-
-		if n.Category == "ukraine" {
-			ukraineNews = append(ukraineNews, n)
-		} else if n.Category == "denmark" {
-			denmarkNews = append(denmarkNews, n)
-		}
-	}
 
 	b.WriteString("🇩🇰 <b>Новини Данії</b> 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	count := 1
 
-	// First Ukraine news (priority)
-	if len(ukraineNews) > 0 {
-		b.WriteString("🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>\n\n")
-		for _, n := range ukraineNews {
-			if count > max {
-				break
-			}
+	// Priority: Ukraine in Denmark
+	b.WriteString("🇺🇦 <b>УКРАЇНА В ДАНІЇ</b>\n\n")
+	for _, n := range newsList {
+		if count > max {
+			break
+		}
+		if n.Category == "ukraine" {
 			b.WriteString(formatSingleNews(n, count))
 			count++
 		}
 	}
 
-	// Then important Denmark news
-	if len(denmarkNews) > 0 {
-		if len(ukraineNews) > 0 {
-			b.WriteString("\n🇩🇰 <b>ВАЖЛИВІ НОВИНИ ДАНІЇ</b>\n\n")
-		}
-		for _, n := range denmarkNews {
+	// Then important Denmark
+	if count <= max {
+		b.WriteString("\n🇩🇰 <b>ВАЖЛИВІ НОВИНИ ДАНІЇ</b>\n\n")
+		for _, n := range newsList {
 			if count > max {
 				break
 			}
-			b.WriteString(formatSingleNews(n, count))
-			count++
+			if n.Category == "denmark" {
+				b.WriteString(formatSingleNews(n, count))
+				count++
+			}
+		}
+	}
+
+	// Then everything else to increase diversity
+	if count <= max {
+		b.WriteString("\n🌍 <b>ІНШІ ВАЖЛИВІ НОВИНИ</b>\n\n")
+		for _, n := range newsList {
+			if count > max {
+				break
+			}
+			if n.Category != "ukraine" && n.Category != "denmark" {
+				b.WriteString(formatSingleNews(n, count))
+				count++
+			}
 		}
 	}
 
@@ -124,6 +124,20 @@ func Run() {
 	}
 	logger.Info("Configuration loaded successfully", "mode", cfg.BotMode, "max_news", cfg.MaxNewsLimit)
 
+	// Initialize file cache for duplicate prevention
+	newsCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
+	if err := newsCache.Load(); err != nil {
+		logger.Error("Failed to load news cache", "error", err)
+		// Don't fail, just start with empty cache
+	} else {
+		logger.Info("News cache loaded successfully", "items", newsCache.GetStats()["total_items"])
+	}
+	defer func() {
+		if err := newsCache.Save(); err != nil {
+			logger.Error("Failed to save news cache", "error", err)
+		}
+	}()
+
 	// Initialize Gemini client
 	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey)
 	if err != nil {
@@ -150,8 +164,13 @@ func Run() {
 	}
 	logger.Info("News items fetched", "total", len(items))
 
-	// Filter and translate news
-	filtered, err := news.FilterAndTranslate(items)
+	// Filter and translate news with options from config
+	filtered, err := news.FilterAndTranslateWithOptions(items, news.Options{
+		Limit:       cfg.MaxNewsLimit,
+		MaxAge:      cfg.NewsMaxAge,
+		PerSource:   2,
+		PerCategory: 2,
+	})
 	if err != nil {
 		logger.Error("Failed to filter and translate news", "error", err)
 		log.Fatalf("Ошибка фильтрации/обработки: %v", err)
@@ -174,9 +193,9 @@ func Run() {
 
 	// Send to Telegram based on mode
 	if cfg.BotMode == "single" {
-		sendSingleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID)
+		sendSingleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID, newsCache)
 	} else {
-		sendMultipleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID)
+		sendMultipleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID, newsCache, cfg.MaxNewsLimit)
 	}
 
 	// Log final metrics
@@ -190,15 +209,29 @@ func Run() {
 }
 
 // sendSingleNews отправляет одну новость
-func sendSingleNews(newsList []news.News, token, chatID string) {
+func sendSingleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache) {
 	if len(newsList) == 0 {
 		logger.Warn("No news to send")
 		return
 	}
 
-	selectedNews := newsList[0]
-	msg := formatSingleNewsMessage(selectedNews, 1)
+	// Find first non-duplicate news
+	var selectedNews *news.News
+	for i := range newsList {
+		hash := newsCache.GenerateNewsHash(newsList[i].Title, newsList[i].Link)
+		if !newsCache.IsAlreadySent(hash) {
+			selectedNews = &newsList[i]
+			break
+		}
+		logger.Info("Skipping duplicate news", "title", newsList[i].Title)
+	}
 
+	if selectedNews == nil {
+		logger.Warn("All news items are duplicates, nothing to send")
+		return
+	}
+
+	msg := formatSingleNewsMessage(*selectedNews, 1)
 	logger.Info("Sending single news", "length", len(msg), "title", selectedNews.Title)
 
 	err := telegram.SendMessage(token, chatID, msg)
@@ -207,21 +240,48 @@ func sendSingleNews(newsList []news.News, token, chatID string) {
 		log.Fatalf("Ошибка отправки в Telegram: %v", err)
 	}
 
+	// Mark as sent
+	hash := newsCache.GenerateNewsHash(selectedNews.Title, selectedNews.Link)
+	newsCache.MarkAsSent(hash, selectedNews.Title, selectedNews.Link, selectedNews.Category, selectedNews.SourceName)
+
 	metrics.Global.IncrementTelegramMessagesSent()
 	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
 // sendMultipleNews отправляет несколько новостей одним сообщением
-func sendMultipleNews(newsList []news.News, token, chatID string) {
-	msg := formatNewsMessage(newsList, 2)
-
-	// Check Telegram message length limit
-	if len(msg) > 4000 {
-		logger.Warn("Message too long, reducing to 1 news", "original_length", len(msg))
-		msg = formatNewsMessage(newsList, 1)
+func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache, maxToSend int) {
+	// Filter out duplicates
+	var uniqueNews []news.News
+	for _, n := range newsList {
+		hash := newsCache.GenerateNewsHash(n.Title, n.Link)
+		if !newsCache.IsAlreadySent(hash) {
+			uniqueNews = append(uniqueNews, n)
+		} else {
+			logger.Info("Skipping duplicate news", "title", n.Title)
+		}
 	}
 
-	logger.Info("Sending multiple news", "length", len(msg))
+	if len(uniqueNews) == 0 {
+		logger.Warn("All news items are duplicates, nothing to send")
+		return
+	}
+
+	if maxToSend <= 0 {
+		maxToSend = 5
+	}
+	if maxToSend > len(uniqueNews) {
+		maxToSend = len(uniqueNews)
+	}
+
+	msg := formatNewsMessage(uniqueNews, maxToSend)
+
+	// Reduce message size if too long
+	for len(msg) > 4000 && maxToSend > 1 {
+		maxToSend--
+		msg = formatNewsMessage(uniqueNews, maxToSend)
+	}
+
+	logger.Info("Sending multiple news", "length", len(msg), "count", maxToSend)
 
 	err := telegram.SendMessage(token, chatID, msg)
 	if err != nil {
@@ -229,8 +289,15 @@ func sendMultipleNews(newsList []news.News, token, chatID string) {
 		log.Fatalf("Ошибка отправки в Telegram: %v", err)
 	}
 
+	// Mark all sent news as sent
+	for i := 0; i < maxToSend; i++ {
+		n := uniqueNews[i]
+		hash := newsCache.GenerateNewsHash(n.Title, n.Link)
+		newsCache.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
+	}
+
 	metrics.Global.IncrementTelegramMessagesSent()
-	logger.Info("Multiple news sent successfully")
+	logger.Info("Multiple news sent successfully", "count", maxToSend)
 }
 
 // formatSingleNewsMessage адаптирован для саммари
