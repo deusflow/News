@@ -1,0 +1,78 @@
+name: Danish News Bot - Scheduled
+
+on:
+  schedule:
+    # Adjust schedule as you like (UTC). Example: every 6 hours
+    - cron: '30 5 * * *'   # 05:30 UTC = 07:30 датского времени (летом)
+    - cron: '30 7 * * *'   # 07:30 UTC = 09:30 датского времени (летом)
+    - cron: '0 10 * * *'   # 10:00 UTC = 12:00 датского времени (летом)
+    - cron: '0 11 * * *'   # 11:00 UTC = 12:00 датского времени (летом)
+    - cron: '0 12 * * *'   # 12:00 UTC = 14:00 датского времени (летом)
+    - cron: '0 14 * * *'   # 14:00 UTC = 16:00 датского времени (летом)
+    - cron: '0 17 * * *'   # 17:00 UTC = 19:00 датского времени (летом)
+    - cron: '0 18 * * *'   # 18:00 UTC = 20:00 датского времени (летом)
+    - cron: '0 19 * * *'   # 19:00 UTC = 21:00 датского
+  workflow_dispatch: {}
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      # Ensure cache file path is the project root file name below
+      CACHE_FILE_PATH: sent_news.json
+      MAX_NEWS_LIMIT: 8
+      BOT_MODE: single
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Restore sent_news.json cache
+        id: cache-sent
+        uses: actions/cache@v4
+        with:
+          path: sent_news.json
+          key: sent-news-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            sent-news-${{ runner.os }}-${{ github.ref_name }}-
+            sent-news-${{ runner.os }}-
+            sent-news-
+
+      - name: Show restored cache file (if any)
+        run: |
+          echo "Workspace: $PWD"
+          ls -la
+          echo "--- sent_news.json (restored) ---"
+          test -f sent_news.json && cat sent_news.json || echo "No previous cache"
+
+      - name: Build
+        run: |
+          go build -o bin/dknews ./cmd/dknews
+
+      - name: Run bot
+        run: |
+          ./bin/dknews | tee run.log
+
+      - name: Show resulting cache file
+        run: |
+          echo "--- sent_news.json (after run) ---"
+          test -f sent_news.json && cat sent_news.json || echo "Cache file not created"
+
+      - name: Upload run log (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run.log
+          path: run.log
+          if-no-files-found: ignore
