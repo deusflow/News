@@ -207,7 +207,7 @@ func makeNewsKey(title, description string) string {
 // makeSimilarityKey - менее агрессивная версия.
 // Логика:
 // 1) Берём host из item.Link (если есть) — чтобы ключ был специфичен для источника.
-// 2) Нормализуем заголовок: lowercase, убираем пунктуацию, убираем стоп-слова.
+// 2) Нормализуем заголовок: lowercase, убиираем пунктуацию, убираем стоп-слова.
 // 3) Оставляем первые N значимых слов (по умолчанию 6) — чтобы не склеивать слишком разные заголовки.
 // 4) Добавляем временной срез (truncate по окну в hours, по умолчанию 6ч).
 // Результат: host|topWords|windowUnix
@@ -493,10 +493,11 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 
 // Options controls filtering and selection behavior.
 type Options struct {
-	Limit       int           // how many items to return
-	MaxAge      time.Duration // discard items older than this
-	PerSource   int           // cap per source in final list
-	PerCategory int           // cap per category in final list
+	Limit             int           // how many items to return
+	MaxAge            time.Duration // discard items older than this
+	PerSource         int           // cap per source in final list
+	PerCategory       int           // cap per category in final list
+	MaxGeminiRequests int           // maximum Gemini requests allowed (0 = unlimited)
 }
 
 // FilterAndTranslateWithOptions performs filtering and summarization using provided options.
@@ -646,20 +647,28 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 	fullArticles := scraper.ExtractArticlesInBackground(urls)
 
 	res := make([]News, 0, newsLimit)
+	geminiRequests := 0
 	for i := 0; i < newsLimit; i++ {
 		n := diverseCandidates[i]
 		if fa, ok := fullArticles[n.Link]; ok && len(fa.Content) > 200 {
 			n.Content = fa.Content
 		}
-		aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
-		if err != nil {
+		if opts.MaxGeminiRequests > 0 && geminiRequests >= opts.MaxGeminiRequests {
 			n.Summary = fallbackSummary(n.Content)
 			n.SummaryDanish = "(Ingen AI)"
 			n.SummaryUkrainian = "(Немає AI)"
 		} else {
-			n.Summary = aiResp.Summary
-			n.SummaryDanish = aiResp.Danish
-			n.SummaryUkrainian = aiResp.Ukrainian
+			aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
+			if err != nil {
+				n.Summary = fallbackSummary(n.Content)
+				n.SummaryDanish = "(Ingen AI)"
+				n.SummaryUkrainian = "(Немає AI)"
+			} else {
+				n.Summary = aiResp.Summary
+				n.SummaryDanish = aiResp.Danish
+				n.SummaryUkrainian = aiResp.Ukrainian
+			}
+			geminiRequests++
 		}
 		res = append(res, n)
 		time.Sleep(2 * time.Second)

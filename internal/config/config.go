@@ -15,7 +15,8 @@ type Config struct {
 	BotMode        string // "single" or "multiple"
 
 	// Gemini settings
-	GeminiAPIKey string
+	GeminiAPIKey      string
+	MaxGeminiRequests int // maximum Gemini requests per run (0 = unlimited)
 
 	// RSS settings
 	FeedsConfigPath string
@@ -38,13 +39,14 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		// Default values
-		FeedsConfigPath: "configs/feeds.yaml",
-		MaxNewsLimit:    8,
-		NewsMaxAge:      24 * time.Hour,
-		RequestTimeout:  30 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      5 * time.Second,
-		BotMode:         "multiple",
+		FeedsConfigPath:   "configs/feeds.yaml",
+		MaxGeminiRequests: 3, // default limit, change as needed
+		MaxNewsLimit:      8,
+		NewsMaxAge:        24 * time.Hour,
+		RequestTimeout:    30 * time.Second,
+		RetryAttempts:     3,
+		RetryDelay:        5 * time.Second,
+		BotMode:           "multiple",
 	}
 
 	// Load from environment
