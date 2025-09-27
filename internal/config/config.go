@@ -73,6 +73,13 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// NEW: Read MAX_GEMINI_REQUESTS from env
+	if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
+		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
+			cfg.MaxGeminiRequests = val
+		}
+	}
+
 	return cfg, cfg.Validate()
 }
 

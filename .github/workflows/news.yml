@@ -6,11 +6,9 @@ on:
     - cron: '30 5 * * *'   # 05:30 UTC = 07:30 датского времени (летом)
     - cron: '30 7 * * *'   # 07:30 UTC = 09:30 датского времени (летом)
     - cron: '0 10 * * *'   # 10:00 UTC = 12:00 датского времени (летом)
-    - cron: '0 11 * * *'   # 11:00 UTC = 12:00 датского времени (летом)
     - cron: '0 12 * * *'   # 12:00 UTC = 14:00 датского времени (летом)
     - cron: '0 14 * * *'   # 14:00 UTC = 16:00 датского времени (летом)
     - cron: '0 17 * * *'   # 17:00 UTC = 19:00 датского времени (летом)
-    - cron: '0 18 * * *'   # 18:00 UTC = 20:00 датского времени (летом)
     - cron: '0 19 * * *'   # 19:00 UTC = 21:00 датского
   workflow_dispatch: {}
 
@@ -24,10 +22,12 @@ jobs:
       # Ensure cache file path is the project root file name below
       CACHE_FILE_PATH: sent_news.json
       MAX_NEWS_LIMIT: 8
+      MAX_GEMINI_REQUESTS: 2
       BOT_MODE: single
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
 
     steps:
       - name: Checkout

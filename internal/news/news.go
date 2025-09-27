@@ -655,14 +655,19 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 		}
 		if opts.MaxGeminiRequests > 0 && geminiRequests >= opts.MaxGeminiRequests {
 			n.Summary = fallbackSummary(n.Content)
-			n.SummaryDanish = "(Ingen AI)"
-			n.SummaryUkrainian = "(Немає AI)"
+			n.SummaryDanish = "(AI-forespørgsler for i dag er opbrugt. Hvis forfatteren ønsker det, " +
+				"kan en kort beskrivelse tilføjes manuelt. Vent venligst lidt, mis ^_^)"
+			n.SummaryUkrainian = "(АІ запити на сьогодні вичерпані." +
+				"Якщо автор вирішить, можна додати короткий опис вручну. Треба трохи зачекати, кицю ^_^)"
+
 		} else {
 			aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
 			if err != nil {
 				n.Summary = fallbackSummary(n.Content)
-				n.SummaryDanish = "(Ingen AI)"
-				n.SummaryUkrainian = "(Немає AI)"
+				n.SummaryDanish = "(АІ запити на сьогодні вичерпані." +
+					"Якщо автор вирішить, можна додати короткий опис вручну. Треба трохи зачекати, кицю ^_^)"
+				n.SummaryUkrainian = "(AI-forespørgsler for i dag er opbrugt. Hvis forfatteren ønsker det, " +
+					"kan en kort beskrivelse tilføjes manuelt. Vent venligst lidt, mis ^_^)"
 			} else {
 				n.Summary = aiResp.Summary
 				n.SummaryDanish = aiResp.Danish

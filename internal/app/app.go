@@ -166,9 +166,10 @@ func Run() {
 
 	// Filter and translate news with options from config
 	filtered, err := news.FilterAndTranslateWithOptions(items, news.Options{
-		Limit:     cfg.MaxNewsLimit,
-		MaxAge:    cfg.NewsMaxAge,
-		PerSource: 2,
+		Limit:             cfg.MaxNewsLimit,
+		MaxAge:            cfg.NewsMaxAge,
+		PerSource:         2,
+		MaxGeminiRequests: cfg.MaxGeminiRequests, // добавлено!
 	})
 	if err != nil {
 		logger.Error("Failed to filter and translate news", "error", err)
