@@ -12,11 +12,11 @@ import (
 	"time"
 	"unicode"
 
-	"dknews/internal/gemini"
-	"dknews/internal/metrics"
-	"dknews/internal/rss"
-	"dknews/internal/scraper"
-	"dknews/internal/translate" // Добавляем импорт нашей системы переводов
+	"github.com/deusflow/News/internal/gemini"
+	"github.com/deusflow/News/internal/metrics"
+	"github.com/deusflow/News/internal/rss"
+	"github.com/deusflow/News/internal/scraper"
+	"github.com/deusflow/News/internal/translate" // Добавляем импорт нашей системы переводов
 )
 
 // News represents a single news item enriched by AI summaries with image support.

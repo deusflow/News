@@ -2,15 +2,16 @@ package gemini
 
 import (
 	"context"
-	"dknews/internal/cache"
-	"dknews/internal/metrics"
-	"dknews/internal/retry"
 	"fmt"
 	"log"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/deusflow/News/internal/cache"
+	"github.com/deusflow/News/internal/metrics"
+	"github.com/deusflow/News/internal/retry"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
