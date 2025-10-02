@@ -815,6 +815,99 @@ func FormatNewsWithImage(n News) string {
 	return b.String()
 }
 
+// trimToWordBoundary trims string to <= max, cutting at last space and adding ellipsis if trimmed.
+func trimToWordBoundary(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	if i := strings.LastIndex(cut, " "); i >= max-50 { // try to keep near end
+		cut = strings.TrimSpace(cut[:i])
+	} else {
+		cut = strings.TrimSpace(cut)
+	}
+	if cut == "" {
+		return s[:max]
+	}
+	return cut + "..."
+}
+
+// FormatCaptionForPhoto builds a compact, bilingual caption that fits into maxLen (<=1024 for Telegram photo captions).
+func FormatCaptionForPhoto(n News, maxLen int) string {
+	if maxLen <= 0 || maxLen > 1024 {
+		maxLen = 1024
+	}
+	// Prepare pieces
+	daTitle := strings.TrimSpace(n.Title)
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukTitle == "" {
+		ukTitle = daTitle
+	}
+	daSum := strings.TrimSpace(n.SummaryDanish)
+	if daSum == "" {
+		daSum = fallbackSummary(n.Content)
+	}
+	ukSum := strings.TrimSpace(n.SummaryUkrainian)
+	if ukSum == "" {
+		ukSum = fallbackSummary(n.Content)
+	}
+
+	// Static header and separators
+	header := "🇩🇰 Danish News 🇺🇦\n━━━━━━━━━━━━━━━\n\n"
+	footer := "━━━━━━━━━━━━━━━\n📱 Danish News Bot - DeusFlow"
+
+	// Skeleton without summaries to measure base
+	var base strings.Builder
+	base.WriteString(header)
+	base.WriteString("🇩🇰 " + daTitle + "\n\n")
+	base.WriteString("🇺🇦 " + ukTitle + "\n\n")
+	base.WriteString(footer)
+	baseLen := len(base.String())
+	if baseLen >= maxLen {
+		// Titles too long — trim titles first
+		roomForTitles := maxLen - (len(header) + len(footer) + 8) // reserve minimal spacing
+		if roomForTitles < 20 {
+			roomForTitles = 20
+		}
+		// Split room between titles
+		each := roomForTitles / 2
+		daTitle = trimToWordBoundary(daTitle, each)
+		ukTitle = trimToWordBoundary(ukTitle, each)
+	}
+
+	// Recompute base with trimmed titles
+	base.Reset()
+	base.WriteString(header)
+	base.WriteString("🇩🇰 " + daTitle + "\n")
+	base.WriteString("%DA%\n\n") // placeholder for Danish summary
+	base.WriteString("🇺🇦 " + ukTitle + "\n")
+	base.WriteString("%UK%\n\n") // placeholder for Ukrainian summary
+	base.WriteString(footer)
+
+	// Available room for summaries
+	baseStr := base.String()
+	available := maxLen - (len(baseStr) - len("%DA%") - len("%UK%"))
+	if available < 40 {
+		available = 40
+	}
+	// Allocate roughly evenly, skew a bit toward Danish first
+	daBudget := available / 2
+	ukBudget := available - daBudget
+
+	daSum = trimToWordBoundary(daSum, daBudget)
+	ukSum = trimToWordBoundary(ukSum, ukBudget)
+
+	caption := strings.Replace(baseStr, "%DA%", daSum, 1)
+	caption = strings.Replace(caption, "%UK%", ukSum, 1)
+
+	// Final guard: if still slightly over (due to multi-byte emojis etc.), hard trim
+	if len(caption) > maxLen {
+		caption = trimToWordBoundary(caption, maxLen)
+	}
+	return caption
+}
+
 // normalizeURL удаляет трекинговые параметры, фрагменты и приводит host/path к нижнему регистру
 func normalizeURL(raw string) string {
 	if raw == "" {
