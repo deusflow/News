@@ -234,7 +234,7 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	// Build caption in required format
 	var caption string
 	if strings.TrimSpace(selectedNews.ImageURL) != "" {
-		caption = news.FormatCaptionForPhoto(*selectedNews, 1000)
+		caption = news.FormatCaptionForPhoto(*selectedNews, 900)
 	} else {
 		caption = news.FormatNewsWithImage(*selectedNews)
 	}
@@ -260,7 +260,7 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
-// sendMultipleNews отправляет несколько новин, кожну окремим повідомленням (з фото, якщо є)
+// sendMultipleNews отправляет кілька новин, кожну окремим повідомленням (з фото, якщо є)
 func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache, maxToSend int) {
 	// Filter out duplicates
 	var uniqueNews []news.News
@@ -290,7 +290,7 @@ func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *sto
 		n := uniqueNews[i]
 		var caption string
 		if strings.TrimSpace(n.ImageURL) != "" {
-			caption = news.FormatCaptionForPhoto(n, 1000)
+			caption = news.FormatCaptionForPhoto(n, 900)
 		} else {
 			caption = news.FormatNewsWithImage(n)
 		}

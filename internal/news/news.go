@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/metrics"
@@ -818,19 +819,24 @@ func FormatNewsWithImage(n News) string {
 // trimToWordBoundary trims string to <= max, cutting at last space and adding ellipsis if trimmed.
 func trimToWordBoundary(s string, max int) string {
 	s = strings.TrimSpace(s)
-	if max <= 0 || len(s) <= max {
+	if max <= 0 || utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	cut := s[:max]
-	if i := strings.LastIndex(cut, " "); i >= max-50 { // try to keep near end
-		cut = strings.TrimSpace(cut[:i])
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	cutRunes := runes[:max]
+	cutStr := string(cutRunes)
+	if i := strings.LastIndex(cutStr, " "); i >= 0 && utf8.RuneCountInString(cutStr)-utf8.RuneCountInString(cutStr[:i]) <= 50 {
+		cutStr = strings.TrimSpace(cutStr[:i])
 	} else {
-		cut = strings.TrimSpace(cut)
+		cutStr = strings.TrimSpace(cutStr)
 	}
-	if cut == "" {
-		return s[:max]
+	if cutStr == "" {
+		return string(cutRunes)
 	}
-	return cut + "..."
+	return cutStr + "..."
 }
 
 // FormatCaptionForPhoto builds a compact, bilingual caption that fits into maxLen (<=1024 for Telegram photo captions).
@@ -852,60 +858,122 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	if ukSum == "" {
 		ukSum = fallbackSummary(n.Content)
 	}
+	// Condense to at most two sentences for photo caption
+	daSum = condenseSummary(daSum, 2)
+	ukSum = condenseSummary(ukSum, 2)
 
-	// Static header and separators
-	header := "🇩🇰 Danish News 🇺🇦\n━━━━━━━━━━━━━━━\n\n"
-	footer := "━━━━━━━━━━━━━━━\n📱 Danish News Bot - DeusFlow"
+	// Static header and separators (shorter for photo caption)
+	header := "🇩🇰 Danish News 🇺🇦\n\n"
+	footer := ""
 
-	// Skeleton without summaries to measure base
-	var base strings.Builder
-	base.WriteString(header)
-	base.WriteString("🇩🇰 " + daTitle + "\n\n")
-	base.WriteString("🇺🇦 " + ukTitle + "\n\n")
-	base.WriteString(footer)
-	baseLen := len(base.String())
-	if baseLen >= maxLen {
-		// Titles too long — trim titles first
-		roomForTitles := maxLen - (len(header) + len(footer) + 8) // reserve minimal spacing
+	// Skeleton without summaries to measure base (rune-aware)
+	composeBase := func(daT, ukT string) string {
+		var b strings.Builder
+		b.WriteString(header)
+		b.WriteString("🇩🇰 " + daT + "\n")
+		b.WriteString("%DA%\n\n")
+		b.WriteString("🇺🇦 " + ukT + "\n")
+		b.WriteString("%UK%\n\n")
+		b.WriteString(footer)
+		return b.String()
+	}
+
+	capStr := composeBase(daTitle, ukTitle)
+	baseLen := utf8.RuneCountInString(strings.ReplaceAll(strings.ReplaceAll(capStr, "%DA%", ""), "%UK%", ""))
+	// If even titles + header/footer exceed limit, trim titles first
+	if baseLen >= maxLen-40 { // leave minimal budget for summaries
+		roomForTitles := maxLen - utf8.RuneCountInString(header) - utf8.RuneCountInString(footer) - 8 - 40
 		if roomForTitles < 20 {
 			roomForTitles = 20
 		}
-		// Split room between titles
 		each := roomForTitles / 2
 		daTitle = trimToWordBoundary(daTitle, each)
 		ukTitle = trimToWordBoundary(ukTitle, each)
+		capStr = composeBase(daTitle, ukTitle)
+		baseLen = utf8.RuneCountInString(strings.ReplaceAll(strings.ReplaceAll(capStr, "%DA%", ""), "%UK%", ""))
 	}
 
-	// Recompute base with trimmed titles
-	base.Reset()
-	base.WriteString(header)
-	base.WriteString("🇩🇰 " + daTitle + "\n")
-	base.WriteString("%DA%\n\n") // placeholder for Danish summary
-	base.WriteString("🇺🇦 " + ukTitle + "\n")
-	base.WriteString("%UK%\n\n") // placeholder for Ukrainian summary
-	base.WriteString(footer)
-
-	// Available room for summaries
-	baseStr := base.String()
-	available := maxLen - (len(baseStr) - len("%DA%") - len("%UK%"))
+	available := maxLen - baseLen
 	if available < 40 {
 		available = 40
 	}
-	// Allocate roughly evenly, skew a bit toward Danish first
-	daBudget := available / 2
-	ukBudget := available - daBudget
+	// Dynamic allocation: minimal floor for each, remainder proportional to lengths
+	minFloor := available / 5 // 20% floor split
+	if minFloor < 100 {
+		minFloor = 100
+	}
+	rem := available - 2*minFloor
+	if rem < 0 {
+		rem = 0
+	}
+	daLen := utf8.RuneCountInString(daSum)
+	ukLen := utf8.RuneCountInString(ukSum)
+	totalLen := daLen + ukLen
+	var daBudget, ukBudget int
+	if totalLen > 0 && rem > 0 {
+		daBudget = minFloor + rem*daLen/totalLen
+		ukBudget = minFloor + rem*ukLen/totalLen
+	} else {
+		daBudget = available / 2
+		ukBudget = available - daBudget
+	}
 
 	daSum = trimToWordBoundary(daSum, daBudget)
 	ukSum = trimToWordBoundary(ukSum, ukBudget)
 
-	caption := strings.Replace(baseStr, "%DA%", daSum, 1)
+	caption := strings.Replace(capStr, "%DA%", daSum, 1)
 	caption = strings.Replace(caption, "%UK%", ukSum, 1)
 
-	// Final guard: if still slightly over (due to multi-byte emojis etc.), hard trim
-	if len(caption) > maxLen {
-		caption = trimToWordBoundary(caption, maxLen)
+	// Final guard rune-aware
+	if utf8.RuneCountInString(caption) > maxLen {
+		r := []rune(caption)
+		caption = string(r[:maxLen-1]) + "…"
 	}
 	return caption
+}
+
+// condenseSummary returns up to maxSentences sentences from s, trimmed and joined with proper punctuation.
+func condenseSummary(s string, maxSentences int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || maxSentences <= 0 {
+		return s
+	}
+	// naive sentence split on . ! ? keeping Unicode letters
+	seps := []rune{'.', '!', '?'}
+	var sentences []string
+	var cur []rune
+	for _, r := range []rune(s) {
+		cur = append(cur, r)
+		for _, sep := range seps {
+			if r == sep {
+				str := strings.TrimSpace(string(cur))
+				if len([]rune(str)) >= 15 { // skip too short fragments
+					sentences = append(sentences, str)
+				}
+				cur = cur[:0]
+				break
+			}
+		}
+		if len(sentences) >= maxSentences {
+			break
+		}
+	}
+	if len(sentences) == 0 {
+		// fallback: first ~2 chunks by naive split
+		parts := strings.Split(s, ".")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			sentences = append(sentences, p+".")
+			if len(sentences) >= maxSentences {
+				break
+			}
+		}
+	}
+	res := strings.Join(sentences, " ")
+	return strings.TrimSpace(res)
 }
 
 // normalizeURL удаляет трекинговые параметры, фрагменты и приводит host/path к нижнему регистру
