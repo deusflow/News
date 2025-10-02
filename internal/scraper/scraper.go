@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -487,4 +488,108 @@ func ExtractArticlesInBackground(urls []string) map[string]*ArticleContent {
 	}
 
 	return result
+}
+
+// ExtractImageURL fetches a page and tries to detect a representative image (og:image/twitter:image)
+func ExtractImageURL(pageURL string) (string, error) {
+	if strings.TrimSpace(pageURL) == "" {
+		return "", fmt.Errorf("empty url")
+	}
+
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Get(pageURL)
+	if err != nil {
+		return "", fmt.Errorf("error loading page: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("http status %d", resp.StatusCode)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error parsing HTML: %v", err)
+	}
+
+	resolve := func(src string) string {
+		src = strings.TrimSpace(src)
+		if src == "" {
+			return ""
+		}
+		u, err := url.Parse(src)
+		if err != nil {
+			return ""
+		}
+		if u.Scheme == "http" || u.Scheme == "https" {
+			return src
+		}
+		base, err := url.Parse(pageURL)
+		if err != nil {
+			return src
+		}
+		return base.ResolveReference(u).String()
+	}
+
+	// Priority 1: og:image variants
+	if v, ok := doc.Find(`meta[property="og:image"]`).Attr("content"); ok {
+		img := resolve(v)
+		if isLikelyImage(img) {
+			return img, nil
+		}
+	}
+	if v, ok := doc.Find(`meta[property="og:image:secure_url"]`).Attr("content"); ok {
+		img := resolve(v)
+		if isLikelyImage(img) {
+			return img, nil
+		}
+	}
+
+	// Priority 2: twitter:image
+	if v, ok := doc.Find(`meta[name="twitter:image"], meta[name="twitter:image:src"]`).Attr("content"); ok {
+		img := resolve(v)
+		if isLikelyImage(img) {
+			return img, nil
+		}
+	}
+
+	// Priority 3: link rel=image_src
+	if v, ok := doc.Find(`link[rel="image_src"]`).Attr("href"); ok {
+		img := resolve(v)
+		if isLikelyImage(img) {
+			return img, nil
+		}
+	}
+
+	// Fallback: first <img> in main/article
+	sel := []string{"article img", "main img", "img"}
+	for _, s := range sel {
+		if n := doc.Find(s).First(); n != nil && n.Length() > 0 {
+			if v, ok := n.Attr("src"); ok {
+				img := resolve(v)
+				if isLikelyImage(img) {
+					return img, nil
+				}
+			}
+		}
+	}
+
+	return "", nil
+}
+
+func isLikelyImage(u string) bool {
+	u = strings.ToLower(strings.TrimSpace(u))
+	if u == "" {
+		return false
+	}
+	if strings.HasPrefix(u, "data:") || strings.HasSuffix(u, ".svg") {
+		return false
+	}
+	if strings.HasSuffix(u, ".jpg") || strings.HasSuffix(u, ".jpeg") || strings.HasSuffix(u, ".png") || strings.HasSuffix(u, ".webp") || strings.HasSuffix(u, ".gif") {
+		return true
+	}
+	// Allow URLs without extension but with image providers
+	if strings.Contains(u, "/images/") || strings.Contains(u, "cdn") {
+		return true
+	}
+	return false
 }

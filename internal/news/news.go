@@ -16,9 +16,10 @@ import (
 	"dknews/internal/metrics"
 	"dknews/internal/rss"
 	"dknews/internal/scraper"
+	"dknews/internal/translate" // Добавляем импорт нашей системы переводов
 )
 
-// News represents a single news item enriched by Gemini summaries.
+// News represents a single news item enriched by AI summaries with image support.
 type News struct {
 	Title     string
 	Content   string
@@ -34,6 +35,11 @@ type News struct {
 	Summary          string // Original language summary (or detected)
 	SummaryDanish    string // Danish version of summary
 	SummaryUkrainian string // Ukrainian version of summary
+	TitleUkrainian   string // Ukrainian title (translated from Title)
+
+	// Image support - добавляем поддержку изображений
+	ImageURL string // URL изображения новости
+	ImageAlt string // Альтернативный текст для изображения
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
@@ -609,6 +615,9 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			SourceName:       sourceName,
 			SourceLang:       sourceLang,
 			SourceCategories: sourceCategories,
+			// Извлекаем изображение из RSS или из ссылки
+			ImageURL: extractImageURL(item),
+			ImageAlt: item.Title, // Используем заголовок как альтернативный текст
 		})
 
 		seenTitles = append(seenTitles, item.Title)
@@ -650,33 +659,79 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 	geminiRequests := 0
 	for i := 0; i < newsLimit; i++ {
 		n := diverseCandidates[i]
+		log.Printf("Getting full content of article %d/%d: %s", i+1, newsLimit, n.Link)
+
 		if fa, ok := fullArticles[n.Link]; ok && len(fa.Content) > 200 {
 			n.Content = fa.Content
+			log.Printf("✅ Got content (%d chars)", len(fa.Content))
+		} else {
+			log.Printf("⚠️ Using short description for: %s", n.Title)
 		}
+
+		// Определяем исходный язык
+		sourceLang := "da" // По умолчанию датский
+		if n.SourceLang != "" {
+			sourceLang = n.SourceLang
+		}
+
+		// Проверяем лимиты Gemini
 		if opts.MaxGeminiRequests > 0 && geminiRequests >= opts.MaxGeminiRequests {
+			log.Printf("⚠️ Gemini requests limit exceeded, using fallback AI services")
+
+			// Краткая суть на исходном языке (для хранения)
 			n.Summary = fallbackSummary(n.Content)
-			n.SummaryDanish = "(AI-forespørgsler for i dag er opbrugt. Hvis forfatteren ønsker det, " +
-				"kan en kort beskrivelse tilføjes manuelt. Vent venligst lidt, mis ^_^)"
-			n.SummaryUkrainian = "(АІ запити на сьогодні вичерпані." +
-				"Якщо автор вирішить, можна додати короткий опис вручну. Треба трохи зачекати, кицю ^_^)"
+
+			// Используем бесплатные AI для саммари сразу на целевых языках
+			if daSum, err := translate.SummarizeText(n.Content, "da"); err == nil && strings.TrimSpace(daSum) != "" {
+				n.SummaryDanish = daSum
+			} else {
+				n.SummaryDanish = fallbackSummary(n.Content)
+			}
+			if ukSum, err := translate.SummarizeText(n.Content, "uk"); err == nil && strings.TrimSpace(ukSum) != "" {
+				n.SummaryUkrainian = ukSum
+			} else {
+				n.SummaryUkrainian = fallbackSummary(n.Content)
+			}
+
+			// Украинский заголовок
+			if ukTitle, err := translate.TranslateText(n.Title, sourceLang, "uk"); err == nil && strings.TrimSpace(ukTitle) != "" {
+				n.TitleUkrainian = ukTitle
+			}
 
 		} else {
 			aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
 			if err != nil {
+				log.Printf("⚠️ Gemini failed: %v, trying fallback AI services", err)
+
+				// Gemini не сработал — бесплатные AI саммари
 				n.Summary = fallbackSummary(n.Content)
-				n.SummaryDanish = "(АІ запити на сьогодні вичерпані." +
-					"Якщо автор вирішить, можна додати короткий опис вручну. Треба трохи зачекати, кицю ^_^)"
-				n.SummaryUkrainian = "(AI-forespørgsler for i dag er opbrugt. Hvis forfatteren ønsker det, " +
-					"kan en kort beskrivelse tilføjes manuelt. Vent venligst lidt, mis ^_^)"
+				if ukSum, err := translate.SummarizeText(n.Content, "uk"); err == nil && strings.TrimSpace(ukSum) != "" {
+					n.SummaryUkrainian = ukSum
+				} else {
+					n.SummaryUkrainian = fallbackSummary(n.Content)
+				}
+				if daSum, err := translate.SummarizeText(n.Content, "da"); err == nil && strings.TrimSpace(daSum) != "" {
+					n.SummaryDanish = daSum
+				} else {
+					n.SummaryDanish = fallbackSummary(n.Content)
+				}
+				if ukTitle, err := translate.TranslateText(n.Title, sourceLang, "uk"); err == nil && strings.TrimSpace(ukTitle) != "" {
+					n.TitleUkrainian = ukTitle
+				}
 			} else {
+				// Gemini успешно
 				n.Summary = aiResp.Summary
 				n.SummaryDanish = aiResp.Danish
 				n.SummaryUkrainian = aiResp.Ukrainian
+				if ukTitle, err := translate.TranslateText(n.Title, sourceLang, "uk"); err == nil && strings.TrimSpace(ukTitle) != "" {
+					n.TitleUkrainian = ukTitle
+				}
+				log.Printf("✅ Gemini translation successful")
 			}
 			geminiRequests++
 		}
 		res = append(res, n)
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second) // Уменьшаем задержку для лучшей производительности
 	}
 
 	log.Printf("Обработано %d новостей с саммаризацией", len(res))
@@ -720,6 +775,38 @@ func FormatNews(n News) string {
 		b.WriteString("🇩🇰 " + n.SummaryDanish + "\n")
 	}
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	return b.String()
+}
+
+// FormatNewsWithImage создает сообщение в точном формате из ТЗ (без HTML разметки)
+func FormatNewsWithImage(n News) string {
+	var b strings.Builder
+	b.WriteString("🇩🇰 Danish News 🇺🇦\n")
+	b.WriteString("━━━━━━━━━━━━━━━\n\n")
+
+	// Датский блок
+	daTitle := n.Title
+	if strings.TrimSpace(n.SummaryDanish) == "" {
+		// Если датского нет — короткий фолбэк из контента
+		n.SummaryDanish = fallbackSummary(n.Content)
+	}
+	b.WriteString("🇩🇰 " + daTitle + "\n")
+	b.WriteString(n.SummaryDanish + "\n\n")
+
+	// Украинский блок
+	ukTitle := n.TitleUkrainian
+	if strings.TrimSpace(ukTitle) == "" {
+		ukTitle = n.Title // фолбэк
+	}
+	ukText := n.SummaryUkrainian
+	if strings.TrimSpace(ukText) == "" {
+		ukText = fallbackSummary(n.Content)
+	}
+	b.WriteString("🇺🇦 " + ukTitle + "\n")
+	b.WriteString(ukText + "\n\n")
+
+	b.WriteString("━━━━━━━━━━━━━━━\n")
+	b.WriteString("📱 Danish News Bot - DeusFlow")
 	return b.String()
 }
 
@@ -867,4 +954,49 @@ func selectDiverse(candidates []News, limit int, perSource int, perCategory int)
 		return out[i].Published.After(out[j].Published)
 	})
 	return out
+}
+
+// extractImageURL извлекает URL изображения из RSS элемента или веб-страницы
+func extractImageURL(item *rss.FeedItem) string {
+	// 1) Используем стандартные enclosures из RSS (gofeed поддерживает item.Enclosures)
+	if item.Enclosures != nil {
+		for _, e := range item.Enclosures {
+			if e == nil {
+				continue
+			}
+			// если тип явно image/* — используем
+			if strings.HasPrefix(strings.ToLower(e.Type), "image/") && strings.TrimSpace(e.URL) != "" {
+				return e.URL
+			}
+			// некоторые фиды указывают только URL без type
+			if strings.TrimSpace(e.URL) != "" && (strings.HasSuffix(strings.ToLower(e.URL), ".jpg") || strings.HasSuffix(strings.ToLower(e.URL), ".jpeg") || strings.HasSuffix(strings.ToLower(e.URL), ".png") || strings.HasSuffix(strings.ToLower(e.URL), ".webp") || strings.HasSuffix(strings.ToLower(e.URL), ".gif")) {
+				return e.URL
+			}
+		}
+	}
+
+	// 2) Поиск <img src> в Description
+	if item.Description != "" {
+		imgRe := regexp.MustCompile(`<img[^>]+src=["']([^"']+)["'][^>]*>`)
+		if m := imgRe.FindStringSubmatch(item.Description); len(m) > 1 {
+			return m[1]
+		}
+	}
+
+	// 3) Поиск <img src> в Content (если контент в фиде богаче)
+	if item.Content != "" {
+		imgRe := regexp.MustCompile(`<img[^>]+src=["']([^"']+)["'][^>]*>`)
+		if m := imgRe.FindStringSubmatch(item.Content); len(m) > 1 {
+			return m[1]
+		}
+	}
+
+	// 4) Fallback: fetch og:image from page
+	if strings.TrimSpace(item.Link) != "" {
+		if og, err := scraper.ExtractImageURL(item.Link); err == nil && strings.TrimSpace(og) != "" {
+			return og
+		}
+	}
+
+	return ""
 }

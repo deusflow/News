@@ -231,10 +231,16 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 		return
 	}
 
-	msg := formatSingleNewsMessage(*selectedNews, 1)
-	logger.Info("Sending single news", "length", len(msg), "title", selectedNews.Title)
+	// Build caption in required format
+	caption := news.FormatNewsWithImage(*selectedNews)
+	logger.Info("Sending single news", "length", len(caption), "title", selectedNews.Title)
 
-	err := telegram.SendMessage(token, chatID, msg)
+	var err error
+	if strings.TrimSpace(selectedNews.ImageURL) != "" {
+		err = telegram.SendPhoto(token, chatID, selectedNews.ImageURL, caption)
+	} else {
+		err = telegram.SendMessage(token, chatID, caption)
+	}
 	if err != nil {
 		logger.Error("Failed to send Telegram message", "error", err)
 		log.Fatalf("Ошибка отправки в Telegram: %v", err)
@@ -248,7 +254,7 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
-// sendMultipleNews отправляет несколько новостей одним сообщением
+// sendMultipleNews отправляет несколько новостей, каждую отдельным сообщением (с фото, если есть)
 func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache, maxToSend int) {
 	// Filter out duplicates
 	var uniqueNews []news.News
@@ -273,30 +279,27 @@ func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *sto
 		maxToSend = len(uniqueNews)
 	}
 
-	msg := formatNewsMessage(uniqueNews, maxToSend)
-
-	// Reduce message size if too long
-	for len(msg) > 4000 && maxToSend > 1 {
-		maxToSend--
-		msg = formatNewsMessage(uniqueNews, maxToSend)
-	}
-
-	logger.Info("Sending multiple news", "length", len(msg), "count", maxToSend)
-
-	err := telegram.SendMessage(token, chatID, msg)
-	if err != nil {
-		logger.Error("Failed to send Telegram message", "error", err)
-		log.Fatalf("Ошибка отправки в Telegram: %v", err)
-	}
-
-	// Mark all sent news as sent
+	// Send each item separately using the new format
 	for i := 0; i < maxToSend; i++ {
 		n := uniqueNews[i]
+		caption := news.FormatNewsWithImage(n)
+		var err error
+		if strings.TrimSpace(n.ImageURL) != "" {
+			err = telegram.SendPhoto(token, chatID, n.ImageURL, caption)
+		} else {
+			err = telegram.SendMessage(token, chatID, caption)
+		}
+		if err != nil {
+			logger.Error("Failed to send Telegram message", "error", err)
+			log.Fatalf("Ошибка отправки в Telegram: %v", err)
+		}
+
+		// Mark as sent
 		hash := newsCache.GenerateNewsHash(n.Title, n.Link)
 		newsCache.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
+		metrics.Global.IncrementTelegramMessagesSent()
 	}
 
-	metrics.Global.IncrementTelegramMessagesSent()
 	logger.Info("Multiple news sent successfully", "count", maxToSend)
 }
 
