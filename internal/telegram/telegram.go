@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
 )
 
 // SendMessage sends text message to Telegram chat/channel with retry logic
@@ -133,9 +134,12 @@ func SendPhoto(token, chatID, photoURL, caption string) error {
 
 func sendPhotoOnce(token, chatID, photoURL, caption string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
-	// Telegram caption max ~1024 chars; trim if longer
-	if len(caption) > 1000 {
-		caption = caption[:1000]
+	// Telegram caption max ~1024 chars; trim rune-aware if longer
+	if utf8.RuneCountInString(caption) > 1024 {
+		r := []rune(caption)
+		if len(r) > 1024 {
+			caption = string(r[:1024])
+		}
 	}
 
 	payload := map[string]interface{}{

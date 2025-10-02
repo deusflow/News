@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -460,34 +461,65 @@ func cleanContent(content string) string {
 	return resultText
 }
 
-// ExtractArticlesInBackground gets full content of articles in background
+// ExtractArticlesInBackground gets full content of articles in background (defaults)
 func ExtractArticlesInBackground(urls []string) map[string]*ArticleContent {
+	return ExtractArticlesInBackgroundWithLimits(urls, 10, 8)
+}
+
+// ExtractArticlesInBackgroundWithLimits gets full content with configurable parallelism and cap
+func ExtractArticlesInBackgroundWithLimits(urls []string, maxArticles, concurrency int) map[string]*ArticleContent {
 	result := make(map[string]*ArticleContent)
-
-	for i, url := range urls {
-		if i >= 5 { // Limit to 5 articles, don't overload
-			break
-		}
-
-		log.Printf("Getting full content of article %d/%d: %s", i+1, len(urls), url)
-
-		article, err := ExtractFullArticle(url)
-		if err != nil {
-			log.Printf("⚠️ Can't get content %s: %v", url, err)
-			continue
-		}
-
-		if len(article.Content) > 100 { // Check content is not empty
-			result[url] = article
-			log.Printf("✅ Got content (%d chars)", len(article.Content))
-		} else {
-			log.Printf("⚠️ Content too short: %s", url)
-		}
-
-		// Small pause between requests, don't overload sites
-		time.Sleep(500 * time.Millisecond)
+	if maxArticles <= 0 {
+		maxArticles = 10
+	}
+	if len(urls) < maxArticles {
+		maxArticles = len(urls)
+	}
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+	if maxArticles == 0 {
+		return result
+	}
+	if concurrency > maxArticles {
+		concurrency = maxArticles
 	}
 
+	type job struct{ u string }
+	jobs := make(chan job, maxArticles)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	worker := func(id int) {
+		defer wg.Done()
+		for j := range jobs {
+			log.Printf("[scraper] worker %d: fetching %s", id, j.u)
+			article, err := ExtractFullArticle(j.u)
+			if err == nil && article != nil && len(article.Content) > 100 {
+				mu.Lock()
+				result[j.u] = article
+				mu.Unlock()
+				log.Printf("✅ Got content (%d chars)", len(article.Content))
+			} else if err != nil {
+				log.Printf("⚠️ Can't get content %s: %v", j.u, err)
+			} else {
+				log.Printf("⚠️ Content too short: %s", j.u)
+			}
+			// Tiny backoff between jobs to be gentle
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go worker(i + 1)
+	}
+
+	for i := 0; i < maxArticles; i++ {
+		jobs <- job{u: urls[i]}
+	}
+	close(jobs)
+	wg.Wait()
 	return result
 }
 

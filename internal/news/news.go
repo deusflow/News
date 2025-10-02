@@ -505,6 +505,8 @@ type Options struct {
 	PerSource         int           // cap per source in final list
 	PerCategory       int           // cap per category in final list
 	MaxGeminiRequests int           // maximum Gemini requests allowed (0 = unlimited)
+	ScrapeMaxArticles int           // how many articles to fetch full content for (cap)
+	ScrapeConcurrency int           // parallelism for scraping full content
 }
 
 // FilterAndTranslateWithOptions performs filtering and summarization using provided options.
@@ -653,8 +655,18 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 		urls[i] = diverseCandidates[i].Link
 	}
 
+	// defaults for scraping limits
+	maxArticles := opts.ScrapeMaxArticles
+	if maxArticles <= 0 {
+		maxArticles = 10
+	}
+	concurrency := opts.ScrapeConcurrency
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+
 	log.Printf("Извлекаем полный контент %d статей...", newsLimit)
-	fullArticles := scraper.ExtractArticlesInBackground(urls)
+	fullArticles := scraper.ExtractArticlesInBackgroundWithLimits(urls, maxArticles, concurrency)
 
 	res := make([]News, 0, newsLimit)
 	geminiRequests := 0
@@ -742,7 +754,7 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 func fallbackSummary(content string) string {
 	c := strings.TrimSpace(content)
 	if c == "" {
-		return "(Нет контента)"
+		return "" // no placeholder text
 	}
 	sentences := strings.Split(c, ".")
 	var picked []string
@@ -779,37 +791,57 @@ func FormatNews(n News) string {
 	return b.String()
 }
 
-// FormatNewsWithImage создает сообщение в точном формате из ТЗ (без HTML разметки)
-func FormatNewsWithImage(n News) string {
+// FormatNewsWithImage создает текст сообщения для режима с превью ссылки (не фото):
+// добавляет ссылку и даёт по 2 предложения на язык (более объёмно, чем фото-режим).
+func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) string {
+	if minSentencesPerLang <= 0 {
+		minSentencesPerLang = 2
+	}
+	if maxSentencesPerLang < minSentencesPerLang {
+		maxSentencesPerLang = minSentencesPerLang
+	}
+	// используем верхнюю границу для большей информативности в текстовом режиме
+	useSentences := maxSentencesPerLang
+
 	var b strings.Builder
 	b.WriteString("🇩🇰 Danish News 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━\n\n")
 
-	// Добавляем прямую ссылку на статью, чтобы Telegram мог сделать превью (если фото не отправляется отдельно)
+	// Ссылка для превью
 	if strings.TrimSpace(n.Link) != "" {
 		b.WriteString(n.Link + "\n\n")
 	}
 
 	// Датский блок
 	daTitle := n.Title
-	if strings.TrimSpace(n.SummaryDanish) == "" {
-		// Если датского нет — короткий фолбэк из контента
-		n.SummaryDanish = fallbackSummary(n.Content)
+	daText := strings.TrimSpace(n.SummaryDanish)
+	if daText == "" {
+		daText = fallbackSummary(n.Content)
 	}
-	b.WriteString("🇩🇰 " + daTitle + "\n")
-	b.WriteString(n.SummaryDanish + "\n\n")
+	daText = condenseSummary(daText, useSentences)
+	if daTitle != "" {
+		b.WriteString("🇩🇰 " + daTitle + "\n")
+	}
+	if daText != "" {
+		b.WriteString(daText + "\n\n")
+	}
 
 	// Украинский блок
-	ukTitle := n.TitleUkrainian
-	if strings.TrimSpace(ukTitle) == "" {
-		ukTitle = n.Title // фолбэк
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukTitle == "" {
+		ukTitle = n.Title
 	}
-	ukText := n.SummaryUkrainian
-	if strings.TrimSpace(ukText) == "" {
+	ukText := strings.TrimSpace(n.SummaryUkrainian)
+	if ukText == "" {
 		ukText = fallbackSummary(n.Content)
 	}
-	b.WriteString("🇺🇦 " + ukTitle + "\n")
-	b.WriteString(ukText + "\n\n")
+	ukText = condenseSummary(ukText, useSentences)
+	if ukTitle != "" {
+		b.WriteString("🇺🇦 " + ukTitle + "\n")
+	}
+	if ukText != "" {
+		b.WriteString(ukText + "\n\n")
+	}
 
 	b.WriteString("━━━━━━━━━━━━━━━\n")
 	b.WriteString("📱 Danish News Bot - DeusFlow")
@@ -840,9 +872,15 @@ func trimToWordBoundary(s string, max int) string {
 }
 
 // FormatCaptionForPhoto builds a compact, bilingual caption that fits into maxLen (<=1024 for Telegram photo captions).
-func FormatCaptionForPhoto(n News, maxLen int) string {
+func FormatCaptionForPhoto(n News, maxLen int, sentencesPerLang int, minPerLang int) string {
 	if maxLen <= 0 || maxLen > 1024 {
 		maxLen = 1024
+	}
+	if sentencesPerLang <= 0 {
+		sentencesPerLang = 2
+	}
+	if minPerLang <= 0 {
+		minPerLang = 120
 	}
 	// Prepare pieces
 	daTitle := strings.TrimSpace(n.Title)
@@ -858,9 +896,9 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	if ukSum == "" {
 		ukSum = fallbackSummary(n.Content)
 	}
-	// Condense to at most two sentences for photo caption
-	daSum = condenseSummary(daSum, 2)
-	ukSum = condenseSummary(ukSum, 2)
+	// Condense to N sentences for photo caption
+	daSum = condenseSummary(daSum, sentencesPerLang)
+	ukSum = condenseSummary(ukSum, sentencesPerLang)
 
 	// Static header and separators (shorter for photo caption)
 	header := "🇩🇰 Danish News 🇺🇦\n\n"
@@ -898,9 +936,9 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		available = 40
 	}
 	// Dynamic allocation: minimal floor for each, remainder proportional to lengths
-	minFloor := available / 5 // 20% floor split
-	if minFloor < 100 {
-		minFloor = 100
+	minFloor := minPerLang
+	if minFloor > available/2 {
+		minFloor = available / 2
 	}
 	rem := available - 2*minFloor
 	if rem < 0 {
@@ -930,6 +968,104 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		caption = string(r[:maxLen-1]) + "…"
 	}
 	return caption
+}
+
+// ShouldUsePhoto returns true if a photo caption of up to maxLen runes can allocate
+// enough space for both Danish and Ukrainian summaries (after condensing) without becoming too short.
+func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, minTotal int) bool {
+	if maxLen <= 0 || maxLen > 1024 {
+		maxLen = 1024
+	}
+	if sentencesPerLang <= 0 {
+		sentencesPerLang = 2
+	}
+	if minPerLang <= 0 {
+		minPerLang = 120
+	}
+	if minTotal <= 0 {
+		minTotal = 180
+	}
+	// Prepare pieces
+	daTitle := strings.TrimSpace(n.Title)
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukTitle == "" {
+		ukTitle = daTitle
+	}
+	daSum := strings.TrimSpace(n.SummaryDanish)
+	if daSum == "" {
+		daSum = fallbackSummary(n.Content)
+	}
+	ukSum := strings.TrimSpace(n.SummaryUkrainian)
+	if ukSum == "" {
+		ukSum = fallbackSummary(n.Content)
+	}
+	// If summaries are empty, photo caption won’t carry content meaningfully
+	if daSum == "" || ukSum == "" {
+		return false
+	}
+	// Condense for estimation
+	daSum = condenseSummary(daSum, sentencesPerLang)
+	ukSum = condenseSummary(ukSum, sentencesPerLang)
+	if daSum == "" || ukSum == "" {
+		return false
+	}
+	// Минимальная суммарная информативность
+	if utf8.RuneCountInString(daSum)+utf8.RuneCountInString(ukSum) < minTotal {
+		return false
+	}
+	header := "🇩🇰 Danish News 🇺🇦\n\n"
+	composeBase := func(daT, ukT string) string {
+		var b strings.Builder
+		b.WriteString(header)
+		b.WriteString("🇩🇰 " + daT + "\n")
+		b.WriteString("%DA%\n\n")
+		b.WriteString("🇺🇦 " + ukT + "\n")
+		b.WriteString("%UK%\n\n")
+		return b.String()
+	}
+	capStr := composeBase(daTitle, ukTitle)
+	baseLen := utf8.RuneCountInString(strings.ReplaceAll(strings.ReplaceAll(capStr, "%DA%", ""), "%UK%", ""))
+	// Trim titles if necessary
+	if baseLen >= maxLen-40 {
+		roomForTitles := maxLen - utf8.RuneCountInString(header) - 8 - 40
+		if roomForTitles < 20 {
+			roomForTitles = 20
+		}
+		each := roomForTitles / 2
+		daTitle = trimToWordBoundary(daTitle, each)
+		ukTitle = trimToWordBoundary(ukTitle, each)
+		capStr = composeBase(daTitle, ukTitle)
+		baseLen = utf8.RuneCountInString(strings.ReplaceAll(strings.ReplaceAll(capStr, "%DA%", ""), "%UK%", ""))
+	}
+	available := maxLen - baseLen
+	if available < 40 {
+		return false
+	}
+	// Dynamic budgets
+	minFloor := minPerLang
+	if minFloor > available/2 {
+		minFloor = available / 2
+	}
+	rem := available - 2*minFloor
+	if rem < 0 {
+		rem = 0
+	}
+	daLen := utf8.RuneCountInString(daSum)
+	ukLen := utf8.RuneCountInString(ukSum)
+	totalLen := daLen + ukLen
+	var daBudget, ukBudget int
+	if totalLen > 0 && rem > 0 {
+		daBudget = minFloor + rem*daLen/totalLen
+		ukBudget = minFloor + rem*ukLen/totalLen
+	} else {
+		daBudget = available / 2
+		ukBudget = available - daBudget
+	}
+	// Require minimal budgets to ensure each has at least a meaningful chunk
+	if daBudget < minPerLang || ukBudget < minPerLang {
+		return false
+	}
+	return true
 }
 
 // condenseSummary returns up to maxSentences sentences from s, trimmed and joined with proper punctuation.
@@ -1141,19 +1277,17 @@ func extractImageURL(item *rss.FeedItem) string {
 		}
 	}
 
-	// 2) Поиск <img src> в Description
+	// 2) Поиск <img> с приоритетом srcset/data-src/src в Description
 	if item.Description != "" {
-		imgRe := regexp.MustCompile(`<img[^>]+src=["']([^"']+)["'][^>]*>`)
-		if m := imgRe.FindStringSubmatch(item.Description); len(m) > 1 {
-			return m[1]
+		if u := findFirstImgURL(item.Description); u != "" {
+			return u
 		}
 	}
 
-	// 3) Поиск <img src> в Content (если контент в фиде богаче)
+	// 3) Поиск <img> в Content (если контент в фиде богаче)
 	if item.Content != "" {
-		imgRe := regexp.MustCompile(`<img[^>]+src=["']([^"']+)["'][^>]*>`)
-		if m := imgRe.FindStringSubmatch(item.Content); len(m) > 1 {
-			return m[1]
+		if u := findFirstImgURL(item.Content); u != "" {
+			return u
 		}
 	}
 
@@ -1164,5 +1298,33 @@ func extractImageURL(item *rss.FeedItem) string {
 		}
 	}
 
+	return ""
+}
+
+// findFirstImgURL tries srcset, data-src, then src from a given HTML snippet
+func findFirstImgURL(html string) string {
+	// srcset
+	reSrcset := regexp.MustCompile(`(?i)<img[^>]+srcset=["']([^"']+)["'][^>]*>`)
+	if m := reSrcset.FindStringSubmatch(html); len(m) > 1 {
+		// pick first URL before a space or comma
+		parts := strings.Split(m[1], ",")
+		if len(parts) > 0 {
+			first := strings.TrimSpace(parts[0])
+			u := strings.Fields(first)
+			if len(u) > 0 {
+				return u[0]
+			}
+		}
+	}
+	// data-src
+	reData := regexp.MustCompile(`(?i)<img[^>]+data-src=["']([^"']+)["'][^>]*>`)
+	if m := reData.FindStringSubmatch(html); len(m) > 1 {
+		return m[1]
+	}
+	// src
+	reSrc := regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["'][^>]*>`)
+	if m := reSrc.FindStringSubmatch(html); len(m) > 1 {
+		return m[1]
+	}
 	return ""
 }

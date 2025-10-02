@@ -2,6 +2,11 @@ package app
 
 import (
 	"fmt"
+	"html"
+	"log"
+	"regexp"
+	"strings"
+
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/logger"
@@ -10,10 +15,6 @@ import (
 	"github.com/deusflow/News/internal/rss"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
-	"html"
-	"log"
-	"regexp"
-	"strings"
 )
 
 // formatNewsMessage builds grouped message using AI summaries (Ukrainian priority, then Danish, then others)
@@ -169,7 +170,9 @@ func Run() {
 		Limit:             cfg.MaxNewsLimit,
 		MaxAge:            cfg.NewsMaxAge,
 		PerSource:         2,
-		MaxGeminiRequests: cfg.MaxGeminiRequests, // добавлено!
+		MaxGeminiRequests: cfg.MaxGeminiRequests,
+		ScrapeMaxArticles: cfg.ScrapeMaxArticles,
+		ScrapeConcurrency: cfg.ScrapeConcurrency,
 	})
 	if err != nil {
 		logger.Error("Failed to filter and translate news", "error", err)
@@ -193,9 +196,9 @@ func Run() {
 
 	// Send to Telegram based on mode
 	if cfg.BotMode == "single" {
-		sendSingleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID, newsCache)
+		sendSingleNews(filtered, cfg, newsCache)
 	} else {
-		sendMultipleNews(filtered, cfg.TelegramToken, cfg.TelegramChatID, newsCache, cfg.MaxNewsLimit)
+		sendMultipleNews(filtered, cfg, newsCache, cfg.MaxNewsLimit)
 	}
 
 	// Log final metrics
@@ -209,7 +212,7 @@ func Run() {
 }
 
 // sendSingleNews отправляет одну новость
-func sendSingleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache) {
+func sendSingleNews(newsList []news.News, cfg *config.Config, newsCache *storage.FileCache) {
 	if len(newsList) == 0 {
 		logger.Warn("No news to send")
 		return
@@ -231,21 +234,29 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 		return
 	}
 
-	// Build caption in required format
-	var caption string
-	if strings.TrimSpace(selectedNews.ImageURL) != "" {
-		caption = news.FormatCaptionForPhoto(*selectedNews, 900)
-	} else {
-		caption = news.FormatNewsWithImage(*selectedNews)
+	// Build caption/message according to policy
+	var outText string
+	usePhoto := false
+	policy := strings.ToLower(strings.TrimSpace(cfg.PostingPolicy))
+	if policy == "" {
+		policy = "hybrid"
 	}
-	logger.Info("Sending single news", "length", len(caption), "title", selectedNews.Title)
+	canPhoto := strings.TrimSpace(selectedNews.ImageURL) != "" && news.ShouldUsePhoto(*selectedNews, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes, cfg.MinSummaryTotalRunes)
+	if (policy == "photo-only" && canPhoto) || (policy == "hybrid" && canPhoto) {
+		usePhoto = true
+		outText = news.FormatCaptionForPhoto(*selectedNews, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes)
+	} else {
+		// text-only or hybrid fallback
+		outText = news.FormatNewsWithImage(*selectedNews, cfg.TextSentencesPerLangMin, cfg.TextSentencesPerLangMax)
+	}
+	logger.Info("Sending single news", "length", len(outText), "title", selectedNews.Title, "photo", usePhoto)
 
 	var err error
-	if strings.TrimSpace(selectedNews.ImageURL) != "" {
-		err = telegram.SendPhoto(token, chatID, selectedNews.ImageURL, caption)
+	if usePhoto {
+		err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, selectedNews.ImageURL, outText)
 	} else {
 		// Allow preview so Telegram can show link thumbnail
-		err = telegram.SendMessageAllowPreview(token, chatID, caption)
+		err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
 	}
 	if err != nil {
 		logger.Error("Failed to send Telegram message", "error", err)
@@ -260,8 +271,8 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
-// sendMultipleNews отправляет кілька новин, кожну окремим повідомленням (з фото, якщо є)
-func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache, maxToSend int) {
+// sendMultipleNews отправляет кілька новин, кожну окремим повідомленням (з фото, если есть)
+func sendMultipleNews(newsList []news.News, cfg *config.Config, newsCache *storage.FileCache, maxToSend int) {
 	// Filter out duplicates
 	var uniqueNews []news.News
 	for _, n := range newsList {
@@ -285,21 +296,29 @@ func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *sto
 		maxToSend = len(uniqueNews)
 	}
 
+	policy := strings.ToLower(strings.TrimSpace(cfg.PostingPolicy))
+	if policy == "" {
+		policy = "hybrid"
+	}
+
 	// Send each item separately using the new format
 	for i := 0; i < maxToSend; i++ {
 		n := uniqueNews[i]
-		var caption string
-		if strings.TrimSpace(n.ImageURL) != "" {
-			caption = news.FormatCaptionForPhoto(n, 900)
+		var outText string
+		usePhoto := false
+		canPhoto := strings.TrimSpace(n.ImageURL) != "" && news.ShouldUsePhoto(n, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes, cfg.MinSummaryTotalRunes)
+		if (policy == "photo-only" && canPhoto) || (policy == "hybrid" && canPhoto) {
+			usePhoto = true
+			outText = news.FormatCaptionForPhoto(n, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes)
 		} else {
-			caption = news.FormatNewsWithImage(n)
+			outText = news.FormatNewsWithImage(n, cfg.TextSentencesPerLangMin, cfg.TextSentencesPerLangMax)
 		}
 		var err error
-		if strings.TrimSpace(n.ImageURL) != "" {
-			err = telegram.SendPhoto(token, chatID, n.ImageURL, caption)
+		if usePhoto {
+			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
 		} else {
 			// Allow preview so Telegram can show link thumbnail
-			err = telegram.SendMessageAllowPreview(token, chatID, caption)
+			err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
 		}
 		if err != nil {
 			logger.Error("Failed to send Telegram message", "error", err)
