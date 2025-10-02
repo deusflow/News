@@ -30,6 +30,8 @@ jobs:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       MISTRALAI_API_KEY: ${{ secrets.MISTRALAI_API_KEY }}
+      GO111MODULE: 'on'
+      GOTOOLCHAIN: 'local'
 
     steps:
       - name: Checkout
@@ -69,19 +71,23 @@ jobs:
         run: |
           go mod download
           mkdir -p bin
+        working-directory: ${{ github.workspace }}
 
       - name: Build
         run: |
           go build -o bin/dknews ./cmd/dknews
+        working-directory: ${{ github.workspace }}
 
       - name: Run bot
         run: |
           ./bin/dknews | tee run.log
+        working-directory: ${{ github.workspace }}
 
       - name: Show resulting cache file
         run: |
           echo "--- sent_news.json (after run) ---"
           test -f sent_news.json && cat sent_news.json || echo "Cache file not created"
+        working-directory: ${{ github.workspace }}
 
       - name: Upload run log (optional)
         if: always()
