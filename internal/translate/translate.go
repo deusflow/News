@@ -10,9 +10,73 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// SanitizeAIText removes common AI disclaimer lines (e.g., "Note: This translation is a machine translation ...")
+func SanitizeAIText(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// Normalize newlines
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+
+	// First, remove inline/bracketed disclaimer segments while keeping the rest of the text
+	s = removeInlineDisclaimers(s)
+
+	lines := strings.Split(s, "\n")
+	filtered := make([]string, 0, len(lines))
+	// Only skip lines that START with a disclaimer keyword; inline parts were already stripped
+	patStart := regexp.MustCompile(`(?i)^\s*[(\[]?\s*(note|disclaimer)\b`)
+	for _, ln := range lines {
+		l := strings.TrimSpace(ln)
+		if l == "" {
+			continue
+		}
+		// Strip any residual inline disclaimers on this line, then decide
+		l = removeInlineDisclaimers(l)
+		if l == "" {
+			continue
+		}
+		if patStart.MatchString(l) {
+			// skip full-line disclaimer
+			continue
+		}
+		filtered = append(filtered, l)
+	}
+	out := strings.Join(filtered, "\n")
+	// Remove surrounding quotes or backticks
+	out = strings.Trim(out, "`\"")
+	// Collapse excessive spaces introduced by removals
+	out = regexp.MustCompile(`\s{2,}`).ReplaceAllString(out, " ")
+	return strings.TrimSpace(out)
+}
+
+// removeInlineDisclaimers strips parenthesized/bracketed or sentence-like disclaimer fragments
+// without removing the rest of the content on the same line.
+func removeInlineDisclaimers(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return s
+	}
+	// Patterns to remove:
+	// 1) Parenthesized or bracketed disclaimer segments like (Note: ...), [Note: ...]
+	reParen := regexp.MustCompile(`(?i)\s*[(\[]\s*(?:note|disclaimer|this translation is a machine translation|ai language model)[^)\]]*[)\]]\s*`)
+	s = reParen.ReplaceAllString(s, " ")
+	// 2) Sentence-level notes starting with Note: or Disclaimer: up to a sentence end
+	reSentence := regexp.MustCompile(`(?i)(?:^|[.!?]\s+)(?:note|disclaimer)\s*:\s*[^.!?]*[.!?]`)
+	s = reSentence.ReplaceAllString(s, " ")
+	// 3) Generic disclaimer phrases like "machine translation ..." sentences
+	rePhrase := regexp.MustCompile(`(?i)(?:^|\s)(?:this translation is a machine translation|ai language model|double[- ]?check|for accurate translations)[^.!?\n]*[.!?]`)
+	s = rePhrase.ReplaceAllString(s, " ")
+	// Cleanup extra spaces and newlines that may remain
+	s = strings.TrimSpace(s)
+	s = regexp.MustCompile(`\s{2,}`).ReplaceAllString(s, " ")
+	return s
+}
 
 // TranslateText translates text with best available service
 func TranslateText(text, from, to string) (string, error) {
@@ -44,6 +108,7 @@ func TranslateText(text, from, to string) (string, error) {
 
 	// Try providers in order (fast/free first or as configured)
 	if result, err := translateWithGemini(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
 		log.Printf("✅ Gemini API %s->%s ok", from, target)
 		return result, nil
 	} else {
@@ -51,6 +116,7 @@ func TranslateText(text, from, to string) (string, error) {
 	}
 
 	if result, err := translateWithGroq(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
 		log.Printf("✅ Groq API %s->%s ok", from, target)
 		return result, nil
 	} else {
@@ -58,6 +124,7 @@ func TranslateText(text, from, to string) (string, error) {
 	}
 
 	if result, err := translateWithCohere(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
 		log.Printf("✅ Cohere API %s->%s ok", from, target)
 		return result, nil
 	} else {
@@ -65,6 +132,7 @@ func TranslateText(text, from, to string) (string, error) {
 	}
 
 	if result, err := translateWithMistralAI(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
 		log.Printf("✅ Mistral AI %s->%s ok", from, target)
 		return result, nil
 	} else {
@@ -73,6 +141,7 @@ func TranslateText(text, from, to string) (string, error) {
 
 	// Finally try Google Translate as ultimate fallback (FREE!)
 	if result, err := translateWithGoogleTranslate(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
 		log.Printf("✅ Google Translate %s->%s ok", from, target)
 		return result, nil
 	} else {
@@ -589,17 +658,17 @@ func SummarizeText(text, lang string) (string, error) {
 	}
 
 	if s, err := summarizeWithGroq(input, lang); err == nil && strings.TrimSpace(s) != "" {
-		return s, nil
+		return SanitizeAIText(s), nil
 	} else {
 		log.Printf("⚠️ Groq summarize failed: %v", err)
 	}
 	if s, err := summarizeWithCohere(input, lang); err == nil && strings.TrimSpace(s) != "" {
-		return s, nil
+		return SanitizeAIText(s), nil
 	} else {
 		log.Printf("⚠️ Cohere summarize failed: %v", err)
 	}
 	if s, err := summarizeWithMistral(input, lang); err == nil && strings.TrimSpace(s) != "" {
-		return s, nil
+		return SanitizeAIText(s), nil
 	} else {
 		log.Printf("⚠️ Mistral summarize failed: %v", err)
 	}
@@ -630,7 +699,11 @@ func summarizeWithGroq(text, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close Groq summarize response body: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("groq summarize status %d: %s", resp.StatusCode, string(b))
@@ -672,7 +745,11 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close Cohere summarize response body: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("cohere summarize status %d: %s", resp.StatusCode, string(b))
@@ -713,7 +790,11 @@ func summarizeWithMistral(text, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close Mistral summarize response body: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("mistral summarize status %d: %s", resp.StatusCode, string(b))
