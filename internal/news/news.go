@@ -784,6 +784,11 @@ func FormatNewsWithImage(n News) string {
 	b.WriteString("🇩🇰 Danish News 🇺🇦\n")
 	b.WriteString("━━━━━━━━━━━━━━━\n\n")
 
+	// Добавляем прямую ссылку на статью, чтобы Telegram мог сделать превью (если фото не отправляется отдельно)
+	if strings.TrimSpace(n.Link) != "" {
+		b.WriteString(n.Link + "\n\n")
+	}
+
 	// Датский блок
 	daTitle := n.Title
 	if strings.TrimSpace(n.SummaryDanish) == "" {

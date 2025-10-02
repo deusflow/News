@@ -239,7 +239,8 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	if strings.TrimSpace(selectedNews.ImageURL) != "" {
 		err = telegram.SendPhoto(token, chatID, selectedNews.ImageURL, caption)
 	} else {
-		err = telegram.SendMessage(token, chatID, caption)
+		// Allow preview so Telegram can show link thumbnail
+		err = telegram.SendMessageAllowPreview(token, chatID, caption)
 	}
 	if err != nil {
 		logger.Error("Failed to send Telegram message", "error", err)
@@ -254,7 +255,7 @@ func sendSingleNews(newsList []news.News, token, chatID string, newsCache *stora
 	logger.Info("Single news sent successfully", "title", selectedNews.Title)
 }
 
-// sendMultipleNews отправляет несколько новостей, каждую отдельным сообщением (с фото, если есть)
+// sendMultipleNews отправляет несколько новин, каждую окремим повідомленням (з фото, якщо є)
 func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *storage.FileCache, maxToSend int) {
 	// Filter out duplicates
 	var uniqueNews []news.News
@@ -287,7 +288,8 @@ func sendMultipleNews(newsList []news.News, token, chatID string, newsCache *sto
 		if strings.TrimSpace(n.ImageURL) != "" {
 			err = telegram.SendPhoto(token, chatID, n.ImageURL, caption)
 		} else {
-			err = telegram.SendMessage(token, chatID, caption)
+			// Allow preview so Telegram can show link thumbnail
+			err = telegram.SendMessageAllowPreview(token, chatID, caption)
 		}
 		if err != nil {
 			logger.Error("Failed to send Telegram message", "error", err)

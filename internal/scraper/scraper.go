@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -530,16 +531,22 @@ func ExtractImageURL(pageURL string) (string, error) {
 		return base.ResolveReference(u).String()
 	}
 
-	// Priority 1: og:image variants
+	// Priority 1: og:image variants (return as-is if http/https)
 	if v, ok := doc.Find(`meta[property="og:image"]`).Attr("content"); ok {
 		img := resolve(v)
-		if isLikelyImage(img) {
+		if strings.HasPrefix(img, "http") {
+			return img, nil
+		}
+	}
+	if v, ok := doc.Find(`meta[property="og:image:url"]`).Attr("content"); ok {
+		img := resolve(v)
+		if strings.HasPrefix(img, "http") {
 			return img, nil
 		}
 	}
 	if v, ok := doc.Find(`meta[property="og:image:secure_url"]`).Attr("content"); ok {
 		img := resolve(v)
-		if isLikelyImage(img) {
+		if strings.HasPrefix(img, "http") {
 			return img, nil
 		}
 	}
@@ -547,7 +554,7 @@ func ExtractImageURL(pageURL string) (string, error) {
 	// Priority 2: twitter:image
 	if v, ok := doc.Find(`meta[name="twitter:image"], meta[name="twitter:image:src"]`).Attr("content"); ok {
 		img := resolve(v)
-		if isLikelyImage(img) {
+		if strings.HasPrefix(img, "http") {
 			return img, nil
 		}
 	}
@@ -555,18 +562,32 @@ func ExtractImageURL(pageURL string) (string, error) {
 	// Priority 3: link rel=image_src
 	if v, ok := doc.Find(`link[rel="image_src"]`).Attr("href"); ok {
 		img := resolve(v)
-		if isLikelyImage(img) {
+		if strings.HasPrefix(img, "http") {
 			return img, nil
 		}
 	}
 
-	// Fallback: first <img> in main/article
+	// Fallback: first <img> in main/article, prefer srcset largest
 	sel := []string{"article img", "main img", "img"}
 	for _, s := range sel {
 		if n := doc.Find(s).First(); n != nil && n.Length() > 0 {
+			// Prefer srcset
+			if v, ok := n.Attr("srcset"); ok {
+				best := pickLargestFromSrcset(v)
+				img := resolve(best)
+				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
+					return img, nil
+				}
+			}
+			if v, ok := n.Attr("data-src"); ok {
+				img := resolve(v)
+				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
+					return img, nil
+				}
+			}
 			if v, ok := n.Attr("src"); ok {
 				img := resolve(v)
-				if isLikelyImage(img) {
+				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
 					return img, nil
 				}
 			}
@@ -587,9 +608,43 @@ func isLikelyImage(u string) bool {
 	if strings.HasSuffix(u, ".jpg") || strings.HasSuffix(u, ".jpeg") || strings.HasSuffix(u, ".png") || strings.HasSuffix(u, ".webp") || strings.HasSuffix(u, ".gif") {
 		return true
 	}
-	// Allow URLs without extension but with image providers
-	if strings.Contains(u, "/images/") || strings.Contains(u, "cdn") {
+	// Allow URLs without extension but with common patterns (more permissive)
+	if strings.Contains(u, "/images/") || strings.Contains(u, "cdn") || strings.Contains(u, "image") || strings.Contains(u, "_next/image") {
 		return true
 	}
 	return false
+}
+
+// pickLargestFromSrcset parses a srcset attribute and returns the URL with the largest width descriptor
+func pickLargestFromSrcset(srcset string) string {
+	bestURL := ""
+	bestW := -1
+	parts := strings.Split(srcset, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// pattern: URL [<width>w]
+		fields := strings.Fields(p)
+		if len(fields) == 0 {
+			continue
+		}
+		urlPart := fields[0]
+		w := 0
+		if len(fields) > 1 {
+			last := fields[1]
+			last = strings.TrimSpace(last)
+			if strings.HasSuffix(last, "w") {
+				if n, err := strconv.Atoi(strings.TrimSuffix(last, "w")); err == nil {
+					w = n
+				}
+			}
+		}
+		if w > bestW {
+			bestW = w
+			bestURL = urlPart
+		}
+	}
+	return strings.TrimSpace(bestURL)
 }
