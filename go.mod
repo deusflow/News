@@ -5,6 +5,7 @@ go 1.23.0
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/google/generative-ai-go v0.20.1
+	github.com/lib/pq v1.10.9
 	github.com/mmcdole/gofeed v1.3.0
 	google.golang.org/api v0.186.0
 	gopkg.in/yaml.v3 v3.0.1

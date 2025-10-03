@@ -48,6 +48,11 @@ type Config struct {
 	CacheTTLHours   int
 	DuplicateWindow int // hours for duplicate detection
 
+	// PostgreSQL settings
+	DatabaseURL string
+	UsePostgres bool // if true, use PostgreSQL instead of file cache
+	DatabaseTTL int  // hours to keep records in database
+
 }
 
 func Load() (*Config, error) {
@@ -71,12 +76,14 @@ func Load() (*Config, error) {
 		LanguagePriority:        "auto",
 		ScrapeConcurrency:       8,
 		ScrapeMaxArticles:       10,
+		DatabaseTTL:             48, // default TTL for database records
 	}
 
 	// Load from environment
 	cfg.TelegramToken = os.Getenv("TELEGRAM_TOKEN")
 	cfg.TelegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 
 	// Cache settings
 	cfg.CacheFilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
@@ -150,6 +157,11 @@ func Load() (*Config, error) {
 		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
 			cfg.MaxGeminiRequests = val
 		}
+	}
+
+	// NEW: Check if PostgreSQL should be used
+	if usePg := os.Getenv("USE_POSTGRES"); usePg == "true" {
+		cfg.UsePostgres = true
 	}
 
 	return cfg, cfg.Validate()

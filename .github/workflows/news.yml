@@ -19,17 +19,28 @@ jobs:
       contents: read
 
     env:
-      # Ensure cache file path is the project root file name below
+      # PostgreSQL Database - КРИТИЧЕСКИ ВАЖНО для предотвращения дубликатов!
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USE_POSTGRES: 'true'
+
+      # Cache settings (fallback if PostgreSQL fails)
       CACHE_FILE_PATH: sent_news.json
+      CACHE_TTL_HOURS: 48
+
+      # Bot configuration
       MAX_NEWS_LIMIT: 8
       MAX_GEMINI_REQUESTS: 2
       BOT_MODE: single
+
+      # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       MISTRALAI_API_KEY: ${{ secrets.MISTRALAI_API_KEY }}
+
+      # Go settings
       GO111MODULE: 'on'
       GOTOOLCHAIN: 'local'
 
@@ -48,7 +59,8 @@ jobs:
           pwd
           ls -la
 
-      - name: Restore sent_news.json cache
+      # Оставляем файловый кеш как fallback, но теперь PostgreSQL - основной источник
+      - name: Restore sent_news.json cache (fallback)
         id: cache-sent
         uses: actions/cache@v4
         continue-on-error: true
@@ -78,29 +90,38 @@ jobs:
           go build -o bin/dknews ./cmd/dknews
         working-directory: ${{ github.workspace }}
 
+      - name: Test PostgreSQL connection
+        run: |
+          echo "🔌 Testing PostgreSQL connection..."
+          go run test_db.go || echo "⚠️ PostgreSQL test failed, will use fallback cache"
+        working-directory: ${{ github.workspace }}
+        continue-on-error: true
+
       - name: Run bot
         run: |
+          echo "🚀 Starting Danish News Bot..."
+          echo "Database mode: PostgreSQL (primary) + File cache (fallback)"
           ./bin/dknews | tee run.log
         working-directory: ${{ github.workspace }}
 
       - name: Show resulting cache file
         run: |
           echo "--- sent_news.json (after run) ---"
-          test -f sent_news.json && cat sent_news.json || echo "Cache file not created"
+          test -f sent_news.json && cat sent_news.json || echo "Cache file not created (using PostgreSQL)"
         working-directory: ${{ github.workspace }}
 
       - name: Upload run log (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: run.log
+          name: run-log-${{ github.run_number }}
           path: run.log
           if-no-files-found: ignore
 
-      - name: Upload sent_news.json as artifact
+      - name: Upload sent_news.json as artifact (fallback)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sent_news.json
+          name: sent-news-cache-${{ github.run_number }}
           path: sent_news.json
           if-no-files-found: warn

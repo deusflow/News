@@ -123,21 +123,49 @@ func Run() {
 		logger.Error("Failed to load configuration", "error", err)
 		log.Fatalf("Ошибка конфигурации: %v", err)
 	}
-	logger.Info("Configuration loaded successfully", "mode", cfg.BotMode, "max_news", cfg.MaxNewsLimit)
+	logger.Info("Configuration loaded successfully", "mode", cfg.BotMode, "max_news", cfg.MaxNewsLimit, "use_postgres", cfg.UsePostgres)
 
-	// Initialize file cache for duplicate prevention
-	newsCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
-	if err := newsCache.Load(); err != nil {
-		logger.Error("Failed to load news cache", "error", err)
-		// Don't fail, just start with empty cache
-	} else {
-		logger.Info("News cache loaded successfully", "items", newsCache.GetStats()["total_items"])
-	}
-	defer func() {
-		if err := newsCache.Save(); err != nil {
-			logger.Error("Failed to save news cache", "error", err)
+	// Initialize cache system (PostgreSQL or File-based)
+	var cacheAdapter CacheAdapter
+
+	if cfg.UsePostgres && cfg.DatabaseURL != "" {
+		// Use PostgreSQL for production-grade duplicate prevention
+		pgCache, err := storage.NewPostgresCache(cfg.DatabaseURL, cfg.DatabaseTTL)
+		if err != nil {
+			logger.Error("Failed to connect to PostgreSQL, falling back to file cache", "error", err)
+			// Fallback to file cache
+			fileCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
+			if err := fileCache.Load(); err != nil {
+				logger.Error("Failed to load file cache", "error", err)
+			}
+			cacheAdapter = &FileCacheAdapter{cache: fileCache}
+		} else {
+			logger.Info("PostgreSQL cache initialized successfully")
+			// Cleanup old records
+			if err := pgCache.Cleanup(); err != nil {
+				logger.Warn("Failed to cleanup old records", "error", err)
+			}
+			cacheAdapter = &PostgresCacheAdapter{cache: pgCache}
+			defer pgCache.Close()
 		}
-	}()
+	} else {
+		// Use file-based cache
+		logger.Info("Using file-based cache")
+		newsCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
+		if err := newsCache.Load(); err != nil {
+			logger.Error("Failed to load news cache", "error", err)
+		} else {
+			logger.Info("News cache loaded successfully", "items", newsCache.GetStats()["total_items"])
+		}
+		cacheAdapter = &FileCacheAdapter{cache: newsCache}
+		defer func() {
+			if fc, ok := cacheAdapter.(*FileCacheAdapter); ok {
+				if err := fc.cache.Save(); err != nil {
+					logger.Error("Failed to save news cache", "error", err)
+				}
+			}
+		}()
+	}
 
 	// Initialize Gemini client
 	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey)
@@ -196,9 +224,9 @@ func Run() {
 
 	// Send to Telegram based on mode
 	if cfg.BotMode == "single" {
-		sendSingleNews(filtered, cfg, newsCache)
+		sendSingleNews(filtered, cfg, cacheAdapter)
 	} else {
-		sendMultipleNews(filtered, cfg, newsCache, cfg.MaxNewsLimit)
+		sendMultipleNews(filtered, cfg, cacheAdapter, cfg.MaxNewsLimit)
 	}
 
 	// Log final metrics
@@ -212,21 +240,23 @@ func Run() {
 }
 
 // sendSingleNews отправляет одну новость
-func sendSingleNews(newsList []news.News, cfg *config.Config, newsCache *storage.FileCache) {
+func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter) {
 	if len(newsList) == 0 {
 		logger.Warn("No news to send")
 		return
 	}
 
-	// Find first non-duplicate news
+	// Find first non-duplicate news (double check: hash and link)
 	var selectedNews *news.News
 	for i := range newsList {
-		hash := newsCache.GenerateNewsHash(newsList[i].Title, newsList[i].Link)
-		if !newsCache.IsAlreadySent(hash) {
+		hash := cacheAdapter.GenerateNewsHash(newsList[i].Title, newsList[i].Link)
+
+		// Double check: both hash and direct link
+		if !cacheAdapter.IsAlreadySent(hash) && !cacheAdapter.IsLinkAlreadySent(newsList[i].Link) {
 			selectedNews = &newsList[i]
 			break
 		}
-		logger.Info("Skipping duplicate news", "title", newsList[i].Title)
+		logger.Info("Skipping duplicate news", "title", newsList[i].Title, "hash", hash)
 	}
 
 	if selectedNews == nil {
@@ -264,23 +294,28 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, newsCache *storage
 	}
 
 	// Mark as sent
-	hash := newsCache.GenerateNewsHash(selectedNews.Title, selectedNews.Link)
-	newsCache.MarkAsSent(hash, selectedNews.Title, selectedNews.Link, selectedNews.Category, selectedNews.SourceName)
+	hash := cacheAdapter.GenerateNewsHash(selectedNews.Title, selectedNews.Link)
+	if err := cacheAdapter.MarkAsSent(hash, selectedNews.Title, selectedNews.Link, selectedNews.Category, selectedNews.SourceName); err != nil {
+		logger.Error("Failed to mark news as sent", "error", err)
+	}
 
 	metrics.Global.IncrementTelegramMessagesSent()
-	logger.Info("Single news sent successfully", "title", selectedNews.Title)
+	logger.Info("Single news sent successfully", "title", selectedNews.Title, "hash", hash)
 }
 
 // sendMultipleNews отправляет кілька новин, кожну окремим повідомленням (з фото, если есть)
-func sendMultipleNews(newsList []news.News, cfg *config.Config, newsCache *storage.FileCache, maxToSend int) {
-	// Filter out duplicates
+func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, maxToSend int) {
+	// Filter out duplicates with double check (hash + link)
 	var uniqueNews []news.News
 	for _, n := range newsList {
-		hash := newsCache.GenerateNewsHash(n.Title, n.Link)
-		if !newsCache.IsAlreadySent(hash) {
+		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+
+		// Double protection: check both hash and link
+		if !cacheAdapter.IsAlreadySent(hash) && !cacheAdapter.IsLinkAlreadySent(n.Link) {
 			uniqueNews = append(uniqueNews, n)
 		} else {
-			logger.Info("Skipping duplicate news", "title", n.Title)
+			logger.Info("Skipping duplicate news", "title", n.Title, "hash", hash)
+			metrics.Global.IncrementDuplicatesFiltered()
 		}
 	}
 
@@ -302,8 +337,17 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, newsCache *stora
 	}
 
 	// Send each item separately using the new format
+	sentCount := 0
 	for i := 0; i < maxToSend; i++ {
 		n := uniqueNews[i]
+
+		// Triple check before sending (paranoid mode to prevent duplicates)
+		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+		if cacheAdapter.IsAlreadySent(hash) || cacheAdapter.IsLinkAlreadySent(n.Link) {
+			logger.Warn("News became duplicate during sending, skipping", "title", n.Title)
+			continue
+		}
+
 		var outText string
 		usePhoto := false
 		canPhoto := strings.TrimSpace(n.ImageURL) != "" && news.ShouldUsePhoto(n, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes, cfg.MinSummaryTotalRunes)
@@ -313,6 +357,7 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, newsCache *stora
 		} else {
 			outText = news.FormatNewsWithImage(n, cfg.TextSentencesPerLangMin, cfg.TextSentencesPerLangMax)
 		}
+
 		var err error
 		if usePhoto {
 			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
@@ -321,17 +366,22 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, newsCache *stora
 			err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
 		}
 		if err != nil {
-			logger.Error("Failed to send Telegram message", "error", err)
-			log.Fatalf("Ошибка отправки в Telegram: %v", err)
+			logger.Error("Failed to send Telegram message", "error", err, "title", n.Title)
+			continue // Don't fail completely, try next news
 		}
 
-		// Mark as sent
-		hash := newsCache.GenerateNewsHash(n.Title, n.Link)
-		newsCache.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
+		// Mark as sent immediately after successful send
+		if err := cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName); err != nil {
+			logger.Error("Failed to mark news as sent", "error", err, "title", n.Title)
+		} else {
+			logger.Info("News marked as sent", "title", n.Title, "hash", hash)
+		}
+
 		metrics.Global.IncrementTelegramMessagesSent()
+		sentCount++
 	}
 
-	logger.Info("Multiple news sent successfully", "count", maxToSend)
+	logger.Info("Multiple news sent successfully", "count", sentCount, "requested", maxToSend)
 }
 
 // formatSingleNewsMessage адаптирован для саммари
