@@ -87,7 +87,14 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 }
 
 func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*NewsTranslation, error) {
-	model := c.client.GenerativeModel("gemini-1.5-flash")
+	// Используем правильную версию модели Gemini
+	model := c.client.GenerativeModel("gemini-1.5-flash-002")
+
+	// Configure model settings for better results
+	model.SetTemperature(0.7)
+	model.SetTopK(40)
+	model.SetTopP(0.95)
+	model.SetMaxOutputTokens(2048)
 
 	// Sanitize & limit content size (avoid over-long prompts)
 	content = strings.ReplaceAll(content, "\r", "")

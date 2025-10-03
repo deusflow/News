@@ -170,8 +170,8 @@ func translateWithGemini(text, from, to string) (string, error) {
 		return "", errors.New("GEMINI_API_KEY not set")
 	}
 
-	// Gemini API endpoint
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=%s", apiKey)
+	// Gemini API endpoint - ОБНОВЛЕНА ВЕРСИЯ МОДЕЛИ!
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=%s", apiKey)
 
 	// Create translation prompt
 	targetName := languageName(to)
@@ -272,9 +272,9 @@ func translateWithGroq(text, from, to string) (string, error) {
 	targetName := languageName(to)
 	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations or additional text:\n\n%s`, from, targetName, text)
 
-	// Request payload
+	// Request payload - ОБНОВЛЕНА МОДЕЛЬ!
 	payload := map[string]interface{}{
-		"model": "llama3-8b-8192", // Fast Groq model
+		"model": "llama-3.1-8b-instant", // Новая актуальная модель Groq
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
@@ -683,7 +683,7 @@ func summarizeWithGroq(text, lang string) (string, error) {
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
-		"model": "llama3-8b-8192",
+		"model": "llama-3.1-8b-instant", // ОБНОВЛЕНА МОДЕЛЬ!
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": prompt},
 		},
