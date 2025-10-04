@@ -791,7 +791,7 @@ func FormatNews(n News) string {
 	return b.String()
 }
 
-// FormatNewsWithImage создает текст сообщения для режима с превью ссылки (не фото):
+// FormatNewsWithImage создает текст сообщения для режима с превью ссылки (не фото-режим):
 // добавляет ссылку и даёт по 2 предложения на язык (более объёмно, чем фото-режим).
 func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) string {
 	if minSentencesPerLang <= 0 {
@@ -804,15 +804,9 @@ func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) s
 	useSentences := maxSentencesPerLang
 
 	var b strings.Builder
-	b.WriteString("🇩🇰 Danish News 🇺🇦\n")
-	b.WriteString("━━━━━━━━━━━━━━━\n\n")
+	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n\n")
 
-	// Ссылка для превью
-	if strings.TrimSpace(n.Link) != "" {
-		b.WriteString(n.Link + "\n\n")
-	}
-
-	// Датский блок
+	// Датский блок - заголовок на отдельной строке
 	daTitle := n.Title
 	daText := strings.TrimSpace(n.SummaryDanish)
 	if daText == "" {
@@ -820,13 +814,13 @@ func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) s
 	}
 	daText = condenseSummary(daText, useSentences)
 	if daTitle != "" {
-		b.WriteString("🇩🇰 " + daTitle + "\n")
+		b.WriteString("🇩🇰 <b>" + daTitle + "</b>\n")
 	}
 	if daText != "" {
 		b.WriteString(daText + "\n\n")
 	}
 
-	// Украинский блок
+	// Украинский блок - заголовок на отдельной строке
 	ukTitle := strings.TrimSpace(n.TitleUkrainian)
 	if ukTitle == "" {
 		ukTitle = n.Title
@@ -837,14 +831,17 @@ func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) s
 	}
 	ukText = condenseSummary(ukText, useSentences)
 	if ukTitle != "" {
-		b.WriteString("🇺🇦 " + ukTitle + "\n")
+		b.WriteString("🇺🇦 <b>" + ukTitle + "</b>\n")
 	}
 	if ukText != "" {
-		b.WriteString(ukText + "\n\n")
+		b.WriteString(ukText + "\n")
 	}
 
-	b.WriteString("━━━━━━━━━━━━━━━\n")
-	b.WriteString("📱 Danish News Bot - DeusFlow")
+	// Ссылка в конце для превью
+	if strings.TrimSpace(n.Link) != "" {
+		b.WriteString("\n🔗 " + n.Link)
+	}
+
 	return b.String()
 }
 
@@ -908,10 +905,10 @@ func FormatCaptionForPhoto(n News, maxLen int, sentencesPerLang int, minPerLang 
 	composeBase := func(daT, ukT string) string {
 		var b strings.Builder
 		b.WriteString(header)
-		b.WriteString("🇩🇰 " + daT + "\n")
+		b.WriteString("🇩🇰 <b>" + daT + "</b>\n")
 		b.WriteString("%DA%\n\n")
-		b.WriteString("🇺🇦 " + ukT + "\n")
-		b.WriteString("%UK%\n\n")
+		b.WriteString("🇺🇦 <b>" + ukT + "</b>\n")
+		b.WriteString("%UK%")
 		b.WriteString(footer)
 		return b.String()
 	}
@@ -1017,10 +1014,10 @@ func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, mi
 	composeBase := func(daT, ukT string) string {
 		var b strings.Builder
 		b.WriteString(header)
-		b.WriteString("🇩🇰 " + daT + "\n")
+		b.WriteString("🇩🇰 <b>" + daT + "</b>\n")
 		b.WriteString("%DA%\n\n")
-		b.WriteString("🇺🇦 " + ukT + "\n")
-		b.WriteString("%UK%\n\n")
+		b.WriteString("🇺🇦 <b>" + ukT + "</b>\n")
+		b.WriteString("%UK%")
 		return b.String()
 	}
 	capStr := composeBase(daTitle, ukTitle)
