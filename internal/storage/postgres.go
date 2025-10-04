@@ -15,6 +15,20 @@ type PostgresCache struct {
 	ttlHours int
 }
 
+// TranslationCacheItem represents cached AI translation
+type TranslationCacheItem struct {
+	ContentHash          string
+	Title                string
+	Content              string
+	Summary              string
+	DanishTranslation    string
+	UkrainianTranslation string
+	AIProvider           string
+	CreatedAt            time.Time
+	LastUsedAt           time.Time
+	UseCount             int
+}
+
 // NewPostgresCache creates a new PostgreSQL cache instance
 func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, error) {
 	db, err := sql.Open("postgres", connectionString)
@@ -58,6 +72,24 @@ func (pc *PostgresCache) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_sent_news_hash ON sent_news(hash);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_sent_at ON sent_news(sent_at);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_link ON sent_news(link);
+
+	-- Table for caching AI translations (saves tokens!)
+	CREATE TABLE IF NOT EXISTS translation_cache (
+		id SERIAL PRIMARY KEY,
+		content_hash VARCHAR(64) UNIQUE NOT NULL,
+		title TEXT NOT NULL,
+		content TEXT NOT NULL,
+		summary TEXT,
+		danish_translation TEXT,
+		ukrainian_translation TEXT,
+		ai_provider VARCHAR(50),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_used_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		use_count INTEGER DEFAULT 1
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_translation_cache_hash ON translation_cache(content_hash);
+	CREATE INDEX IF NOT EXISTS idx_translation_cache_created_at ON translation_cache(created_at);
 	`
 
 	_, err := pc.db.Exec(schema)
@@ -224,4 +256,55 @@ func (pc *PostgresCache) GenerateNewsHash(title, link string) string {
 	// Use the same logic as FileCache
 	fc := &FileCache{}
 	return fc.GenerateNewsHash(title, link)
+}
+
+// GetTranslationCache retrieves translation from cache
+func (pc *PostgresCache) GetTranslationCache(contentHash string) (TranslationCacheItem, error) {
+	var item TranslationCacheItem
+
+	query := `
+		SELECT content_hash, title, content, summary, danish_translation, ukrainian_translation, ai_provider, created_at, last_used_at, use_count
+		FROM translation_cache
+		WHERE content_hash = $1
+	`
+
+	err := pc.db.QueryRow(query, contentHash).Scan(
+		&item.ContentHash, &item.Title, &item.Content, &item.Summary,
+		&item.DanishTranslation, &item.UkrainianTranslation, &item.AIProvider,
+		&item.CreatedAt, &item.LastUsedAt, &item.UseCount,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return item, nil // Not found, return zero value
+		}
+		return item, fmt.Errorf("failed to get translation from cache: %v", err)
+	}
+
+	return item, nil
+}
+
+// SetTranslationCache stores translation in cache
+func (pc *PostgresCache) SetTranslationCache(item TranslationCacheItem) error {
+	// Use INSERT ON CONFLICT to handle updates
+	query := `
+		INSERT INTO translation_cache (content_hash, title, content, summary, danish_translation, ukrainian_translation, ai_provider, created_at, last_used_at, use_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 1)
+		ON CONFLICT (content_hash) DO UPDATE SET
+			title = EXCLUDED.title,
+			content = EXCLUDED.content,
+			summary = EXCLUDED.summary,
+			danish_translation = EXCLUDED.danish_translation,
+			ukrainian_translation = EXCLUDED.ukrainian_translation,
+			ai_provider = EXCLUDED.ai_provider,
+			last_used_at = NOW(),
+			use_count = translation_cache.use_count + 1
+	`
+
+	_, err := pc.db.Exec(query, item.ContentHash, item.Title, item.Content, item.Summary, item.DanishTranslation, item.UkrainianTranslation, item.AIProvider)
+	if err != nil {
+		return fmt.Errorf("failed to set translation cache: %v", err)
+	}
+
+	return nil
 }

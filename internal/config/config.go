@@ -28,6 +28,14 @@ type Config struct {
 	GeminiAPIKey      string
 	MaxGeminiRequests int // maximum Gemini requests per run (0 = unlimited)
 
+	// AI Rate Limiting (NEW - saves tokens!)
+	MaxGroqRequests    int  // maximum Groq requests per run (0 = unlimited)
+	MaxCohereRequests  int  // maximum Cohere requests per run (0 = unlimited)
+	MaxMistralRequests int  // maximum Mistral requests per run (0 = unlimited)
+	MaxTotalAIRequests int  // maximum total AI requests per run (0 = unlimited)
+	EnableBatching     bool // enable batch processing for AI requests (saves ~40% tokens)
+	BatchSize          int  // number of news items to process in one AI request (2-3 recommended)
+
 	// RSS settings
 	FeedsConfigPath string
 	MaxNewsLimit    int
@@ -59,7 +67,13 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		// Default values
 		FeedsConfigPath:         "configs/feeds.yaml",
-		MaxGeminiRequests:       3, // default limit, change as needed
+		MaxGeminiRequests:       3,    // default limit, change as needed
+		MaxGroqRequests:         10,   // Groq is fast and free, allow more
+		MaxCohereRequests:       5,    // Cohere has 100/month free limit
+		MaxMistralRequests:      5,    // Mistral free tier
+		MaxTotalAIRequests:      15,   // Total AI requests limit per run
+		EnableBatching:          true, // Enable batching by default (saves 40% tokens)
+		BatchSize:               2,    // Process 2 news items per AI request
 		MaxNewsLimit:            8,
 		NewsMaxAge:              24 * time.Hour,
 		RequestTimeout:          30 * time.Second,
@@ -156,6 +170,36 @@ func Load() (*Config, error) {
 	if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
 		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
 			cfg.MaxGeminiRequests = val
+		}
+	}
+
+	// NEW: AI Rate Limiting configuration
+	if v := os.Getenv("MAX_GROQ_REQUESTS"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
+			cfg.MaxGroqRequests = val
+		}
+	}
+	if v := os.Getenv("MAX_COHERE_REQUESTS"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
+			cfg.MaxCohereRequests = val
+		}
+	}
+	if v := os.Getenv("MAX_MISTRAL_REQUESTS"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
+			cfg.MaxMistralRequests = val
+		}
+	}
+	if v := os.Getenv("MAX_TOTAL_AI_REQUESTS"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
+			cfg.MaxTotalAIRequests = val
+		}
+	}
+	if v := os.Getenv("ENABLE_BATCHING"); v != "" {
+		cfg.EnableBatching = v == "true"
+	}
+	if v := os.Getenv("BATCH_SIZE"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 5 {
+			cfg.BatchSize = val
 		}
 	}
 
