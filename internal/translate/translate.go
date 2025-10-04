@@ -170,8 +170,8 @@ func translateWithGemini(text, from, to string) (string, error) {
 		return "", errors.New("GEMINI_API_KEY not set")
 	}
 
-	// Gemini API endpoint - ОБНОВЛЕНА ВЕРСИЯ МОДЕЛИ!
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-002:generateContent?key=%s", apiKey)
+	// Gemini API endpoint - используем самую новую стабильную версию Gemini 2.5 Flash
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
 
 	// Create translation prompt
 	targetName := languageName(to)

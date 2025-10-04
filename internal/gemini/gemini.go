@@ -87,8 +87,8 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 }
 
 func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*NewsTranslation, error) {
-	// Используем правильную версию модели Gemini
-	model := c.client.GenerativeModel("gemini-1.5-flash-002")
+	// Используем самую новую стабильную версию Gemini 2.5 Flash (GA, released 17 Jun 2025)
+	model := c.client.GenerativeModel("gemini-2.5-flash")
 
 	// Configure model settings for better results
 	model.SetTemperature(0.7)
