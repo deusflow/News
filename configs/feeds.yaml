@@ -14,10 +14,3 @@ feeds:
     priority: 40
     active: true
     categories: [denmark, main, ukraine, visas, technology]
-
-  - url: https://cphpost.dk/?feed=rss2
-    name: The Copenhagen Post (English)
-    lang: en
-    priority: 30
-    active: true
-    categories: [denmark, ukraine, visas, technology, integration, immigration, main]
