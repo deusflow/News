@@ -67,6 +67,8 @@ type Config struct {
 	EnableVocabPost      bool
 	EnableInlineButtons  bool
 	VocabWordsPerDay     int
+	InlineButtonMode     string // "callback" or "url"
+	ChannelUsername      string // for building URL buttons (e.g. deusflow_news)
 }
 
 func Load() (*Config, error) {
@@ -102,6 +104,8 @@ func Load() (*Config, error) {
 		EnableVocabPost:         true,
 		EnableInlineButtons:     false,
 		VocabWordsPerDay:        5,
+		InlineButtonMode:        "callback",
+		ChannelUsername:         "",
 	}
 
 	// Load from environment
@@ -231,6 +235,14 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
 		cfg.EnableInlineButtons = v == "true"
+	}
+	if v := os.Getenv("INLINE_BUTTON_MODE"); v != "" {
+		if v == "url" || v == "callback" {
+			cfg.InlineButtonMode = v
+		}
+	}
+	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
+		cfg.ChannelUsername = v
 	}
 	if v := os.Getenv("VOCAB_WORDS_PER_DAY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 12 {

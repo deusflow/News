@@ -173,7 +173,8 @@ func sendPhotoOnce(token, chatID, photoURL, caption string) error {
 
 type InlineButton struct {
 	Text         string
-	CallbackData string
+	CallbackData string // for callback buttons
+	URL          string // for URL buttons (mutually exclusive with CallbackData)
 }
 
 // SendMessageWithButtons sends a message with optional inline buttons and returns message_id.
@@ -193,7 +194,13 @@ func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton
 		for _, row := range buttons {
 			var kbRow []map[string]interface{}
 			for _, btn := range row {
-				kbRow = append(kbRow, map[string]interface{}{"text": btn.Text, "callback_data": btn.CallbackData})
+				btnMap := map[string]interface{}{"text": btn.Text}
+				if btn.URL != "" {
+					btnMap["url"] = btn.URL
+				} else if btn.CallbackData != "" {
+					btnMap["callback_data"] = btn.CallbackData
+				}
+				kbRow = append(kbRow, btnMap)
 			}
 			kb = append(kb, kbRow)
 		}
@@ -217,4 +224,48 @@ func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton
 	res, _ := decoded["result"].(map[string]interface{})
 	midFloat, _ := res["message_id"].(float64)
 	return int(midFloat), nil
+}
+
+// SendPhotoWithButtons sends a photo with caption and inline buttons (reply_markup) if provided.
+func SendPhotoWithButtons(token, chatID, photoURL, caption string, buttons [][]InlineButton) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
+	// Trim caption to 1024 runes (Telegram limit for photo captions)
+	if utf8.RuneCountInString(caption) > 1024 {
+		r := []rune(caption)
+		caption = string(r[:1024])
+	}
+	payload := map[string]interface{}{
+		"chat_id":    chatID,
+		"photo":      photoURL,
+		"caption":    caption,
+		"parse_mode": "HTML",
+	}
+	if len(buttons) > 0 {
+		var kb [][]map[string]interface{}
+		for _, row := range buttons {
+			var kbRow []map[string]interface{}
+			for _, btn := range row {
+				btnMap := map[string]interface{}{"text": btn.Text}
+				if btn.URL != "" {
+					btnMap["url"] = btn.URL
+				} else if btn.CallbackData != "" {
+					btnMap["callback_data"] = btn.CallbackData
+				}
+				kbRow = append(kbRow, btnMap)
+			}
+			kb = append(kb, kbRow)
+		}
+		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
+	}
+	body, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("error HTTP request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
+	}
+	return nil
 }

@@ -280,21 +280,75 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 		policy = "hybrid"
 	}
 	canPhoto := strings.TrimSpace(selectedNews.ImageURL) != "" && news.ShouldUsePhoto(*selectedNews, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes, cfg.MinSummaryTotalRunes)
+
+	// Thread mode overrides photo logic: we send an announce (text) then full detail reply (text or photo optional future)
+	if cfg.EnableThreadMode {
+		announce := buildAnnounceMessage(*selectedNews)
+		buttons := [][]telegram.InlineButton{}
+		if cfg.EnableInlineButtons {
+			hash := cacheAdapter.GenerateNewsHash(selectedNews.Title, selectedNews.Link)
+			if cfg.InlineButtonMode == "callback" {
+				buttons = [][]telegram.InlineButton{{{Text: "Більше деталей", CallbackData: "DETAIL:" + hash}}}
+			} else if cfg.InlineButtonMode == "url" && selectedNews.Link != "" {
+				// URL кнопка на оригинал
+				buttons = [][]telegram.InlineButton{{{Text: "Читати оригінал", URL: selectedNews.Link}}}
+			}
+		}
+		mid, errA := telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, announce, buttons, true, 0)
+		if errA != nil {
+			logger.Error("Failed to send announce thread message", "error", errA)
+			// fallback to normal flow below
+		} else {
+			detail := news.FormatNewsWithImage(*selectedNews, cfg.TextSentencesPerLangMin, cfg.TextSentencesPerLangMax)
+			if _, errD := telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, detail, nil, true, mid); errD != nil {
+				logger.Error("Failed to send detail thread reply", "error", errD)
+			} else {
+				logger.Info("Thread mode messages sent", "announce_len", len(announce), "detail_len", len(detail))
+			}
+			// Mark as sent & metrics then exit
+			hash := cacheAdapter.GenerateNewsHash(selectedNews.Title, selectedNews.Link)
+			if err := cacheAdapter.MarkAsSent(hash, selectedNews.Title, selectedNews.Link, selectedNews.Category, selectedNews.SourceName); err != nil {
+				logger.Error("Failed to mark news as sent", "error", err)
+			}
+			metrics.Global.IncrementTelegramMessagesSent()
+			metrics.Global.IncrementTelegramMessagesSent()
+			return
+		}
+	}
+
 	if (policy == "photo-only" && canPhoto) || (policy == "hybrid" && canPhoto) {
 		usePhoto = true
 		outText = news.FormatCaptionForPhoto(*selectedNews, cfg.PhotoCaptionMaxRunes, cfg.PhotoSentencesPerLang, cfg.PhotoMinPerLangRunes)
 	} else {
-		// text-only or hybrid fallback
 		outText = news.FormatNewsWithImage(*selectedNews, cfg.TextSentencesPerLangMin, cfg.TextSentencesPerLangMax)
 	}
 	logger.Info("Sending single news", "length", len(outText), "title", selectedNews.Title, "photo", usePhoto)
 
 	var err error
 	if usePhoto {
-		err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, selectedNews.ImageURL, outText)
+		if cfg.EnableInlineButtons {
+			var buttons [][]telegram.InlineButton
+			if cfg.InlineButtonMode == "callback" {
+				buttons = [][]telegram.InlineButton{{{Text: "Слова дня", CallbackData: "VOCAB"}}}
+			} else if cfg.InlineButtonMode == "url" && selectedNews.Link != "" {
+				buttons = [][]telegram.InlineButton{{{Text: "Читати оригінал", URL: selectedNews.Link}}}
+			}
+			err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, selectedNews.ImageURL, outText, buttons)
+		} else {
+			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, selectedNews.ImageURL, outText)
+		}
 	} else {
-		// Allow preview so Telegram can show link thumbnail
-		err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+		if cfg.EnableInlineButtons {
+			var buttons [][]telegram.InlineButton
+			if cfg.InlineButtonMode == "callback" {
+				buttons = [][]telegram.InlineButton{{{Text: "Слова дня", CallbackData: "VOCAB"}}}
+			} else if cfg.InlineButtonMode == "url" && selectedNews.Link != "" {
+				buttons = [][]telegram.InlineButton{{{Text: "Читати оригінал", URL: selectedNews.Link}}}
+			}
+			_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+		} else {
+			err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+		}
 	}
 	if err != nil {
 		logger.Error("Failed to send Telegram message", "error", err)
@@ -309,6 +363,32 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 
 	metrics.Global.IncrementTelegramMessagesSent()
 	logger.Info("Single news sent successfully", "title", selectedNews.Title, "hash", hash)
+}
+
+// buildAnnounceMessage constructs a short teaser (title + one sentence each + importance)
+func buildAnnounceMessage(n news.News) string {
+	var b strings.Builder
+	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n\n")
+	b.WriteString("<b>" + html.EscapeString(n.Title) + "</b>\n")
+	if n.ImportanceUkrainian != "" {
+		b.WriteString("🔥 🇺🇦 " + n.ImportanceUkrainian + "\n")
+	}
+	if n.ImportanceDanish != "" {
+		b.WriteString("🔥 🇩🇰 " + n.ImportanceDanish + "\n")
+	}
+	// First sentences
+	da := firstSentence(n.SummaryDanish)
+	uk := firstSentence(n.SummaryUkrainian)
+	if uk != "" {
+		b.WriteString("🇺🇦 " + uk + "\n")
+	}
+	if da != "" {
+		b.WriteString("🇩🇰 " + da + "\n")
+	}
+	if strings.TrimSpace(n.Link) != "" {
+		b.WriteString("\n🔗 " + n.Link)
+	}
+	return b.String()
 }
 
 // sendMultipleNews отправляет кілька новин, кожну окремим повідомленням (з фото, если есть)
@@ -614,4 +694,30 @@ func postVocabulary(list []news.News, cfg *config.Config) {
 	} else {
 		logger.Info("Vocabulary post sent successfully", "words_count", len(selected))
 	}
+}
+
+func firstSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	seps := []rune{'.', '!', '?'}
+	for i, r := range s {
+		for _, sep := range seps {
+			if r == sep {
+				return strings.TrimSpace(s[:i+1])
+			}
+		}
+	}
+	// no terminal punctuation found; truncate to ~240 chars if very long
+	if len([]rune(s)) > 240 {
+		r := []rune(s)
+		cut := r[:240]
+		out := string(cut)
+		if idx := strings.LastIndex(out, " "); idx > 120 {
+			out = strings.TrimSpace(out[:idx])
+		}
+		return out + "…"
+	}
+	return s
 }

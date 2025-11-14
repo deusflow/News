@@ -839,14 +839,21 @@ func ImportanceLine(text, lang string) (string, error) {
 	// Provider chain (Groq -> Cohere -> Mistral)
 	if s, err := importanceWithGroq(prompt, lang); err == nil && s != "" {
 		return s, nil
+	} else {
+		log.Printf("⚠️ Groq importance failed for lang=%s: %v", lang, err)
 	}
 	if s, err := importanceWithCohere(prompt, lang); err == nil && s != "" {
 		return s, nil
+	} else {
+		log.Printf("⚠️ Cohere importance failed for lang=%s: %v", lang, err)
 	}
 	if s, err := importanceWithMistral(prompt, lang); err == nil && s != "" {
 		return s, nil
+	} else {
+		log.Printf("⚠️ Mistral importance failed for lang=%s: %v", lang, err)
 	}
-	return "", fmt.Errorf("importance generation failed")
+	log.Printf("❌ All importance providers failed for lang=%s", lang)
+	return "", fmt.Errorf("importance generation failed for lang=%s", lang)
 }
 
 func trimImportance(s string) string {

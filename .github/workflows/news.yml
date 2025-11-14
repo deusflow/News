@@ -28,8 +28,16 @@ jobs:
 
       # Bot configuration
       MAX_NEWS_LIMIT: 8
-      MAX_GEMINI_REQUESTS: 2
+      MAX_GEMINI_REQUESTS: 5
       BOT_MODE: single
+
+      # Feature flags (NEW)
+      ENABLE_THREAD_MODE: 'true'
+      ENABLE_INLINE_BUTTONS: 'true'
+      INLINE_BUTTON_MODE: 'url'
+      ENABLE_IMPORTANCE_LINE: 'true'
+      ENABLE_VOCAB_POST: 'true'
+      VOCAB_WORDS_PER_DAY: 5
 
       # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}

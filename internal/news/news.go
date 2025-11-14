@@ -790,12 +790,13 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			geminiRequests++
 		}
 		if opts.EnableImportanceLine {
-			// Generate importance lines after summaries available (use content for context)
 			if impDa, err := translate.ImportanceLine(n.Content, "da"); err == nil && strings.TrimSpace(impDa) != "" {
 				n.ImportanceDanish = impDa
+				log.Printf("[importance] da set (%d runes)", utf8.RuneCountInString(impDa))
 			}
 			if impUk, err := translate.ImportanceLine(n.Content, "uk"); err == nil && strings.TrimSpace(impUk) != "" {
 				n.ImportanceUkrainian = impUk
+				log.Printf("[importance] uk set (%d runes)", utf8.RuneCountInString(impUk))
 			}
 		}
 		res = append(res, n)
