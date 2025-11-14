@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Centralized model identifiers (free-tier friendly / GA as of late 2025)
@@ -766,7 +767,7 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unexpected cohere chat response")
 	}
-	contentArr, _ := msg["content"].([]interface{})
+	contentArr, ok := msg["content"].([]interface{})
 	if len(contentArr) == 0 {
 		return "", fmt.Errorf("no content in cohere message")
 	}
@@ -819,4 +820,183 @@ func summarizeWithMistral(text, lang string) (string, error) {
 	message := choice["message"].(map[string]interface{})
 	content := message["content"].(string)
 	return strings.TrimSpace(content), nil
+}
+
+// ImportanceLine returns a single concise sentence explaining why the news matters in the target language ("da" or "uk").
+// Falls back across providers similar to SummarizeText, but enforces 1 sentence and shorter length.
+func ImportanceLine(text, lang string) (string, error) {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if lang != "da" && lang != "uk" {
+		return "", nil
+	}
+	clean := cleanTextForTranslation(text)
+	if len(clean) > 3000 {
+		clean = clean[:3000] + "..."
+	}
+	promptSuffix := "Give exactly ONE concise sentence (max 200 characters) explaining why this news item matters for readers. No lists, no intro, no hashtags."
+	prompt := fmt.Sprintf("%s\n\nTEXT:\n%s", promptSuffix, clean)
+
+	// Provider chain (Groq -> Cohere -> Mistral)
+	if s, err := importanceWithGroq(prompt, lang); err == nil && s != "" {
+		return s, nil
+	}
+	if s, err := importanceWithCohere(prompt, lang); err == nil && s != "" {
+		return s, nil
+	}
+	if s, err := importanceWithMistral(prompt, lang); err == nil && s != "" {
+		return s, nil
+	}
+	return "", fmt.Errorf("importance generation failed")
+}
+
+func trimImportance(s string) string {
+	s = SanitizeAIText(strings.TrimSpace(s))
+	// Keep first sentence only
+	if idx := strings.IndexAny(s, ".!?\n"); idx >= 0 && idx+1 < len(s) {
+		s = strings.TrimSpace(s[:idx+1])
+	}
+	if utf8.RuneCountInString(s) > 220 {
+		r := []rune(s)
+		s = string(r[:220])
+		// trim trailing up to last space
+		if i := strings.LastIndex(s, " "); i > 160 {
+			s = strings.TrimSpace(s[:i]) + "…"
+		}
+	}
+	return s
+}
+
+func importanceWithGroq(prompt, lang string) (string, error) {
+	apiKey := os.Getenv("GROQ_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("groq api key missing")
+	}
+	apiURL := "https://api.groq.com/openai/v1/chat/completions"
+	language := languageName(lang)
+	finalPrompt := fmt.Sprintf("In %s: %s", language, prompt)
+	payload := map[string]interface{}{
+		"model":       groqModel,
+		"messages":    []map[string]interface{}{{"role": "user", "content": finalPrompt}},
+		"temperature": 0.2,
+		"max_tokens":  120,
+	}
+	b, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 20 * time.Second}
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return "", fmt.Errorf("groq importance failed")
+	}
+	defer func() {
+		if resp != nil {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Warning: close Groq importance body: %v", err)
+			}
+		}
+	}()
+	body, _ := io.ReadAll(resp.Body)
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", err
+	}
+	choices, _ := response["choices"].([]interface{})
+	if len(choices) == 0 {
+		return "", fmt.Errorf("no choices")
+	}
+	choice := choices[0].(map[string]interface{})
+	message := choice["message"].(map[string]interface{})
+	content := message["content"].(string)
+	return trimImportance(content), nil
+}
+
+func importanceWithCohere(prompt, lang string) (string, error) {
+	apiKey := os.Getenv("COHERE_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("cohere key missing")
+	}
+	apiURL := "https://api.cohere.ai/v1/chat"
+	language := languageName(lang)
+	finalPrompt := fmt.Sprintf("In %s: %s", language, prompt)
+	payload := map[string]interface{}{
+		"model":       cohereModel,
+		"messages":    []map[string]interface{}{{"role": "user", "content": finalPrompt}},
+		"temperature": 0.2,
+		"max_tokens":  120,
+	}
+	b, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 20 * time.Second}
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return "", fmt.Errorf("cohere importance failed")
+	}
+	defer func() {
+		if resp != nil {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Warning: close Cohere importance body: %v", err)
+			}
+		}
+	}()
+	body, _ := io.ReadAll(resp.Body)
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", err
+	}
+	msg, _ := response["message"].(map[string]interface{})
+	contentArr, _ := msg["content"].([]interface{})
+	if len(contentArr) == 0 {
+		return "", fmt.Errorf("no content cohere")
+	}
+	first, _ := contentArr[0].(map[string]interface{})
+	textOut, _ := first["text"].(string)
+	return trimImportance(textOut), nil
+}
+
+func importanceWithMistral(prompt, lang string) (string, error) {
+	apiKey := os.Getenv("MISTRALAI_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("mistral key missing")
+	}
+	apiURL := "https://api.mistral.ai/v1/chat/completions"
+	language := languageName(lang)
+	finalPrompt := fmt.Sprintf("In %s: %s", language, prompt)
+	payload := map[string]interface{}{
+		"model":       mistralModel,
+		"messages":    []map[string]interface{}{{"role": "user", "content": finalPrompt}},
+		"temperature": 0.2,
+		"max_tokens":  120,
+	}
+	b, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 20 * time.Second}
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return "", fmt.Errorf("mistral importance failed")
+	}
+	defer func() {
+		if resp != nil {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Warning: close Mistral importance body: %v", err)
+			}
+		}
+	}()
+	body, _ := io.ReadAll(resp.Body)
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", err
+	}
+	choices, _ := response["choices"].([]interface{})
+	if len(choices) == 0 {
+		return "", fmt.Errorf("no choices mistral")
+	}
+	choice := choices[0].(map[string]interface{})
+	message := choice["message"].(map[string]interface{})
+	content := message["content"].(string)
+	return trimImportance(content), nil
 }

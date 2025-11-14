@@ -41,6 +41,9 @@ type News struct {
 	// Image support - добавляем поддержку изображений
 	ImageURL string // URL изображения новости
 	ImageAlt string // Альтернативный текст для изображения
+
+	ImportanceDanish    string // one-sentence why it matters (Danish)
+	ImportanceUkrainian string // one-sentence why it matters (Ukrainian)
 }
 
 // Extra boost keywords for refugee/visa related stories to increase priority
@@ -542,13 +545,14 @@ func FilterAndTranslate(items []*rss.FeedItem) ([]News, error) {
 
 // Options controls filtering and selection behavior.
 type Options struct {
-	Limit             int           // how many items to return
-	MaxAge            time.Duration // discard items older than this
-	PerSource         int           // cap per source in final list
-	PerCategory       int           // cap per category in final list
-	MaxGeminiRequests int           // maximum Gemini requests allowed (0 = unlimited)
-	ScrapeMaxArticles int           // how many articles to fetch full content for (cap)
-	ScrapeConcurrency int           // parallelism for scraping full content
+	Limit                int           // how many items to return
+	MaxAge               time.Duration // discard items older than this
+	PerSource            int           // cap per source in final list
+	PerCategory          int           // cap per category in final list
+	MaxGeminiRequests    int           // maximum Gemini requests allowed (0 = unlimited)
+	ScrapeMaxArticles    int           // how many articles to fetch full content for (cap)
+	ScrapeConcurrency    int           // parallelism for scraping full content
+	EnableImportanceLine bool          // generate one-sentence importance lines
 }
 
 // FilterAndTranslateWithOptions performs filtering and summarization using provided options.
@@ -785,6 +789,15 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			}
 			geminiRequests++
 		}
+		if opts.EnableImportanceLine {
+			// Generate importance lines after summaries available (use content for context)
+			if impDa, err := translate.ImportanceLine(n.Content, "da"); err == nil && strings.TrimSpace(impDa) != "" {
+				n.ImportanceDanish = impDa
+			}
+			if impUk, err := translate.ImportanceLine(n.Content, "uk"); err == nil && strings.TrimSpace(impUk) != "" {
+				n.ImportanceUkrainian = impUk
+			}
+		}
 		res = append(res, n)
 		time.Sleep(1 * time.Second) // Уменьшаем задержку для лучшей производительности
 	}
@@ -823,6 +836,14 @@ func fallbackSummary(content string) string {
 func FormatNews(n News) string {
 	var b strings.Builder
 	b.WriteString("🇩🇰 *" + n.Title + "*\n")
+	if n.ImportanceUkrainian != "" || n.ImportanceDanish != "" {
+		if n.ImportanceUkrainian != "" {
+			b.WriteString("🔥 🇺🇦 " + n.ImportanceUkrainian + "\n")
+		}
+		if n.ImportanceDanish != "" {
+			b.WriteString("🔥 🇩🇰 " + n.ImportanceDanish + "\n")
+		}
+	}
 	if n.SummaryUkrainian != "" {
 		b.WriteString("🇺🇦 " + n.SummaryUkrainian + "\n")
 	}
@@ -858,6 +879,10 @@ func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) s
 	if daTitle != "" {
 		b.WriteString("🇩🇰 <b>" + daTitle + "</b>\n")
 	}
+	// Важливість датською (якщо є)
+	if n.ImportanceDanish != "" {
+		b.WriteString("🔥 " + n.ImportanceDanish + "\n")
+	}
 	if daText != "" {
 		b.WriteString(daText + "\n\n")
 	}
@@ -874,6 +899,10 @@ func FormatNewsWithImage(n News, minSentencesPerLang, maxSentencesPerLang int) s
 	ukText = condenseSummary(ukText, useSentences)
 	if ukTitle != "" {
 		b.WriteString("🇺🇦 <b>" + ukTitle + "</b>\n")
+	}
+	// Важливість українською (якщо є)
+	if n.ImportanceUkrainian != "" {
+		b.WriteString("🔥 " + n.ImportanceUkrainian + "\n")
 	}
 	if ukText != "" {
 		b.WriteString(ukText + "\n")
@@ -943,10 +972,23 @@ func FormatCaptionForPhoto(n News, maxLen int, sentencesPerLang int, minPerLang 
 	header := "🇩🇰 Danish News 🇺🇦\n\n"
 	footer := ""
 
+	// Build importance block if present
+	impBlock := ""
+	if n.ImportanceDanish != "" {
+		impBlock += "🔥 🇩🇰 " + n.ImportanceDanish + "\n"
+	}
+	if n.ImportanceUkrainian != "" {
+		impBlock += "🔥 🇺🇦 " + n.ImportanceUkrainian + "\n"
+	}
+	if impBlock != "" {
+		impBlock += "\n"
+	}
+
 	// Skeleton without summaries to measure base (rune-aware)
 	composeBase := func(daT, ukT string) string {
 		var b strings.Builder
 		b.WriteString(header)
+		b.WriteString(impBlock)
 		b.WriteString("🇩🇰 <b>" + daT + "</b>\n")
 		b.WriteString("%DA%\n\n")
 		b.WriteString("🇺🇦 <b>" + ukT + "</b>\n")

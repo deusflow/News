@@ -5,6 +5,7 @@ import (
 	"html"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/deusflow/News/internal/config"
@@ -15,6 +16,7 @@ import (
 	"github.com/deusflow/News/internal/rss"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
+	"github.com/deusflow/News/internal/translate"
 )
 
 // formatNewsMessage builds grouped message using AI summaries (Ukrainian priority, then Danish, then others)
@@ -195,12 +197,13 @@ func Run() {
 
 	// Filter and translate news with options from config
 	filtered, err := news.FilterAndTranslateWithOptions(items, news.Options{
-		Limit:             cfg.MaxNewsLimit,
-		MaxAge:            cfg.NewsMaxAge,
-		PerSource:         2,
-		MaxGeminiRequests: cfg.MaxGeminiRequests,
-		ScrapeMaxArticles: cfg.ScrapeMaxArticles,
-		ScrapeConcurrency: cfg.ScrapeConcurrency,
+		Limit:                cfg.MaxNewsLimit,
+		MaxAge:               cfg.NewsMaxAge,
+		PerSource:            2,
+		MaxGeminiRequests:    cfg.MaxGeminiRequests,
+		ScrapeMaxArticles:    cfg.ScrapeMaxArticles,
+		ScrapeConcurrency:    cfg.ScrapeConcurrency,
+		EnableImportanceLine: cfg.EnableImportanceLine,
 	})
 	if err != nil {
 		logger.Error("Failed to filter and translate news", "error", err)
@@ -227,6 +230,11 @@ func Run() {
 		sendSingleNews(filtered, cfg, cacheAdapter)
 	} else {
 		sendMultipleNews(filtered, cfg, cacheAdapter, cfg.MaxNewsLimit)
+	}
+
+	// Vocabulary post after sending if enabled
+	if cfg.EnableVocabPost && len(filtered) > 0 {
+		postVocabulary(filtered, cfg)
 	}
 
 	// Log final metrics
@@ -482,4 +490,128 @@ func isIrrelevantSentence(sentence string) bool {
 	}
 
 	return false
+}
+
+// postVocabulary builds and sends vocabulary list from Danish news summaries
+func postVocabulary(list []news.News, cfg *config.Config) {
+	logger.Info("Generating vocabulary post")
+
+	// Collect Danish text corpus
+	var corpus []string
+	for _, n := range list {
+		if n.SummaryDanish != "" {
+			corpus = append(corpus, n.SummaryDanish)
+		}
+		corpus = append(corpus, n.Title)
+	}
+
+	if len(corpus) == 0 {
+		logger.Warn("No Danish text for vocabulary extraction")
+		return
+	}
+
+	full := strings.ToLower(strings.Join(corpus, " "))
+
+	// Tokenize
+	tokens := regexp.MustCompile(`[^a-zA-ZæøåÆØÅ]+`).Split(full, -1)
+	freq := map[string]int{}
+
+	// Danish stop words
+	stop := map[string]struct{}{
+		"danmark": {}, "viborg": {}, "der": {}, "og": {}, "for": {},
+		"med": {}, "ikke": {}, "har": {}, "fra": {}, "til": {},
+		"mens": {}, "efter": {}, "den": {}, "det": {}, "som": {},
+		"man": {}, "jeg": {}, "hun": {}, "han": {}, "vores": {},
+		"hans": {}, "de": {}, "at": {}, "en": {}, "et": {},
+		"på": {}, "i": {}, "af": {}, "er": {}, "blev": {},
+	}
+
+	for _, t := range tokens {
+		if len(t) < 5 {
+			continue
+		}
+		if _, skip := stop[t]; skip {
+			continue
+		}
+		freq[t]++
+	}
+
+	if len(freq) == 0 {
+		logger.Warn("No vocabulary words found after filtering")
+		return
+	}
+
+	// Select top N by frequency
+	type pair struct {
+		w string
+		c int
+	}
+	var arr []pair
+	for w, c := range freq {
+		arr = append(arr, pair{w, c})
+	}
+	sort.Slice(arr, func(i, j int) bool {
+		return arr[i].c > arr[j].c
+	})
+
+	limit := cfg.VocabWordsPerDay
+	if limit <= 0 {
+		limit = 5
+	}
+	if len(arr) < limit {
+		limit = len(arr)
+	}
+	selected := arr[:limit]
+
+	// Build message with translations
+	var b strings.Builder
+	b.WriteString("🧠 <b>Слова дня (Danish → Ukrainian)</b>\n\n")
+
+	idx := 1
+	for _, p := range selected {
+		// Translate word
+		uk, err := translate.TranslateText(p.w, "da", "uk")
+		if err != nil || uk == "" {
+			uk = p.w // fallback to original if translation fails
+		}
+
+		// Find example sentence from news containing this word
+		example := ""
+		for _, n := range list {
+			if strings.Contains(strings.ToLower(n.SummaryDanish), p.w) {
+				// Extract first sentence as example
+				sentences := strings.Split(n.SummaryDanish, ".")
+				for _, s := range sentences {
+					s = strings.TrimSpace(s)
+					if len(s) > 20 && strings.Contains(strings.ToLower(s), p.w) {
+						example = s + "."
+						break
+					}
+				}
+				break
+			}
+		}
+
+		if example == "" {
+			example = "Brug: " + p.w + "…"
+		}
+
+		// Limit example length
+		if len(example) > 200 {
+			example = example[:197] + "..."
+		}
+
+		b.WriteString(fmt.Sprintf("%d. <b>%s</b> → %s\n<i>%s</i>\n\n", idx, p.w, uk, example))
+		idx++
+	}
+
+	b.WriteString("📌 Допомагає вивчати датську через реальні новини.")
+
+	// Send vocabulary post
+	_, err := telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, b.String(), nil, true, 0)
+	if err != nil {
+		logger.Error("Failed to send vocabulary post", "error", err)
+	} else {
+		logger.Info("Vocabulary post sent successfully", "words_count", len(selected))
+	}
 }

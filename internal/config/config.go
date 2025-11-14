@@ -61,6 +61,12 @@ type Config struct {
 	UsePostgres bool // if true, use PostgreSQL instead of file cache
 	DatabaseTTL int  // hours to keep records in database
 
+	// Feature flags
+	EnableThreadMode     bool
+	EnableImportanceLine bool
+	EnableVocabPost      bool
+	EnableInlineButtons  bool
+	VocabWordsPerDay     int
 }
 
 func Load() (*Config, error) {
@@ -91,6 +97,11 @@ func Load() (*Config, error) {
 		ScrapeConcurrency:       8,
 		ScrapeMaxArticles:       10,
 		DatabaseTTL:             48, // default TTL for database records
+		EnableThreadMode:        false,
+		EnableImportanceLine:    true,
+		EnableVocabPost:         true,
+		EnableInlineButtons:     false,
+		VocabWordsPerDay:        5,
 	}
 
 	// Load from environment
@@ -206,6 +217,25 @@ func Load() (*Config, error) {
 	// NEW: Check if PostgreSQL should be used
 	if usePg := os.Getenv("USE_POSTGRES"); usePg == "true" {
 		cfg.UsePostgres = true
+	}
+
+	// NEW: Feature flags
+	if v := os.Getenv("ENABLE_THREAD_MODE"); v == "true" {
+		cfg.EnableThreadMode = true
+	}
+	if v := os.Getenv("ENABLE_IMPORTANCE_LINE"); v != "" {
+		cfg.EnableImportanceLine = v == "true"
+	}
+	if v := os.Getenv("ENABLE_VOCAB_POST"); v != "" {
+		cfg.EnableVocabPost = v == "true"
+	}
+	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
+		cfg.EnableInlineButtons = v == "true"
+	}
+	if v := os.Getenv("VOCAB_WORDS_PER_DAY"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 12 {
+			cfg.VocabWordsPerDay = val
+		}
 	}
 
 	return cfg, cfg.Validate()

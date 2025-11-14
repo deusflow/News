@@ -170,3 +170,51 @@ func sendPhotoOnce(token, chatID, photoURL, caption string) error {
 	}
 	return nil
 }
+
+type InlineButton struct {
+	Text         string
+	CallbackData string
+}
+
+// SendMessageWithButtons sends a message with optional inline buttons and returns message_id.
+func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton, allowPreview bool, replyTo int) (int, error) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	payload := map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": !allowPreview,
+	}
+	if replyTo > 0 {
+		payload["reply_to_message_id"] = replyTo
+	}
+	if len(buttons) > 0 {
+		var kb [][]map[string]interface{}
+		for _, row := range buttons {
+			var kbRow []map[string]interface{}
+			for _, btn := range row {
+				kbRow = append(kbRow, map[string]interface{}{"text": btn.Text, "callback_data": btn.CallbackData})
+			}
+			kb = append(kb, kbRow)
+		}
+		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
+	}
+	body, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return 0, fmt.Errorf("error HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(respBody, &decoded); err != nil {
+		return 0, fmt.Errorf("decode error: %v", err)
+	}
+	res, _ := decoded["result"].(map[string]interface{})
+	midFloat, _ := res["message_id"].(float64)
+	return int(midFloat), nil
+}
