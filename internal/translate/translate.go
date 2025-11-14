@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+// Centralized model identifiers (free-tier friendly / GA as of late 2025)
+const (
+	geminiModel  = "gemini-2.5-flash"     // GA, fast; requires proper API quota
+	groqModel    = "llama-3.1-8b-instant" // very fast free-tier on Groq
+	cohereModel  = "command-r-mini"       // Cohere Chat API (free-tier friendly)
+	mistralModel = "open-mistral-7b"      // Mistral free/open model
+)
+
 // SanitizeAIText removes common AI disclaimer lines (e.g., "Note: This translation is a machine translation ...")
 func SanitizeAIText(s string) string {
 	s = strings.TrimSpace(s)
@@ -171,7 +179,7 @@ func translateWithGemini(text, from, to string) (string, error) {
 	}
 
 	// Gemini API endpoint - используем самую новую стабильную версию Gemini 2.5 Flash
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, apiKey)
 
 	// Create translation prompt
 	targetName := languageName(to)
@@ -274,7 +282,7 @@ func translateWithGroq(text, from, to string) (string, error) {
 
 	// Request payload - ОБНОВЛЕНА МОДЕЛЬ!
 	payload := map[string]interface{}{
-		"model": "llama-3.1-8b-instant", // Новая актуальная модель Groq
+		"model": groqModel,
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
@@ -355,29 +363,27 @@ func translateWithGroq(text, from, to string) (string, error) {
 	return strings.TrimSpace(content), nil
 }
 
-// translateWithCohere uses Cohere API (FREE 100 requests/month)
+// translateWithCohere uses Cohere Chat API (updated; Generate API deprecated Sep 2025)
 func translateWithCohere(text, from, to string) (string, error) {
 	apiKey := os.Getenv("COHERE_API_KEY")
 	if apiKey == "" {
 		return "", errors.New("COHERE_API_KEY not set")
 	}
 
-	// Cohere API endpoint
-	apiURL := "https://api.cohere.ai/v1/generate"
+	// Cohere Chat API endpoint
+	apiURL := "https://api.cohere.ai/v1/chat"
 
 	// Create translation prompt
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate from %s to %s. Return only the translation:\n\n%s\n\n%s translation:`, from, targetName, text, targetName)
+	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations or additional text:\n\n%s`, from, targetName, text)
 
-	// Request payload
 	payload := map[string]interface{}{
-		"model":              "command-light", // Free tier model
-		"prompt":             prompt,
-		"max_tokens":         500,
-		"temperature":        0.1,
-		"k":                  0,
-		"stop_sequences":     []string{},
-		"return_likelihoods": "NONE",
+		"model": cohereModel,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": prompt},
+		},
+		"temperature": 0.1,
+		"max_tokens":  1000,
 	}
 
 	jsonPayload, err := json.Marshal(payload)
@@ -385,20 +391,14 @@ func translateWithCohere(text, from, to string) (string, error) {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	// Create HTTP client with timeout
 	client := &http.Client{Timeout: 30 * time.Second}
-
-	// Create request
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
-
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	// Make request
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
@@ -417,7 +417,6 @@ func translateWithCohere(text, from, to string) (string, error) {
 		return "", fmt.Errorf("cohere API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("error reading response: %v", err)
@@ -428,19 +427,21 @@ func translateWithCohere(text, from, to string) (string, error) {
 		return "", fmt.Errorf("error parsing response: %v", err)
 	}
 
-	// Extract translation
-	generations, ok := response["generations"].([]interface{})
-	if !ok || len(generations) == 0 {
-		return "", errors.New("no generations in response")
-	}
-
-	generation := generations[0].(map[string]interface{})
-	text_result, ok := generation["text"].(string)
+	// New Chat API response shape: message.content[0].text
+	msg, ok := response["message"].(map[string]interface{})
 	if !ok {
-		return "", errors.New("no text in generation")
+		return "", errors.New("no message in response")
 	}
-
-	return strings.TrimSpace(text_result), nil
+	contentArr, ok := msg["content"].([]interface{})
+	if !ok || len(contentArr) == 0 {
+		return "", errors.New("no content in message")
+	}
+	first, _ := contentArr[0].(map[string]interface{})
+	textOut, _ := first["text"].(string)
+	if strings.TrimSpace(textOut) == "" {
+		return "", errors.New("empty text in message.content")
+	}
+	return strings.TrimSpace(textOut), nil
 }
 
 // translateWithMistralAI uses Mistral AI (FREE tier available)
@@ -459,7 +460,7 @@ func translateWithMistralAI(text, from, to string) (string, error) {
 
 	// Request payload for Mistral AI
 	payload := map[string]interface{}{
-		"model": "mistral-tiny", // Free tier model
+		"model": mistralModel,
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
@@ -683,7 +684,7 @@ func summarizeWithGroq(text, lang string) (string, error) {
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
-		"model": "llama-3.1-8b-instant", // ОБНОВЛЕНА МОДЕЛЬ!
+		"model": groqModel, // ОБНОВЛЕНА МОДЕЛЬ!
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": prompt},
 		},
@@ -728,13 +729,15 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if apiKey == "" {
 		return "", errors.New("COHERE_API_KEY not set")
 	}
-	apiURL := "https://api.cohere.ai/v1/generate"
-	prompt := fmt.Sprintf("Summarize the following text in %s in 3-4 concise sentences. No lists, no meta text.\n\nTEXT:\n%s\n\nSummary:", languageName(lang), text)
+	apiURL := "https://api.cohere.ai/v1/chat"
+	prompt := fmt.Sprintf("Summarize the following text in %s in 3-4 concise sentences. No lists, no meta text.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
-		"model":       "command-light",
-		"prompt":      prompt,
-		"max_tokens":  500,
+		"model": cohereModel,
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": prompt},
+		},
 		"temperature": 0.2,
+		"max_tokens":  500,
 	}
 	jsonPayload, _ := json.Marshal(payload)
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -759,12 +762,16 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if err := json.Unmarshal(b, &response); err != nil {
 		return "", err
 	}
-	gens, _ := response["generations"].([]interface{})
-	if len(gens) == 0 {
-		return "", fmt.Errorf("no generations")
+	msg, ok := response["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("unexpected cohere chat response")
 	}
-	gen := gens[0].(map[string]interface{})
-	textOut, _ := gen["text"].(string)
+	contentArr, _ := msg["content"].([]interface{})
+	if len(contentArr) == 0 {
+		return "", fmt.Errorf("no content in cohere message")
+	}
+	first, _ := contentArr[0].(map[string]interface{})
+	textOut, _ := first["text"].(string)
 	return strings.TrimSpace(textOut), nil
 }
 
@@ -776,7 +783,7 @@ func summarizeWithMistral(text, lang string) (string, error) {
 	apiURL := "https://api.mistral.ai/v1/chat/completions"
 	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No bullet points.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
-		"model":       "mistral-tiny",
+		"model":       mistralModel,
 		"messages":    []map[string]interface{}{{"role": "user", "content": prompt}},
 		"temperature": 0.2,
 		"max_tokens":  600,

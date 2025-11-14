@@ -60,6 +60,11 @@ var refugeeBoostKeywords = []string{
 	"family",
 }
 
+// Viborg-specific patterns to boost local relevance
+var viborgKeywords = []string{
+	"viborg", "8800", "viborg kommune", "midtjylland",
+}
+
 var visaBoostKeywords = []string{
 	"visum",
 	"visumforlængelse",
@@ -203,6 +208,28 @@ func containsAny(text string, keywords []string) bool {
 	return false
 }
 
+// containsAll returns true if all needles appear (case-insensitive substring or word-boundary for short tokens)
+func containsAll(text string, needles []string) bool {
+	text = strings.ToLower(text)
+	for _, k := range needles {
+		k = strings.ToLower(strings.TrimSpace(k))
+		if k == "" {
+			continue
+		}
+		if len(k) <= 3 {
+			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(k) + `\b`)
+			if !re.MatchString(text) {
+				return false
+			}
+			continue
+		}
+		if !strings.Contains(text, k) {
+			return false
+		}
+	}
+	return true
+}
+
 // makeNewsKey generates a hash key from title and description for deduplication
 func makeNewsKey(title, description string) string {
 	h := sha1.New()
@@ -342,6 +369,8 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	hasParent := containsAny(text, parentKeywords)
 	hasCultural := containsAny(text, culturalKeywords)
 	hasSports := containsAny(text, sportsKeywords)
+	// Viborg detection
+	hasViborg := containsAny(text, viborgKeywords)
 
 	ctxLocal := hasDenmark || hasUkraineGeo || hasEurope
 
@@ -353,6 +382,17 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// Переменные результата
 	var category string
 	score := 0
+
+	// 0) Viborg local boost applied to any category below
+	viborgBoost := 0
+	if hasViborg {
+		// Base boost for any Viborg mention
+		viborgBoost = 15
+		// Extra if both city and zip appear
+		if containsAll(text, []string{"viborg", "8800"}) {
+			viborgBoost += 10
+		}
+	}
 
 	// 1) Новости про украинцев / проблемы беженцев / визы — высокая приоритетность
 	if hasUkraineGeo || hasRefugeeBoost || hasVisaBoost {
@@ -373,6 +413,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		if hasMedical {
 			score += 10
 		}
+		score += viborgBoost
 		return category, score
 	}
 
@@ -396,13 +437,14 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 		if hasEurope {
 			score += 5
 		}
+		score += viborgBoost
 		return category, score
 	}
 
 	// 3) Семья/родители (до общего датского блока, чтобы не было unreachable бонусов)
 	if hasParent && ctxLocal {
 		category = "family"
-		score = 55
+		score = 55 + viborgBoost
 		if hasDenmark {
 			score += 10
 		}
@@ -412,7 +454,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// 4) Молодежные темы
 	if hasYouth && ctxLocal {
 		category = "youth"
-		score = 50
+		score = 50 + viborgBoost
 		if hasDenmark {
 			score += 8
 		}
@@ -422,7 +464,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// 5) Культура
 	if hasCultural && ctxLocal {
 		category = "culture"
-		score = 35
+		score = 35 + viborgBoost
 		if hasDenmark {
 			score += 10
 		}
@@ -432,7 +474,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// 6) Спорт
 	if hasSports && ctxLocal {
 		category = "sports"
-		score = 30
+		score = 30 + viborgBoost
 		if hasDenmark {
 			score += 8
 		}
@@ -442,7 +484,7 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// 7) Общие датские новости
 	if hasDenmark {
 		category = "denmark"
-		score = 40
+		score = 40 + viborgBoost
 		if containsAny(text, []string{"politik", "regering", "økonomi", "minister"}) {
 			score += 15
 		}
@@ -452,30 +494,30 @@ func calculateNewsScore(item *rss.FeedItem) (string, int) {
 	// 8) Общие европейские новости (без датского контекста)
 	if hasEurope {
 		category = "europe"
-		score = 25
+		score = 25 + viborgBoost
 		return category, score
 	}
 
 	// 9) Чисто конфликтные новости (минимальный приоритет)
 	if hasConflict {
 		category = "conflict"
-		score = 15
+		score = 15 + viborgBoost
 		return category, score
 	}
 
 	// 10) Общие категории
 	if containsAny(text, []string{"økonomi", "business", "marked", "aktier", "bank"}) {
 		category = "economy"
-		score = 20
+		score = 20 + viborgBoost
 	} else if containsAny(text, []string{"miljø", "klima", "climate", "environment", "grøn"}) {
 		category = "environment"
-		score = 25
+		score = 25 + viborgBoost
 	} else if containsAny(text, []string{"uddannelse", "education", "universitet"}) {
 		category = "education"
-		score = 22
+		score = 22 + viborgBoost
 	} else if containsAny(text, []string{"europa", "european", "eu"}) {
 		category = "general"
-		score = 10
+		score = 10 + viborgBoost
 	}
 
 	if category == "" || score == 0 {

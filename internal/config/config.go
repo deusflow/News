@@ -67,7 +67,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		// Default values
 		FeedsConfigPath:         "configs/feeds.yaml",
-		MaxGeminiRequests:       3,    // default limit, change as needed
+		MaxGeminiRequests:       2,    // lowered to 2 to avoid hitting limits, override via env
 		MaxGroqRequests:         10,   // Groq is fast and free, allow more
 		MaxCohereRequests:       5,    // Cohere has 100/month free limit
 		MaxMistralRequests:      5,    // Mistral free tier
