@@ -36,7 +36,7 @@ jobs:
       ENABLE_INLINE_BUTTONS: 'true'
       INLINE_BUTTON_MODE: 'url'
       ENABLE_IMPORTANCE_LINE: 'true'
-      ENABLE_VOCAB_POST: 'true'
+      ENABLE_VOCAB_POST: 'false'
       VOCAB_WORDS_PER_DAY: 5
 
       # API Keys and Tokens
