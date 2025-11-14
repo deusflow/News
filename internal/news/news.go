@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/rss"
@@ -804,6 +805,8 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 	}
 
 	log.Printf("Обработано %d новостей с саммаризацией", len(res))
+	// Apply post-processing (dedup importance, language checks, topN)
+	res = postProcessNews(res, configFromEnv())
 	return res, nil
 }
 
@@ -1409,4 +1412,90 @@ func findFirstImgURL(html string) string {
 		return m[1]
 	}
 	return ""
+}
+
+func postProcessNews(list []News, cfg *config.Config) []News {
+	for i := range list {
+		n := &list[i]
+		// Limit importance lines to top N if configured
+		if cfg.ImportanceTopN > 0 && i >= cfg.ImportanceTopN {
+			n.ImportanceDanish = ""
+			n.ImportanceUkrainian = ""
+		}
+		// Deduplicate: if importance repeats summary (high overlap)
+		if isNearDuplicate(n.ImportanceDanish, n.SummaryDanish) {
+			n.ImportanceDanish = ""
+		}
+		if isNearDuplicate(n.ImportanceUkrainian, n.SummaryUkrainian) {
+			n.ImportanceUkrainian = ""
+		}
+		// Language sanity: Ukrainian should contain Cyrillic; if not -> drop importance
+		if n.ImportanceUkrainian != "" && !containsCyrillic(n.ImportanceUkrainian) && containsCyrillic(n.SummaryUkrainian) {
+			n.ImportanceUkrainian = ""
+		}
+		// Danish should have Danish letters or basic latin; skip if accidentally Ukrainian only
+		if n.ImportanceDanish != "" && containsCyrillic(n.ImportanceDanish) && !containsCyrillic(n.SummaryDanish) {
+			n.ImportanceDanish = ""
+		}
+	}
+	return list
+}
+
+func containsCyrillic(s string) bool {
+	for _, r := range s {
+		if r >= 0x0400 && r <= 0x04FF { // Basic Cyrillic block
+			return true
+		}
+	}
+	return false
+}
+
+func isNearDuplicate(a, b string) bool {
+	a = strings.TrimSpace(strings.ToLower(a))
+	b = strings.TrimSpace(strings.ToLower(b))
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	// Simple containment
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return true
+	}
+	// Token Jaccard
+	tA := strings.Fields(a)
+	tB := strings.Fields(b)
+	if len(tA) == 0 || len(tB) == 0 {
+		return false
+	}
+	setA := map[string]struct{}{}
+	setB := map[string]struct{}{}
+	for _, t := range tA {
+		setA[t] = struct{}{}
+	}
+	for _, t := range tB {
+		setB[t] = struct{}{}
+	}
+	inter := 0
+	for t := range setA {
+		if _, ok := setB[t]; ok {
+			inter++
+		}
+	}
+	union := len(setA) + len(setB) - inter
+	if union == 0 {
+		return false
+	}
+	j := float64(inter) / float64(union)
+	return j >= 0.85
+}
+
+// configFromEnv lightweight loader for ImportanceTopN & flags (avoid circular import during tests)
+func configFromEnv() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		return &config.Config{}
+	}
+	return cfg
 }

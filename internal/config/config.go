@@ -69,6 +69,9 @@ type Config struct {
 	VocabWordsPerDay     int
 	InlineButtonMode     string // "callback" or "url"
 	ChannelUsername      string // for building URL buttons (e.g. deusflow_news)
+
+	// NEW: ImportanceTopN field
+	ImportanceTopN int // show importance line only for first N news (0 = all)
 }
 
 func Load() (*Config, error) {
@@ -106,6 +109,7 @@ func Load() (*Config, error) {
 		VocabWordsPerDay:        5,
 		InlineButtonMode:        "callback",
 		ChannelUsername:         "",
+		ImportanceTopN:          0, // default to 0 (show importance line for all news)
 	}
 
 	// Load from environment
@@ -247,6 +251,11 @@ func Load() (*Config, error) {
 	if v := os.Getenv("VOCAB_WORDS_PER_DAY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 12 {
 			cfg.VocabWordsPerDay = val
+		}
+	}
+	if v := os.Getenv("IMPORTANCE_TOP_N"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
+			cfg.ImportanceTopN = val
 		}
 	}
 
