@@ -78,14 +78,20 @@ func formatNewsMessage(newsList []news.News, max int) string {
 func formatSingleNews(n news.News, number int) string {
 	var b strings.Builder
 
-	// Set emoji by category
-	emoji := "📰"
-	if n.Category == "ukraine" {
-		emoji = "🔥"
-	}
+	// Используем Mood Emoji, который уже определен в news.go
+	emoji := news.GetMoodEmoji(n.Mood)
 
 	// Title with link
 	b.WriteString(fmt.Sprintf("%s <b>%d.</b> <a href=\"%s\">%s</a>\n", emoji, number, n.Link, n.Title))
+
+	// Теги (hashtags)
+	if len(n.Tags) > 0 {
+		tags := make([]string, len(n.Tags))
+		for i, t := range n.Tags {
+			tags[i] = "#" + strings.ReplaceAll(t, " ", "_")
+		}
+		b.WriteString("<i>" + strings.Join(tags, " ") + "</i>\n")
+	}
 
 	// Ukrainian summary (primary)
 	if n.SummaryUkrainian != "" {
@@ -368,7 +374,9 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 // buildAnnounceMessage constructs a short teaser (title + one sentence each + importance)
 func buildAnnounceMessage(n news.News) string {
 	var b strings.Builder
-	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n\n")
+	moodEmoji := news.GetMoodEmoji(n.Mood)
+
+	b.WriteString(fmt.Sprintf("%s 🇩🇰 <b>Danish News</b> 🇺🇦\n\n", moodEmoji))
 	b.WriteString("<b>" + html.EscapeString(n.Title) + "</b>\n")
 	if n.ImportanceUkrainian != "" {
 		b.WriteString("🔥 🇺🇦 " + n.ImportanceUkrainian + "\n")
@@ -477,7 +485,8 @@ func formatSingleNewsMessage(n news.News, number int) string {
 	var b strings.Builder
 
 	// Красивый заголовок
-	b.WriteString("🇩🇰 <b>Danish News</b> 🇺🇦\n")
+	moodEmoji := news.GetMoodEmoji(n.Mood)
+	b.WriteString(fmt.Sprintf("%s 🇩🇰 <b>Danish News</b> 🇺🇦\n", moodEmoji))
 	b.WriteString("━━━━━━━━━━━━━━━\n\n")
 
 	// Определяем категорию и эмодзи
