@@ -126,12 +126,13 @@ func SendMessageAllowPreview(token, chatID, text string) error {
 		if err != nil {
 			log.Printf("Error HTTP request (try %d/%d): %v", attempt, maxRetries, err)
 		} else {
-			defer func() {
-				if err := resp.Body.Close(); err != nil {
-					log.Printf("Warning: failed to close response body: %v", err)
-				}
-			}()
-			if resp.StatusCode == 200 {
+			// Close body immediately after use, not with defer in loop
+			statusOK := resp.StatusCode == 200
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				log.Printf("Warning: failed to close response body: %v", closeErr)
+			}
+
+			if statusOK {
 				log.Printf("Message with preview sent to Telegram (try %d)", attempt)
 				return nil
 			}
@@ -241,12 +242,18 @@ func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton
 		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
 	}
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+
+	// Use shared client for connection pooling
+	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return 0, fmt.Errorf("error HTTP request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close response body: %v", closeErr)
+		}
+	}()
+
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
 	}
