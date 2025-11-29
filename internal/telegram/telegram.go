@@ -241,7 +241,10 @@ func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton
 		}
 		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return 0, fmt.Errorf("error make JSON: %v", err)
+	}
 
 	// Use shared client for connection pooling
 	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
@@ -257,14 +260,42 @@ func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
 	}
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("read body error: %v", err)
+	}
 	var decoded map[string]interface{}
 	if err := json.Unmarshal(respBody, &decoded); err != nil {
 		return 0, fmt.Errorf("decode error: %v", err)
 	}
-	res, _ := decoded["result"].(map[string]interface{})
-	midFloat, _ := res["message_id"].(float64)
-	return int(midFloat), nil
+
+	resultVal, ok := decoded["result"]
+	if !ok {
+		return 0, fmt.Errorf("invalid response format: missing result field")
+	}
+	resMap, ok := resultVal.(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("invalid response format: result not an object")
+	}
+	midVal, ok := resMap["message_id"]
+	if !ok {
+		return 0, fmt.Errorf("invalid response format: missing message_id")
+	}
+
+	var messageID int
+	switch v := midVal.(type) {
+	case float64:
+		messageID = int(v)
+	case int:
+		messageID = v
+	default:
+		return 0, fmt.Errorf("invalid response format: message_id not numeric (type %T)", v)
+	}
+
+	if messageID <= 0 {
+		return 0, fmt.Errorf("invalid response: message_id <= 0")
+	}
+	return messageID, nil
 }
 
 // SendPhotoWithButtons sends a photo with caption and inline buttons (reply_markup) if provided.
@@ -298,7 +329,10 @@ func SendPhotoWithButtons(token, chatID, photoURL, caption string, buttons [][]I
 		}
 		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error make JSON: %v", err)
+	}
 	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("error HTTP request: %v", err)
