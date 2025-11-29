@@ -7,16 +7,52 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 )
+
+// telegramClient is a shared HTTP client with connection pooling for better performance
+var telegramClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
+// handleRateLimit handles 429 Too Many Requests by respecting Retry-After header
+// Returns wait duration. If resp is nil or not 429, returns defaultWait.
+func handleRateLimit(resp *http.Response, defaultWait time.Duration) time.Duration {
+	if resp == nil || resp.StatusCode != 429 {
+		return defaultWait
+	}
+
+	retryAfter := resp.Header.Get("Retry-After")
+	if retryAfter == "" {
+		log.Printf("Rate limit 429 but no Retry-After header, using default backoff")
+		return defaultWait
+	}
+
+	seconds, err := strconv.Atoi(retryAfter)
+	if err != nil {
+		log.Printf("Failed to parse Retry-After '%s': %v, using default backoff", retryAfter, err)
+		return defaultWait
+	}
+
+	// Add 1 second buffer to be safe
+	waitTime := time.Duration(seconds+1) * time.Second
+	log.Printf("Rate limit 429: Telegram requested wait %d seconds, waiting %v", seconds, waitTime)
+	return waitTime
+}
 
 // SendMessage sends text message to Telegram chat/channel with retry logic
 func SendMessage(token, chatID, text string) error {
 	maxRetries := 3
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := sendMessageOnce(token, chatID, text)
+		resp, err := sendMessageOnce(token, chatID, text)
 		if err == nil {
 			log.Printf("Message sent to Telegram (try %d)", attempt)
 			return nil
@@ -26,7 +62,8 @@ func SendMessage(token, chatID, text string) error {
 
 		if attempt < maxRetries {
 			// Exponential backoff: 2^attempt seconds
-			waitTime := time.Duration(1<<attempt) * time.Second
+			defaultWait := time.Duration(1<<attempt) * time.Second
+			waitTime := handleRateLimit(resp, defaultWait)
 			log.Printf("Wait %v before next try...", waitTime)
 			time.Sleep(waitTime)
 		}
@@ -35,8 +72,8 @@ func SendMessage(token, chatID, text string) error {
 	return fmt.Errorf("can't send message after %d tries", maxRetries)
 }
 
-// sendMessageOnce does one try to send message
-func sendMessageOnce(token, chatID, text string) error {
+// sendMessageOnce does one try to send message and returns response for rate limit handling
+func sendMessageOnce(token, chatID, text string) (*http.Response, error) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 
 	payload := map[string]interface{}{
@@ -48,14 +85,13 @@ func sendMessageOnce(token, chatID, text string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("error make JSON: %v", err)
+		return nil, fmt.Errorf("error make JSON: %v", err)
 	}
 
-	// Add timeout for HTTP request
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+	// Use shared client for connection pooling
+	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return fmt.Errorf("error HTTP request: %v", err)
+		return nil, fmt.Errorf("error HTTP request: %v", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -65,10 +101,10 @@ func sendMessageOnce(token, chatID, text string) error {
 	}(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
+		return resp, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
 	}
 
-	return nil
+	return nil, nil
 }
 
 // SendMessageAllowPreview sends text message and allows link previews (disable_web_page_preview=false)
@@ -86,26 +122,24 @@ func SendMessageAllowPreview(token, chatID, text string) error {
 		if err != nil {
 			return fmt.Errorf("error make JSON: %v", err)
 		}
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+		resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 		if err != nil {
 			log.Printf("Error HTTP request (try %d/%d): %v", attempt, maxRetries, err)
 		} else {
-			func() {
-				defer func() {
-					if err := resp.Body.Close(); err != nil {
-						log.Printf("Warning: failed to close response body: %v", err)
-					}
-				}()
-				if resp.StatusCode == 200 {
-					log.Printf("Message with preview sent to Telegram (try %d)", attempt)
-					return
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					log.Printf("Warning: failed to close response body: %v", err)
 				}
-				log.Printf("Telegram API error (try %d/%d): status %d", attempt, maxRetries, resp.StatusCode)
 			}()
+			if resp.StatusCode == 200 {
+				log.Printf("Message with preview sent to Telegram (try %d)", attempt)
+				return nil
+			}
+			log.Printf("Telegram API error (try %d/%d): status %d", attempt, maxRetries, resp.StatusCode)
 		}
 		if attempt < maxRetries {
-			waitTime := time.Duration(1<<attempt) * time.Second
+			defaultWait := time.Duration(1<<attempt) * time.Second
+			waitTime := handleRateLimit(resp, defaultWait)
 			log.Printf("Wait %v before next try...", waitTime)
 			time.Sleep(waitTime)
 		}
@@ -117,14 +151,15 @@ func SendMessageAllowPreview(token, chatID, text string) error {
 func SendPhoto(token, chatID, photoURL, caption string) error {
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := sendPhotoOnce(token, chatID, photoURL, caption)
+		resp, err := sendPhotoOnce(token, chatID, photoURL, caption)
 		if err == nil {
 			log.Printf("Photo sent to Telegram (try %d)", attempt)
 			return nil
 		}
 		log.Printf("Error send photo to Telegram (try %d/%d): %v", attempt, maxRetries, err)
 		if attempt < maxRetries {
-			waitTime := time.Duration(1<<attempt) * time.Second
+			defaultWait := time.Duration(1<<attempt) * time.Second
+			waitTime := handleRateLimit(resp, defaultWait)
 			log.Printf("Wait %v before next try...", waitTime)
 			time.Sleep(waitTime)
 		}
@@ -132,7 +167,7 @@ func SendPhoto(token, chatID, photoURL, caption string) error {
 	return fmt.Errorf("can't send photo after %d tries", maxRetries)
 }
 
-func sendPhotoOnce(token, chatID, photoURL, caption string) error {
+func sendPhotoOnce(token, chatID, photoURL, caption string) (*http.Response, error) {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
 	// Telegram caption max ~1024 chars; trim rune-aware if longer
 	if utf8.RuneCountInString(caption) > 1024 {
@@ -151,13 +186,12 @@ func sendPhotoOnce(token, chatID, photoURL, caption string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("error make JSON: %v", err)
+		return nil, fmt.Errorf("error make JSON: %v", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return fmt.Errorf("error HTTP request: %v", err)
+		return nil, fmt.Errorf("error HTTP request: %v", err)
 	}
 	defer func(Body io.ReadCloser) {
 		if err := Body.Close(); err != nil {
@@ -166,9 +200,9 @@ func sendPhotoOnce(token, chatID, photoURL, caption string) error {
 	}(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
+		return resp, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
 	}
-	return nil
+	return nil, nil
 }
 
 type InlineButton struct {
@@ -258,8 +292,7 @@ func SendPhotoWithButtons(token, chatID, photoURL, caption string, buttons [][]I
 		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
 	}
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("error HTTP request: %v", err)
 	}

@@ -1,8 +1,11 @@
 package ratelimit
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -24,18 +27,51 @@ type AIRateLimiter struct {
 	tokensSaved  int // Track how many tokens we saved via caching
 	cacheHits    int
 	cacheMisses  int
+	stateFile    string // Path to state persistence file
+}
+
+// rateLimiterState represents the persisted state
+type rateLimiterState struct {
+	GeminiCount  int       `json:"gemini_count"`
+	GroqCount    int       `json:"groq_count"`
+	CohereCount  int       `json:"cohere_count"`
+	MistralCount int       `json:"mistral_count"`
+	TotalCount   int       `json:"total_count"`
+	TokensSaved  int       `json:"tokens_saved"`
+	CacheHits    int       `json:"cache_hits"`
+	CacheMisses  int       `json:"cache_misses"`
+	ResetTime    time.Time `json:"reset_time"`
 }
 
 // NewAIRateLimiter creates a new rate limiter with configurable limits
 func NewAIRateLimiter(maxGemini, maxGroq, maxCohere, maxMistral, maxTotal int) *AIRateLimiter {
-	return &AIRateLimiter{
+	// Default state file path
+	stateFile := filepath.Join(os.TempDir(), "dknews_ratelimit_state.json")
+
+	// Allow override via environment variable
+	if envPath := os.Getenv("RATELIMIT_STATE_FILE"); envPath != "" {
+		stateFile = envPath
+	}
+
+	rl := &AIRateLimiter{
 		maxGemini:  maxGemini,
 		maxGroq:    maxGroq,
 		maxCohere:  maxCohere,
 		maxMistral: maxMistral,
 		maxTotal:   maxTotal,
 		resetTime:  time.Now().Add(24 * time.Hour), // Reset daily
+		stateFile:  stateFile,
 	}
+
+	// Try to load previous state
+	if err := rl.loadState(); err != nil {
+		log.Printf("⚠️ Could not load rate limiter state (starting fresh): %v", err)
+	} else {
+		log.Printf("✅ Loaded rate limiter state from %s", stateFile)
+		rl.PrintStats()
+	}
+
+	return rl
 }
 
 // CanUseGemini checks if we can make a Gemini request
@@ -139,6 +175,13 @@ func (rl *AIRateLimiter) UseGemini() error {
 
 	log.Printf("📊 AI Usage: Gemini=%d/%d, Total=%d/%d", rl.geminiCount, rl.maxGemini, rl.totalCount, rl.maxTotal)
 
+	// Periodically save state (every 10 requests)
+	if rl.totalCount%10 == 0 {
+		if err := rl.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save state: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -162,6 +205,13 @@ func (rl *AIRateLimiter) UseGroq() error {
 	rl.cacheMisses++
 
 	log.Printf("📊 AI Usage: Groq=%d/%d, Total=%d/%d", rl.groqCount, rl.maxGroq, rl.totalCount, rl.maxTotal)
+
+	// Periodically save state (every 10 requests)
+	if rl.totalCount%10 == 0 {
+		if err := rl.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save state: %v", err)
+		}
+	}
 
 	return nil
 }
@@ -187,6 +237,13 @@ func (rl *AIRateLimiter) UseCohere() error {
 
 	log.Printf("📊 AI Usage: Cohere=%d/%d, Total=%d/%d", rl.cohereCount, rl.maxCohere, rl.totalCount, rl.maxTotal)
 
+	// Periodically save state (every 10 requests)
+	if rl.totalCount%10 == 0 {
+		if err := rl.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save state: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -210,6 +267,13 @@ func (rl *AIRateLimiter) UseMistral() error {
 	rl.cacheMisses++
 
 	log.Printf("📊 AI Usage: Mistral=%d/%d, Total=%d/%d", rl.mistralCount, rl.maxMistral, rl.totalCount, rl.maxTotal)
+
+	// Periodically save state (every 10 requests)
+	if rl.totalCount%10 == 0 {
+		if err := rl.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save state: %v", err)
+		}
+	}
 
 	return nil
 }
@@ -289,5 +353,90 @@ func (rl *AIRateLimiter) checkReset() {
 		rl.cacheMisses = 0
 		rl.tokensSaved = 0
 		rl.resetTime = time.Now().Add(24 * time.Hour)
+
+		// Save state after reset
+		if err := rl.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save state after reset: %v", err)
+		}
 	}
+}
+
+// loadState loads persisted state from file
+func (rl *AIRateLimiter) loadState() error {
+	data, err := os.ReadFile(rl.stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // First run, no state file yet
+		}
+		return fmt.Errorf("read state file: %w", err)
+	}
+
+	var state rateLimiterState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("unmarshal state: %w", err)
+	}
+
+	// Check if state is still valid (not expired)
+	if time.Now().After(state.ResetTime) {
+		log.Printf("⏰ Loaded state is expired, starting fresh")
+		return nil
+	}
+
+	// Restore state
+	rl.geminiCount = state.GeminiCount
+	rl.groqCount = state.GroqCount
+	rl.cohereCount = state.CohereCount
+	rl.mistralCount = state.MistralCount
+	rl.totalCount = state.TotalCount
+	rl.tokensSaved = state.TokensSaved
+	rl.cacheHits = state.CacheHits
+	rl.cacheMisses = state.CacheMisses
+	rl.resetTime = state.ResetTime
+
+	return nil
+}
+
+// saveState persists current state to file
+func (rl *AIRateLimiter) saveState() error {
+	state := rateLimiterState{
+		GeminiCount:  rl.geminiCount,
+		GroqCount:    rl.groqCount,
+		CohereCount:  rl.cohereCount,
+		MistralCount: rl.mistralCount,
+		TotalCount:   rl.totalCount,
+		TokensSaved:  rl.tokensSaved,
+		CacheHits:    rl.cacheHits,
+		CacheMisses:  rl.cacheMisses,
+		ResetTime:    rl.resetTime,
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+
+	// Write atomically using temp file + rename
+	tmpFile := rl.stateFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("write temp state file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile, rl.stateFile); err != nil {
+		return fmt.Errorf("rename temp state file: %w", err)
+	}
+
+	return nil
+}
+
+// SaveState saves the current state to disk (public method for graceful shutdown)
+func (rl *AIRateLimiter) SaveState() error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if err := rl.saveState(); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+
+	log.Printf("💾 Rate limiter state saved to %s", rl.stateFile)
+	return nil
 }
