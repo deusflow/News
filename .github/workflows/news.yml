@@ -31,7 +31,7 @@ jobs:
       BOT_MODE: single
 
       # Feature flags (NEW)
-      ENABLE_THREAD_MODE: 'true'
+      ENABLE_THREAD_MODE: 'false'
       ENABLE_INLINE_BUTTONS: 'true'
       INLINE_BUTTON_MODE: 'url'
       ENABLE_IMPORTANCE_LINE: 'true'
