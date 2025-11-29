@@ -303,7 +303,11 @@ func SendPhotoWithButtons(token, chatID, photoURL, caption string, buttons [][]I
 	if err != nil {
 		return fmt.Errorf("error HTTP request: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close response body: %v", closeErr)
+		}
+	}()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
 	}
