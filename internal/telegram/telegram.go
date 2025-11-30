@@ -5,345 +5,133 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
-	"unicode/utf8"
+
+	"github.com/deusflow/News/internal/logger"
 )
 
-// telegramClient is a shared HTTP client with connection pooling for better performance
-var telegramClient = &http.Client{
+const telegramAPIBase = "https://api.telegram.org/bot"
+
+// Глобальный клиент для переиспользования соединений
+var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
-	Transport: &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	},
 }
 
-// handleRateLimit handles 429 Too Many Requests by respecting Retry-After header
-// Returns wait duration. If resp is nil or not 429, returns defaultWait.
-func handleRateLimit(resp *http.Response, defaultWait time.Duration) time.Duration {
-	if resp == nil || resp.StatusCode != 429 {
-		return defaultWait
-	}
-
-	retryAfter := resp.Header.Get("Retry-After")
-	if retryAfter == "" {
-		log.Printf("Rate limit 429 but no Retry-After header, using default backoff")
-		return defaultWait
-	}
-
-	seconds, err := strconv.Atoi(retryAfter)
-	if err != nil {
-		log.Printf("Failed to parse Retry-After '%s': %v, using default backoff", retryAfter, err)
-		return defaultWait
-	}
-
-	// Add 1 second buffer to be safe
-	waitTime := time.Duration(seconds+1) * time.Second
-	log.Printf("Rate limit 429: Telegram requested wait %d seconds, waiting %v", seconds, waitTime)
-	return waitTime
+// SendMessageAllowPreview sends a message allowing web preview
+func SendMessageAllowPreview(token string, chatID string, text string) (int, error) {
+	return sendMessage(token, chatID, text, nil, true, 0)
 }
 
-// SendMessage sends text message to Telegram chat/channel with retry logic
-func SendMessage(token, chatID, text string) error {
-	maxRetries := 3
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		resp, err := sendMessageOnce(token, chatID, text)
-		if err == nil {
-			log.Printf("Message sent to Telegram (try %d)", attempt)
-			return nil
-		}
-
-		log.Printf("Error send to Telegram (try %d/%d): %v", attempt, maxRetries, err)
-
-		if attempt < maxRetries {
-			// Exponential backoff: 2^attempt seconds
-			defaultWait := time.Duration(1<<attempt) * time.Second
-			waitTime := handleRateLimit(resp, defaultWait)
-			log.Printf("Wait %v before next try...", waitTime)
-			time.Sleep(waitTime)
-		}
-	}
-
-	return fmt.Errorf("can't send message after %d tries", maxRetries)
+// SendMessageWithButtons sends a message with inline buttons
+func SendMessageWithButtons(token string, chatID string, text string, buttons [][]InlineButton, allowPreview bool, replyToMessageID int) (int, error) {
+	return sendMessage(token, chatID, text, buttons, allowPreview, replyToMessageID)
 }
 
-// sendMessageOnce does one try to send message and returns response for rate limit handling
-func sendMessageOnce(token, chatID, text string) (*http.Response, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+func sendMessage(token string, chatID string, text string, buttons [][]InlineButton, allowPreview bool, replyToMessageID int) (int, error) {
+	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, token)
 
-	payload := map[string]interface{}{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true, // No link preview for clean
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("error make JSON: %v", err)
-	}
-
-	// Use shared client for connection pooling
-	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("error HTTP request: %v", err)
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Printf("Warning: failed to close response body: %v", err)
-		}
-	}(resp.Body)
-
-	if resp.StatusCode != 200 {
-		return resp, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
-	}
-
-	return nil, nil
-}
-
-// SendMessageAllowPreview sends text message and allows link previews (disable_web_page_preview=false)
-func SendMessageAllowPreview(token, chatID, text string) error {
-	maxRetries := 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-		payload := map[string]interface{}{
-			"chat_id":                  chatID,
-			"text":                     text,
-			"parse_mode":               "HTML",
-			"disable_web_page_preview": false,
-		}
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("error make JSON: %v", err)
-		}
-		resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
-		if err != nil {
-			log.Printf("Error HTTP request (try %d/%d): %v", attempt, maxRetries, err)
-		} else {
-			// Close body immediately after use, not with defer in loop
-			statusOK := resp.StatusCode == 200
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				log.Printf("Warning: failed to close response body: %v", closeErr)
-			}
-
-			if statusOK {
-				log.Printf("Message with preview sent to Telegram (try %d)", attempt)
-				return nil
-			}
-			log.Printf("Telegram API error (try %d/%d): status %d", attempt, maxRetries, resp.StatusCode)
-		}
-		if attempt < maxRetries {
-			defaultWait := time.Duration(1<<attempt) * time.Second
-			waitTime := handleRateLimit(resp, defaultWait)
-			log.Printf("Wait %v before next try...", waitTime)
-			time.Sleep(waitTime)
-		}
-	}
-	return fmt.Errorf("can't send message with preview after %d tries", maxRetries)
-}
-
-// SendPhoto sends a photo with optional caption to Telegram chat/channel with retry logic
-func SendPhoto(token, chatID, photoURL, caption string) error {
-	maxRetries := 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		resp, err := sendPhotoOnce(token, chatID, photoURL, caption)
-		if err == nil {
-			log.Printf("Photo sent to Telegram (try %d)", attempt)
-			return nil
-		}
-		log.Printf("Error send photo to Telegram (try %d/%d): %v", attempt, maxRetries, err)
-		if attempt < maxRetries {
-			defaultWait := time.Duration(1<<attempt) * time.Second
-			waitTime := handleRateLimit(resp, defaultWait)
-			log.Printf("Wait %v before next try...", waitTime)
-			time.Sleep(waitTime)
-		}
-	}
-	return fmt.Errorf("can't send photo after %d tries", maxRetries)
-}
-
-func sendPhotoOnce(token, chatID, photoURL, caption string) (*http.Response, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
-	// Telegram caption max ~1024 chars; trim rune-aware if longer
-	if utf8.RuneCountInString(caption) > 1024 {
-		r := []rune(caption)
-		if len(r) > 1024 {
-			caption = string(r[:1024])
-		}
-	}
-
-	payload := map[string]interface{}{
-		"chat_id":    chatID,
-		"photo":      photoURL,
-		"caption":    caption,
-		"parse_mode": "HTML",
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("error make JSON: %v", err)
-	}
-
-	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("error HTTP request: %v", err)
-	}
-	defer func(Body io.ReadCloser) {
-		if err := Body.Close(); err != nil {
-			log.Printf("Warning: failed to close response body: %v", err)
-		}
-	}(resp.Body)
-
-	if resp.StatusCode != 200 {
-		return resp, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
-	}
-	return nil, nil
-}
-
-type InlineButton struct {
-	Text         string
-	CallbackData string // for callback buttons
-	URL          string // for URL buttons (mutually exclusive with CallbackData)
-}
-
-// SendMessageWithButtons sends a message with optional inline buttons and returns message_id.
-func SendMessageWithButtons(token, chatID, text string, buttons [][]InlineButton, allowPreview bool, replyTo int) (int, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	payload := map[string]interface{}{
+	body := map[string]interface{}{
 		"chat_id":                  chatID,
 		"text":                     text,
 		"parse_mode":               "HTML",
 		"disable_web_page_preview": !allowPreview,
 	}
-	if replyTo > 0 {
-		payload["reply_to_message_id"] = replyTo
-	}
+
 	if len(buttons) > 0 {
-		var kb [][]map[string]interface{}
-		for _, row := range buttons {
-			var kbRow []map[string]interface{}
-			for _, btn := range row {
-				btnMap := map[string]interface{}{"text": btn.Text}
-				if btn.URL != "" {
-					btnMap["url"] = btn.URL
-				} else if btn.CallbackData != "" {
-					btnMap["callback_data"] = btn.CallbackData
-				}
-				kbRow = append(kbRow, btnMap)
-			}
-			kb = append(kb, kbRow)
+		body["reply_markup"] = map[string]interface{}{
+			"inline_keyboard": buttons,
 		}
-		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return 0, fmt.Errorf("error make JSON: %v", err)
+	if replyToMessageID != 0 {
+		body["reply_to_message_id"] = replyToMessageID
 	}
 
-	// Use shared client for connection pooling
-	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return 0, fmt.Errorf("error HTTP request: %v", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("Warning: failed to close response body: %v", closeErr)
-		}
-	}()
-
-	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("telegram API error: status %d", resp.StatusCode)
-	}
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("read body error: %v", err)
-	}
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(respBody, &decoded); err != nil {
-		return 0, fmt.Errorf("decode error: %v", err)
-	}
-
-	resultVal, ok := decoded["result"]
-	if !ok {
-		return 0, fmt.Errorf("invalid response format: missing result field")
-	}
-	resMap, ok := resultVal.(map[string]interface{})
-	if !ok {
-		return 0, fmt.Errorf("invalid response format: result not an object")
-	}
-	midVal, ok := resMap["message_id"]
-	if !ok {
-		return 0, fmt.Errorf("invalid response format: missing message_id")
-	}
-
-	var messageID int
-	switch v := midVal.(type) {
-	case float64:
-		messageID = int(v)
-	case int:
-		messageID = v
-	default:
-		return 0, fmt.Errorf("invalid response format: message_id not numeric (type %T)", v)
-	}
-
-	if messageID <= 0 {
-		return 0, fmt.Errorf("invalid response: message_id <= 0")
-	}
-	return messageID, nil
+	return executeRequest(url, body)
 }
 
-// SendPhotoWithButtons sends a photo with caption and inline buttons (reply_markup) if provided.
-func SendPhotoWithButtons(token, chatID, photoURL, caption string, buttons [][]InlineButton) error {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendPhoto", token)
-	// Trim caption to 1024 runes (Telegram limit for photo captions)
-	if utf8.RuneCountInString(caption) > 1024 {
-		r := []rune(caption)
-		caption = string(r[:1024])
-	}
-	payload := map[string]interface{}{
+// SendPhoto sends a photo with caption
+func SendPhoto(token string, chatID string, photoURL string, caption string) error {
+	return SendPhotoWithButtons(token, chatID, photoURL, caption, nil)
+}
+
+// SendPhotoWithButtons sends a photo with buttons
+func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) error {
+	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
+
+	body := map[string]interface{}{
 		"chat_id":    chatID,
 		"photo":      photoURL,
 		"caption":    caption,
 		"parse_mode": "HTML",
 	}
+
 	if len(buttons) > 0 {
-		var kb [][]map[string]interface{}
-		for _, row := range buttons {
-			var kbRow []map[string]interface{}
-			for _, btn := range row {
-				btnMap := map[string]interface{}{"text": btn.Text}
-				if btn.URL != "" {
-					btnMap["url"] = btn.URL
-				} else if btn.CallbackData != "" {
-					btnMap["callback_data"] = btn.CallbackData
-				}
-				kbRow = append(kbRow, btnMap)
+		body["reply_markup"] = map[string]interface{}{
+			"inline_keyboard": buttons,
+		}
+	}
+
+	_, err := executeRequest(url, body)
+	return err
+}
+
+func executeRequest(url string, body map[string]interface{}) (int, error) {
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Обработка лимитов (429)
+		if resp.StatusCode == 429 {
+			resp.Body.Close()
+			retryAfterStr := resp.Header.Get("Retry-After")
+			retryAfter, _ := strconv.Atoi(retryAfterStr)
+			if retryAfter == 0 {
+				retryAfter = 5
+			} // Дефолт
+
+			logger.Warn("Telegram Rate Limit", "wait_seconds", retryAfter)
+			time.Sleep(time.Duration(retryAfter+1) * time.Second)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return 0, fmt.Errorf("telegram api error: %s", string(respBody))
+		}
+
+		var response map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
+			return 0, err
+		}
+		resp.Body.Close()
+
+		// Безопасное извлечение message_id
+		if result, ok := response["result"].(map[string]interface{}); ok {
+			if mid, ok := result["message_id"].(float64); ok {
+				return int(mid), nil
 			}
-			kb = append(kb, kbRow)
 		}
-		payload["reply_markup"] = map[string]interface{}{"inline_keyboard": kb}
+
+		return 0, nil
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("error make JSON: %v", err)
-	}
-	resp, err := telegramClient.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return fmt.Errorf("error HTTP request: %v", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("Warning: failed to close response body: %v", closeErr)
-		}
-	}()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("telegram API error: status %d", resp.StatusCode)
-	}
-	return nil
+
+	return 0, fmt.Errorf("failed after retries")
+}
+
+// InlineButton struct
+type InlineButton struct {
+	Text string `json:"text"`
+	URL  string `json:"url,omitempty"`
 }
