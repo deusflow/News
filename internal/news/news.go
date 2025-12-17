@@ -191,6 +191,13 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			n.Content = fa.Content
 		}
 
+		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 12 секунд ===
+		// Это позволяет уложиться в лимит ~4-5 запросов в минуту
+		// и избежать ошибки "Quota Exceeded" от Gemini
+		if geminiReqs > 0 { // Не ждем перед первой новостью
+			time.Sleep(12 * time.Second)
+		}
+
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
 			// Лимит исчерпан
 			n.SummaryDanish = fallbackSummary(n.Content)
