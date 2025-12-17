@@ -116,20 +116,22 @@ func TranslateText(text, from, to string) (string, error) {
 	}
 
 	// Try providers in order (fast/free first or as configured)
-	if result, err := translateWithGemini(text, from, target); err == nil && result != "" && result != text {
-		result = SanitizeAIText(result)
-		log.Printf("✅ Gemini API %s->%s ok", from, target)
-		return result, nil
-	} else {
-		log.Printf("⚠️ Gemini API not work for %s->%s: %v", from, target, err)
-	}
-
+	// СНАЧАЛА Groq (быстрый и бесплатный "запасной аэродром")
 	if result, err := translateWithGroq(text, from, target); err == nil && result != "" && result != text {
 		result = SanitizeAIText(result)
 		log.Printf("✅ Groq API %s->%s ok", from, target)
 		return result, nil
 	} else {
 		log.Printf("⚠️ Groq API not work for %s->%s: %v", from, target, err)
+	}
+
+	// ПОТОМ Gemini (если Groq не смог)
+	if result, err := translateWithGemini(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
+		log.Printf("✅ Gemini API %s->%s ok", from, target)
+		return result, nil
+	} else {
+		log.Printf("⚠️ Gemini API not work for %s->%s: %v", from, target, err)
 	}
 
 	if result, err := translateWithCohere(text, from, target); err == nil && result != "" && result != text {
