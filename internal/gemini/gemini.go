@@ -18,8 +18,9 @@ import (
 )
 
 type Client struct {
-	client *genai.Client
-	cache  *cache.Cache
+	client  *genai.Client
+	cache   *cache.Cache
+	metrics *metrics.Metrics
 }
 
 // NewsTranslation - это основная структура, которую мы отдаем наружу (в news.go)
@@ -40,7 +41,7 @@ type NewsTranslationResponse struct {
 	Tags      []string `json:"tags"`
 }
 
-func NewClient(apiKey string) (*Client, error) {
+func NewClient(apiKey string, m *metrics.Metrics) (*Client, error) {
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
@@ -48,8 +49,9 @@ func NewClient(apiKey string) (*Client, error) {
 	}
 
 	return &Client{
-		client: client,
-		cache:  cache.New(),
+		client:  client,
+		cache:   cache.New(),
+		metrics: m,
 	}, nil
 }
 
@@ -63,7 +65,9 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 	// 1. Проверяем кэш
 	cacheKey := c.cache.GenerateKey(title, content)
 	if cached, found := c.cache.Get(cacheKey); found {
-		metrics.Global.IncrementSuccessfulTranslations()
+		if c.metrics != nil {
+			c.metrics.IncrementSuccessfulTranslations()
+		}
 		return cached.(*NewsTranslation), nil
 	}
 
@@ -86,14 +90,41 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 	})
 
 	if err != nil {
-		metrics.Global.IncrementFailedTranslations()
-		metrics.Global.SetError(fmt.Sprintf("Gemini API error: %v", err))
+		if c.metrics != nil {
+			c.metrics.IncrementFailedTranslations()
+			c.metrics.SetError(fmt.Sprintf("Gemini API error: %v", err))
+		}
 		return nil, err
 	}
 
 	// 3. Сохраняем в кэш
 	c.cache.Set(cacheKey, result, 24*time.Hour)
-	metrics.Global.IncrementSuccessfulTranslations()
+	// Removed duplicate increment here as it is done in news.go or should be handled carefully.
+	// Original code had it here AND in news.go?
+	// In news.go I added: if opts.Metrics != nil { opts.Metrics.IncrementSuccessfulTranslations() }
+	// So if I keep it here, it will be double counted.
+	// However, this method might be used elsewhere?
+	// Let's check if I should remove it from news.go or here.
+	// Usually, the service performing the action should record the metric.
+	// So gemini client should record it.
+	// But news.go also records it.
+	// I will remove it from here to avoid double counting if news.go does it.
+	// Wait, if I remove it here, and news.go does it, it's fine.
+	// But if I look at my previous edit to news.go, I added it there.
+	// Let's check the original code in news.go.
+	// Original news.go: metrics.Global.IncrementSuccessfulTranslations() was called inside the loop.
+	// Original gemini.go: metrics.Global.IncrementSuccessfulTranslations() was called at the end.
+	// So it WAS double counted or I am misreading.
+	// Let's assume I should keep it here for "Gemini success" and maybe news.go tracks "News processed success".
+	// But they seem to track the same thing "SuccessfulTranslations".
+	// I will comment it out here to be safe and rely on news.go which orchestrates the process.
+	// Actually, better to have it here if we want to track cache hits too.
+	// Cache hit: increments.
+	// API success: increments.
+	// In news.go: it increments if err == nil.
+	// So if cache hit, news.go increments. If API success, news.go increments.
+	// So if I keep it here, it is definitely double counting.
+	// I will remove the increment at the end of this function.
 
 	return result, nil
 }

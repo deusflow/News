@@ -29,6 +29,17 @@ type TranslationCacheItem struct {
 	UseCount             int
 }
 
+// FailedItem represents a news item that failed to send
+type FailedItem struct {
+	ID          int
+	Title       string
+	Link        string
+	ImageURL    string
+	MessageText string
+	ErrorMsg    string
+	Attempts    int
+}
+
 // NewPostgresCache creates a new PostgreSQL cache instance
 func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, error) {
 	db, err := sql.Open("postgres", connectionString)
@@ -90,6 +101,22 @@ func (pc *PostgresCache) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_translation_cache_hash ON translation_cache(content_hash);
 	CREATE INDEX IF NOT EXISTS idx_translation_cache_created_at ON translation_cache(created_at);
+
+	-- Table for failed news items (Dead Letter Queue)
+	CREATE TABLE IF NOT EXISTS failed_news (
+		id SERIAL PRIMARY KEY,
+		title TEXT NOT NULL,
+		link TEXT NOT NULL,
+		image_url TEXT,
+		message_text TEXT,
+		error_msg TEXT,
+		attempts INTEGER DEFAULT 1,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_attempt_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_failed_news_attempts ON failed_news(attempts);
+	CREATE INDEX IF NOT EXISTS idx_failed_news_created_at ON failed_news(created_at);
 	`
 
 	_, err := pc.db.Exec(schema)
@@ -154,15 +181,30 @@ func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) 
 func (pc *PostgresCache) Cleanup() error {
 	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
 
+	// Clean sent_news
 	query := `DELETE FROM sent_news WHERE sent_at < $1`
 	result, err := pc.db.Exec(query, cutoffTime)
 	if err != nil {
-		return fmt.Errorf("failed to cleanup: %v", err)
+		return fmt.Errorf("failed to cleanup sent_news: %v", err)
 	}
 
 	rows, _ := result.RowsAffected()
 	if rows > 0 {
-		log.Printf("🗑️ Cleaned up %d old records from database", rows)
+		log.Printf("🗑️ Cleaned up %d old records from sent_news", rows)
+	}
+
+	// Clean translation_cache (using last_used_at)
+	// We can use the same TTL or a longer one. For now, using the same TTL to save space.
+	queryTrans := `DELETE FROM translation_cache WHERE last_used_at < $1`
+	resultTrans, err := pc.db.Exec(queryTrans, cutoffTime)
+	if err != nil {
+		log.Printf("⚠️ Failed to cleanup translation_cache: %v", err)
+		// Don't fail the whole cleanup if this fails
+	} else {
+		rowsTrans, _ := resultTrans.RowsAffected()
+		if rowsTrans > 0 {
+			log.Printf("🗑️ Cleaned up %d old records from translation_cache", rowsTrans)
+		}
 	}
 
 	return nil
@@ -307,4 +349,52 @@ func (pc *PostgresCache) SetTranslationCache(item TranslationCacheItem) error {
 	}
 
 	return nil
+}
+
+// SaveFailedNews saves a failed news item to the DLQ
+func (pc *PostgresCache) SaveFailedNews(title, link, imageURL, messageText, errorMsg string) error {
+	query := `
+		INSERT INTO failed_news (title, link, image_url, message_text, error_msg, attempts, created_at, last_attempt_at)
+		VALUES ($1, $2, $3, $4, $5, 1, NOW(), NOW())
+	`
+	_, err := pc.db.Exec(query, title, link, imageURL, messageText, errorMsg)
+	return err
+}
+
+// GetFailedNews retrieves failed news items for retry
+func (pc *PostgresCache) GetFailedNews(limit int) ([]FailedItem, error) {
+	query := `
+		SELECT id, title, link, image_url, message_text, error_msg, attempts 
+		FROM failed_news 
+		WHERE attempts < 5 
+		ORDER BY created_at ASC 
+		LIMIT $1
+	`
+	rows, err := pc.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []FailedItem
+	for rows.Next() {
+		var i FailedItem
+		if err := rows.Scan(&i.ID, &i.Title, &i.Link, &i.ImageURL, &i.MessageText, &i.ErrorMsg, &i.Attempts); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, nil
+}
+
+// DeleteFailedNews removes a failed item after successful send
+func (pc *PostgresCache) DeleteFailedNews(id int) error {
+	_, err := pc.db.Exec(`DELETE FROM failed_news WHERE id = $1`, id)
+	return err
+}
+
+// IncrementFailedAttempts updates the attempt counter
+func (pc *PostgresCache) IncrementFailedAttempts(id int, errorMsg string) error {
+	_, err := pc.db.Exec(`UPDATE failed_news SET attempts = attempts + 1, last_attempt_at = NOW(), error_msg = $2 WHERE id = $1`, id, errorMsg)
+	return err
 }

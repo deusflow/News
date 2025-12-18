@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/rss"
@@ -44,62 +45,6 @@ type News struct {
 	Tags []string // ["Політика", "Данія"]
 }
 
-var aiClient *gemini.Client
-
-func SetGeminiClient(c *gemini.Client) {
-	aiClient = c
-}
-
-// ====================================================================================
-// КЛЮЧЕВЫЕ СЛОВА (ОБНОВЛЕННЫЕ)
-// ====================================================================================
-
-var refugeeBoostKeywords = []string{
-	"ukrain", "flygtning", "asyl", "opholdstilladelse", "hjemsendelse",
-	"integrat", "job", "sprog", "skole", "børn", "social", "ydelse",
-	"bolig", "kommune", "lov", "regel", "grænse", "pas", "visum",
-}
-
-var ukraineWarKeywords = []string{
-	"krig", "rusland", "putin", "zelensky", "våben", "kampvogn",
-	"missil", "drone", "angreb", "forsvar", "nato", "eu", "sanktion",
-	"donbas", "kyiv", "kharkiv", "odesa", "lviv", "front", "soldat",
-}
-
-var viborgKeywords = []string{
-	"viborg", "midtjylland", "skive", "bjerringbro", "karup",
-	"stoholm", "sunds", "kjellerup", "silkeborg", "8800",
-}
-
-var economyKeywords = []string{
-	"løn", "lønforhøjelse", "overenskomst", "skat", "fradrag", "årsopgørelse",
-	"skattekort", "økonomi", "inflation", "pris", "priser", "elpris", "varmepris",
-	"budget", "finanslov", "spare", "dagpenge", "kontanthjælp", "su",
-	"børnepenge", "arbejde", "job", "ansættelse", "mangel på arbejdskraft",
-}
-
-var constructionKeywords = []string{
-	"byggeri", "nybyg", "renovering", "byggeprojekt", "lokalplan", "byplan",
-	"høring", "fremtid", "vej", "trafik", "infrastruktur", "bro", "tunnel",
-	"tog", "bane", "bolig", "lejlighed", "ejendom", "husleje", "hospital",
-	"sygehus", "skole", "daginstitution",
-}
-
-var leisureKeywords = []string{
-	"festival", "koncert", "musik", "kultur", "biograf", "teater", "museum",
-	"udstilling", "kunst", "oplevelse", "event", "arrangement", "marked",
-	"ferie", "rejse", "turist", "weekend", "restaurant", "cafe", "spise",
-	"mad", "sport", "fodbold", "håndbold", "løb",
-}
-
-var excludeKeywords = []string{
-	"vejr", "horoskop", "madopskrift", "krydsord",
-}
-
-// ====================================================================================
-// ЛОГИКА ОБРАБОТКИ
-// ====================================================================================
-
 type Options struct {
 	Limit                int
 	MaxAge               time.Duration
@@ -109,10 +54,13 @@ type Options struct {
 	ScrapeConcurrency    int
 	EnableImportanceLine bool
 	PerCategory          int
+	Keywords             *config.KeywordsConfig
+	AIClient             *gemini.Client
+	Metrics              *metrics.Metrics
 }
 
 func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News, error) {
-	if aiClient == nil {
+	if opts.AIClient == nil {
 		return nil, fmt.Errorf("gemini client not initialized")
 	}
 
@@ -132,7 +80,7 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			continue
 		}
 
-		score, cat := calculateNewsScore(item)
+		score, cat := calculateNewsScore(item, opts.Keywords)
 		if score < 10 {
 			continue
 		}
@@ -205,7 +153,7 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			n.Mood = "neutral"
 		} else {
 			// AI
-			aiResp, err := aiClient.TranslateAndSummarizeNews(n.Title, n.Content)
+			aiResp, err := opts.AIClient.TranslateAndSummarizeNews(n.Title, n.Content)
 			if err != nil {
 				log.Printf("Gemini failed for %s: %v", n.Title, err)
 				n.SummaryDanish = fallbackSummary(n.Content)
@@ -223,7 +171,9 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 				} else {
 					n.TitleUkrainian = n.Title
 				}
-				metrics.Global.IncrementSuccessfulTranslations()
+				if opts.Metrics != nil {
+					opts.Metrics.IncrementSuccessfulTranslations()
+				}
 			}
 			geminiReqs++
 		}
@@ -385,25 +335,30 @@ func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, mi
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ====================================================================================
 
-func calculateNewsScore(item *rss.FeedItem) (int, string) {
+func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, string) {
 	text := strings.ToLower(item.Title + " " + item.Description)
 
-	if containsAny(text, ukraineWarKeywords) || containsAny(text, refugeeBoostKeywords) {
+	if kw == nil {
+		// Fallback if no keywords provided (should not happen)
+		return 40, "denmark"
+	}
+
+	if containsAny(text, kw.UkraineWar) || containsAny(text, kw.RefugeeBoost) {
 		return 100, "ukraine"
 	}
-	if containsAny(text, viborgKeywords) {
+	if containsAny(text, kw.Viborg) {
 		return 80, "viborg"
 	}
-	if containsAny(text, economyKeywords) {
+	if containsAny(text, kw.Economy) {
 		return 70, "denmark"
 	}
-	if containsAny(text, constructionKeywords) {
+	if containsAny(text, kw.Construction) {
 		return 65, "denmark"
 	}
-	if containsAny(text, leisureKeywords) {
+	if containsAny(text, kw.Leisure) {
 		return 60, "denmark"
 	}
-	if containsAny(text, excludeKeywords) {
+	if containsAny(text, kw.Exclude) {
 		return 0, ""
 	}
 	return 40, "denmark"

@@ -2,7 +2,10 @@ package rss
 
 import (
 	"log"
+	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/mmcdole/gofeed"
 	"gopkg.in/yaml.v3"
@@ -51,9 +54,13 @@ func LoadFeeds(path string) ([]FeedSource, error) {
 
 // FetchAllFeeds downloads and parses all feeds, returns news list with source metadata
 func FetchAllFeeds(sources []FeedSource) ([]*FeedItem, error) {
-	parser := gofeed.NewParser()
 	var allItems []*FeedItem
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	successCount := 0
+
+	// Limit concurrency to 5 parallel requests
+	sem := make(chan struct{}, 5)
 
 	for _, source := range sources {
 		if !source.Active {
@@ -61,25 +68,43 @@ func FetchAllFeeds(sources []FeedSource) ([]*FeedItem, error) {
 			continue
 		}
 
-		feed, err := parser.ParseURL(source.URL)
-		if err != nil {
-			log.Printf("Error parsing RSS %s (%s): %v", source.URL, source.Name, err)
-			continue // Log error, but don't stop
-		}
+		wg.Add(1)
+		go func(s FeedSource) {
+			defer wg.Done()
 
-		// Wrap each item with source metadata
-		for _, item := range feed.Items {
-			feedItem := &FeedItem{
-				Item:   item,
-				Source: &source,
+			// Acquire semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }() // Release semaphore
+
+			// Create a new parser for each goroutine to ensure thread safety
+			parser := gofeed.NewParser()
+			// Set a timeout to prevent hanging if a feed is slow
+			parser.Client = &http.Client{
+				Timeout: 30 * time.Second,
 			}
-			allItems = append(allItems, feedItem)
-		}
 
-		successCount++
-		log.Printf("Loaded %d news from %s (%s)", len(feed.Items), source.Name, source.URL)
+			feed, err := parser.ParseURL(s.URL)
+			if err != nil {
+				log.Printf("Error parsing RSS %s (%s): %v", s.URL, s.Name, err)
+				return
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			successCount++
+			// Wrap each item with source metadata
+			for _, item := range feed.Items {
+				feedItem := &FeedItem{
+					Item:   item,
+					Source: &s,
+				}
+				allItems = append(allItems, feedItem)
+			}
+			log.Printf("Loaded %d news from %s (%s)", len(feed.Items), s.Name, s.URL)
+		}(source)
 	}
 
+	wg.Wait()
 	log.Printf("Processed RSS feeds: %d/%d ok", successCount, len(sources))
 	return allItems, nil
 }

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -37,9 +39,10 @@ type Config struct {
 	BatchSize          int  // number of news items to process in one AI request (2-3 recommended)
 
 	// RSS settings
-	FeedsConfigPath string
-	MaxNewsLimit    int
-	NewsMaxAge      time.Duration
+	FeedsConfigPath    string
+	KeywordsConfigPath string
+	MaxNewsLimit       int
+	NewsMaxAge         time.Duration
 
 	// Scraper settings
 	ScrapeConcurrency int // parallel fetches for full article extraction
@@ -72,12 +75,52 @@ type Config struct {
 
 	// NEW: ImportanceTopN field
 	ImportanceTopN int // show importance line only for first N news (0 = all)
+
+	// Monitoring settings
+	EnableHTTPMonitoring bool
+	MonitoringPort       string
+}
+
+// KeywordsConfig holds the keywords for filtering
+type KeywordsConfig struct {
+	RefugeeBoost []string `yaml:"refugee_boost"`
+	UkraineWar   []string `yaml:"ukraine_war"`
+	Viborg       []string `yaml:"viborg"`
+	Economy      []string `yaml:"economy"`
+	Construction []string `yaml:"construction"`
+	Leisure      []string `yaml:"leisure"`
+	Exclude      []string `yaml:"exclude"`
+}
+
+func LoadKeywords(path string) (*KeywordsConfig, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var cfg map[string]KeywordsConfig
+	dec := yaml.NewDecoder(f)
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, err
+	}
+
+	// The yaml structure is:
+	// keywords:
+	//   refugee_boost: ...
+	// So we need to extract "keywords" key
+	kw, ok := cfg["keywords"]
+	if !ok {
+		return nil, fmt.Errorf("keywords key not found in config")
+	}
+	return &kw, nil
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
 		// Default values
 		FeedsConfigPath:         "configs/feeds.yaml",
+		KeywordsConfigPath:      "configs/keywords.yaml",
 		MaxGeminiRequests:       2,    // lowered to 2 to avoid hitting limits, override via env
 		MaxGroqRequests:         10,   // Groq is fast and free, allow more
 		MaxCohereRequests:       5,    // Cohere has 100/month free limit
@@ -110,6 +153,8 @@ func Load() (*Config, error) {
 		InlineButtonMode:        "callback",
 		ChannelUsername:         "",
 		ImportanceTopN:          0, // default to 0 (show importance line for all news)
+		EnableHTTPMonitoring:    false,
+		MonitoringPort:          "8080",
 	}
 
 	// Load from environment
@@ -122,6 +167,9 @@ func Load() (*Config, error) {
 	cfg.CacheFilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
 	cfg.CacheTTLHours = getEnvIntOrDefault("CACHE_TTL_HOURS", 48)
 	cfg.DuplicateWindow = getEnvIntOrDefault("DUPLICATE_WINDOW_HOURS", 24)
+
+	// Sync DatabaseTTL with CacheTTLHours if not explicitly set
+	cfg.DatabaseTTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", cfg.CacheTTLHours)
 
 	if mode := os.Getenv("BOT_MODE"); mode != "" {
 		cfg.BotMode = mode
@@ -257,6 +305,13 @@ func Load() (*Config, error) {
 		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
 			cfg.ImportanceTopN = val
 		}
+	}
+
+	if v := os.Getenv("ENABLE_HTTP_MONITORING"); v == "true" {
+		cfg.EnableHTTPMonitoring = true
+	}
+	if v := os.Getenv("MONITORING_PORT"); v != "" {
+		cfg.MonitoringPort = v
 	}
 
 	return cfg, cfg.Validate()

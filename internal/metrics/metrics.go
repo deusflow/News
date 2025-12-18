@@ -28,7 +28,9 @@ type Metrics struct {
 	IsHealthy     bool
 }
 
-var Global = &Metrics{IsHealthy: true}
+func New() *Metrics {
+	return &Metrics{IsHealthy: true}
+}
 
 func (m *Metrics) IncrementNewsProcessed() {
 	m.mu.Lock()

@@ -17,7 +17,8 @@ func Init() {
 		Level: level,
 	}
 
-	Logger = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	// Use JSONHandler for structured logging
+	Logger = slog.New(slog.NewJSONHandler(os.Stdout, opts))
 	slog.SetDefault(Logger)
 }
 
