@@ -150,7 +150,7 @@ func (a *App) Run(ctx context.Context) {
 }
 
 // CheckHealth performs health checks on components
-func (a *App) CheckHealth(ctx context.Context) map[string]string {
+func (a *App) CheckHealth(_ context.Context) map[string]string {
 	status := make(map[string]string)
 	status["app"] = "ok"
 
@@ -252,16 +252,41 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 			continue
 		}
 
+		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
 		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
 		var outText string
 		var err error
 
+		// Prepare buttons if enabled
+		var buttons [][]telegram.InlineButton
+
+		// Row 1: Link
+		if cfg.EnableInlineButtons && n.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+			})
+		}
+
+		// Row 2: Reactions
+		buttons = append(buttons, []telegram.InlineButton{
+			{Text: "👍", CallbackData: fmt.Sprintf("vote:up:%s", hash)},
+			{Text: "👎", CallbackData: fmt.Sprintf("vote:down:%s", hash)},
+		})
+
 		if canPhoto {
 			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
-			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+			if len(buttons) > 0 {
+				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
+			} else {
+				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+			}
 		} else {
 			outText = news.FormatNewsWithImage(n, 0, 0)
-			_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+			}
 		}
 
 		if err != nil {

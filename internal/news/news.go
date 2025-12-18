@@ -139,11 +139,11 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			n.Content = fa.Content
 		}
 
-		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 12 секунд ===
-		// Это позволяет уложиться в лимит ~4-5 запросов в минуту
+		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 20 секунд ===
+		// Это позволяет уложиться в лимит ~3 запросов в минуту (безопасно для Free Tier)
 		// и избежать ошибки "Quota Exceeded" от Gemini
 		if geminiReqs > 0 { // Не ждем перед первой новостью
-			time.Sleep(12 * time.Second)
+			time.Sleep(20 * time.Second)
 		}
 
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
@@ -180,7 +180,29 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 		result = append(result, n)
 	}
 
+	// 5. Пересортировка: Поднимаем позитивные новости наверх
+	sort.SliceStable(result, func(i, j int) bool {
+		return getMoodScore(result[i].Mood) > getMoodScore(result[j].Mood)
+	})
+
 	return result, nil
+}
+
+func getMoodScore(mood string) int {
+	switch strings.ToLower(mood) {
+	case "positive":
+		return 10
+	case "urgent":
+		return 8 // Важные тоже высоко
+	case "shocking":
+		return 6
+	case "neutral":
+		return 4
+	case "negative":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // ====================================================================================
@@ -233,7 +255,7 @@ func formatSmartBlock(flag, title, importance, summary string) string {
 }
 
 // FormatNewsWithImage - ШИРОКИЙ режим (800 знаков)
-func FormatNewsWithImage(n News, minSentences, maxSentences int) string {
+func FormatNewsWithImage(n News, _, _ int) string {
 	daSum := limitText(n.SummaryDanish, 800)
 	if daSum == "" {
 		daSum = limitText(n.Content, 800)
@@ -270,7 +292,7 @@ func FormatNewsWithImage(n News, minSentences, maxSentences int) string {
 }
 
 // FormatCaptionForPhoto - Режим фото (1024 знака)
-func FormatCaptionForPhoto(n News, maxLen int, sentencesPerLang int, minPerLang int) string {
+func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 	if maxLen > 1024 {
 		maxLen = 1024
 	}
@@ -326,9 +348,9 @@ func FormatCaptionForPhoto(n News, maxLen int, sentencesPerLang int, minPerLang 
 	return result
 }
 
-func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, minTotal int) bool {
-	cap := FormatCaptionForPhoto(n, maxLen, sentencesPerLang, minPerLang)
-	return utf8.RuneCountInString(cap) < maxLen && utf8.RuneCountInString(cap) > 100
+func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, _ int) bool {
+	caption := FormatCaptionForPhoto(n, maxLen, sentencesPerLang, minPerLang)
+	return utf8.RuneCountInString(caption) < maxLen && utf8.RuneCountInString(caption) > 100
 }
 
 // ====================================================================================

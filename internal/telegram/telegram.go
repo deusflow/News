@@ -92,7 +92,7 @@ func executeRequest(url string, body map[string]interface{}) (int, error) {
 
 		// Обработка лимитов (429)
 		if resp.StatusCode == 429 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			retryAfterStr := resp.Header.Get("Retry-After")
 			retryAfter, _ := strconv.Atoi(retryAfterStr)
 			if retryAfter == 0 {
@@ -106,16 +106,16 @@ func executeRequest(url string, body map[string]interface{}) (int, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return 0, fmt.Errorf("telegram api error: %s", string(respBody))
 		}
 
 		var response map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return 0, err
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Безопасное извлечение message_id
 		if result, ok := response["result"].(map[string]interface{}); ok {
@@ -132,6 +132,7 @@ func executeRequest(url string, body map[string]interface{}) (int, error) {
 
 // InlineButton struct
 type InlineButton struct {
-	Text string `json:"text"`
-	URL  string `json:"url,omitempty"`
+	Text         string `json:"text"`
+	URL          string `json:"url,omitempty"`
+	CallbackData string `json:"callback_data,omitempty"`
 }

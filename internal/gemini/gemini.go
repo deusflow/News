@@ -14,6 +14,7 @@ import (
 	"github.com/deusflow/News/internal/retry"
 
 	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -71,7 +72,8 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 		return cached.(*NewsTranslation), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Increase timeout to handle potential rate limit waits
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	var result *NewsTranslation
@@ -80,12 +82,26 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 	// 2. Retry logic
 	retryConfig := retry.RetryConfig{
 		MaxAttempts: 3,
-		Delay:       2 * time.Second,
+		Delay:       5 * time.Second, // Increased base delay
 		Backoff:     true,
 	}
 
 	err = retry.WithRetry(ctx, retryConfig, func() error {
 		result, err = c.translateWithAPI(ctx, title, content)
+
+		// Handle Rate Limit (429) specifically
+		if err != nil {
+			if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 429 {
+				log.Printf("⚠️ Gemini Rate Limit hit. Waiting 60s...")
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(60 * time.Second):
+					// Continue to retry
+					return err
+				}
+			}
+		}
 		return err
 	})
 
