@@ -3,8 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"log"
-	"strings"
 
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
@@ -16,30 +14,26 @@ import (
 	"github.com/deusflow/News/internal/telegram"
 )
 
-// Run запускает приложение
-func Run(ctx context.Context, cfg *config.Config, m *metrics.Metrics) {
+type App struct {
+	cfg          *config.Config
+	metrics      *metrics.Metrics
+	cacheAdapter CacheAdapter
+	geminiClient *gemini.Client
+	feeds        []rss.FeedSource
+	keywords     *config.KeywordsConfig
+}
+
+func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	logger.Init()
-	logger.Info("Starting Danish News Bot")
+	logger.Info("Initializing Danish News Bot")
 
-	// Check for cancellation immediately
-	if ctx.Err() != nil {
-		logger.Info("Context cancelled before start")
-		return
-	}
-
-	// 1. Загрузка конфигурации - теперь передается извне
-	// cfg, err := config.Load()
-	// if err != nil {
-	// 	log.Fatalf("Config error: %v", err)
-	// }
-
-	// 2. Инициализация кэша
+	// 1. Инициализация кэша
 	var cacheAdapter CacheAdapter
 
 	if cfg.UsePostgres {
 		pgCache, err := storage.NewPostgresCache(cfg.DatabaseURL, cfg.DatabaseTTL)
 		if err != nil {
-			log.Fatalf("Postgres error: %v", err)
+			return nil, fmt.Errorf("postgres error: %v", err)
 		}
 
 		// Очистка старых записей (важно для экономии места)
@@ -57,39 +51,65 @@ func Run(ctx context.Context, cfg *config.Config, m *metrics.Metrics) {
 		if err := fileCache.Load(); err != nil {
 			logger.Warn("Failed to load cache", "error", err)
 		}
-		// Важно: сохраняем кэш при выходе
-		defer func() {
-			if err := fileCache.Save(); err != nil {
-				logger.Error("Failed to save cache", "error", err)
-			}
-		}()
 		cacheAdapter = &FileCacheAdapter{cache: fileCache}
 		logger.Info("Using File cache")
 	}
 
-	// 3. Инициализация Gemini
+	// 2. Инициализация Gemini
 	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey, m)
 	if err != nil {
-		log.Fatalf("Gemini error: %v", err)
+		return nil, fmt.Errorf("gemini error: %v", err)
 	}
-	defer gmClient.Close()
 
-	// 4. Загрузка RSS фидов и ключевых слов
+	// 3. Загрузка RSS фидов и ключевых слов
 	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)
 	if err != nil {
-		log.Fatalf("Feeds error: %v", err)
+		return nil, fmt.Errorf("feeds error: %v", err)
 	}
 
 	keywords, err := config.LoadKeywords(cfg.KeywordsConfigPath)
 	if err != nil {
 		logger.Warn("Failed to load keywords config, using defaults or empty", "error", err)
-		// Можно создать дефолтный конфиг, если нужно, но пока оставим как есть (будет ошибка в news если nil)
-		// Но мы сделали проверку на nil в news.go
+	}
+
+	return &App{
+		cfg:          cfg,
+		metrics:      m,
+		cacheAdapter: cacheAdapter,
+		geminiClient: gmClient,
+		feeds:        feeds,
+		keywords:     keywords,
+	}, nil
+}
+
+// Run запускает приложение
+func (a *App) Run(ctx context.Context) {
+	logger.Info("Starting Danish News Bot Run")
+
+	// Check for cancellation immediately
+	if ctx.Err() != nil {
+		logger.Info("Context cancelled before start")
+		return
+	}
+
+	defer a.geminiClient.Close()
+
+	// Save file cache on exit if used
+	if fileAdapter, ok := a.cacheAdapter.(*FileCacheAdapter); ok {
+		defer func() {
+			if err := fileAdapter.cache.Save(); err != nil {
+				logger.Error("Failed to save cache", "error", err)
+			}
+		}()
+	}
+
+	// 4.1 Обработка очереди неудачных сообщений (DLQ)
+	if pgAdapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok {
+		processFailedMessages(pgAdapter, a.cfg, a.metrics)
 	}
 
 	// 5. Скачивание новостей
-	// rss.FetchAllFeeds возвращает ([]*FeedItem, error)
-	items, err := rss.FetchAllFeeds(feeds)
+	items, err := rss.FetchAllFeeds(a.feeds)
 	if err != nil {
 		logger.Error("Fetch error", "err", err)
 		return
@@ -97,22 +117,21 @@ func Run(ctx context.Context, cfg *config.Config, m *metrics.Metrics) {
 
 	// Обновляем метрики
 	for range items {
-		m.IncrementNewsProcessed()
+		a.metrics.IncrementNewsProcessed()
 	}
 
 	// 6. Фильтрация и перевод
-	// news.FilterAndTranslateWithOptions возвращает ([]News, error)
 	filtered, err := news.FilterAndTranslateWithOptions(items, news.Options{
-		Limit:                cfg.MaxNewsLimit,
-		MaxAge:               cfg.NewsMaxAge,
+		Limit:                a.cfg.MaxNewsLimit,
+		MaxAge:               a.cfg.NewsMaxAge,
 		PerSource:            2,
-		MaxGeminiRequests:    cfg.MaxGeminiRequests,
-		ScrapeMaxArticles:    cfg.ScrapeMaxArticles,
-		ScrapeConcurrency:    cfg.ScrapeConcurrency,
-		EnableImportanceLine: cfg.EnableImportanceLine,
-		Keywords:             keywords,
-		AIClient:             gmClient,
-		Metrics:              m,
+		MaxGeminiRequests:    a.cfg.MaxGeminiRequests,
+		ScrapeMaxArticles:    a.cfg.ScrapeMaxArticles,
+		ScrapeConcurrency:    a.cfg.ScrapeConcurrency,
+		EnableImportanceLine: a.cfg.EnableImportanceLine,
+		Keywords:             a.keywords,
+		AIClient:             a.geminiClient,
+		Metrics:              a.metrics,
 	})
 	if err != nil {
 		logger.Error("Filter error", "err", err)
@@ -120,14 +139,63 @@ func Run(ctx context.Context, cfg *config.Config, m *metrics.Metrics) {
 	}
 
 	// 7. Отправка в Telegram
-	if cfg.BotMode == "single" {
-		sendSingleNews(filtered, cfg, cacheAdapter, m)
+	if a.cfg.BotMode == "single" {
+		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics)
 	} else {
-		sendMultipleNews(filtered, cfg, cacheAdapter, cfg.MaxNewsLimit, m)
+		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics)
 	}
 
 	// Метрики
-	m.IncrementTelegramMessagesSent()
+	a.metrics.IncrementTelegramMessagesSent()
+}
+
+// CheckHealth performs health checks on components
+func (a *App) CheckHealth(ctx context.Context) map[string]string {
+	status := make(map[string]string)
+	status["app"] = "ok"
+
+	// Check DB
+	if pgAdapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok {
+		if err := pgAdapter.cache.Ping(); err != nil {
+			status["db"] = fmt.Sprintf("error: %v", err)
+		} else {
+			status["db"] = "ok"
+		}
+	} else {
+		status["db"] = "ok (file cache)"
+	}
+
+	// Check Gemini (simple check if client is initialized)
+	if a.geminiClient != nil {
+		status["gemini"] = "initialized"
+	} else {
+		status["gemini"] = "error: not initialized"
+	}
+
+	return status
+}
+
+// ReloadConfig reloads configuration (Hot Reload)
+func (a *App) ReloadConfig() error {
+	logger.Info("Reloading configuration...")
+
+	// Reload feeds
+	feeds, err := rss.LoadFeeds(a.cfg.FeedsConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to reload feeds: %v", err)
+	}
+	a.feeds = feeds
+
+	// Reload keywords
+	keywords, err := config.LoadKeywords(a.cfg.KeywordsConfigPath)
+	if err != nil {
+		logger.Warn("Failed to reload keywords, keeping old ones", "error", err)
+	} else {
+		a.keywords = keywords
+	}
+
+	logger.Info("Configuration reloaded successfully")
+	return nil
 }
 
 // sendSingleNews отправляет одну новость (с фото или без)
@@ -279,19 +347,19 @@ func processFailedMessages(adapter *PostgresCacheAdapter, cfg *config.Config, m 
 //}
 
 // Вспомогательная функция для обрезки текста
-func limitText(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	cut := string(r[:max])
-	// Пытаемся обрезать по точке
-	if i := strings.LastIndex(cut, "."); i > max/2 {
-		return string(r[:i+1])
-	}
-	// Или по пробелу
-	if i := strings.LastIndex(cut, " "); i > 0 {
-		return string(r[:i]) + "..."
-	}
-	return string(r[:max]) + "..."
-}
+// func limitText(s string, max int) string {
+// 	r := []rune(s)
+// 	if len(r) <= max {
+// 		return s
+// 	}
+// 	cut := string(r[:max])
+// 	// Пытаемся обрезать по точке
+// 	if i := strings.LastIndex(cut, "."); i > max/2 {
+// 		return string(r[:i+1])
+// 	}
+// 	// Или по пробелу
+// 	if i := strings.LastIndex(cut, " "); i > 0 {
+// 		return string(r[:i]) + "..."
+// 	}
+// 	return string(r[:max]) + "..."
+// }

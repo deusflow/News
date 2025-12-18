@@ -66,6 +66,11 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 	return cache, nil
 }
 
+// Ping checks database connection
+func (pc *PostgresCache) Ping() error {
+	return pc.db.Ping()
+}
+
 // initSchema creates the necessary tables if they don't exist
 func (pc *PostgresCache) initSchema() error {
 	schema := `
