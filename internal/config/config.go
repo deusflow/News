@@ -148,7 +148,7 @@ func Load() (*Config, error) {
 		EnableThreadMode:        false,
 		EnableImportanceLine:    true,
 		EnableVocabPost:         true,
-		EnableInlineButtons:     false,
+		EnableInlineButtons:     true,
 		VocabWordsPerDay:        5,
 		InlineButtonMode:        "callback",
 		ChannelUsername:         "",

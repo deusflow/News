@@ -59,7 +59,7 @@ type Options struct {
 	Metrics              *metrics.Metrics
 }
 
-func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News, error) {
+func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, opts Options) ([]News, error) {
 	if opts.AIClient == nil {
 		return nil, fmt.Errorf("gemini client not initialized")
 	}
@@ -130,20 +130,29 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 		urls[i] = n.Link
 	}
 
-	fullArticles := scraper.ExtractArticlesInBackgroundWithLimits(urls, opts.ScrapeMaxArticles, opts.ScrapeConcurrency)
+	fullArticles := scraper.ExtractArticlesInBackgroundWithLimits(ctx, urls, opts.ScrapeMaxArticles, opts.ScrapeConcurrency)
 	geminiReqs := 0
 
 	for _, n := range candidates {
+		// Check context cancellation
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
 		// Подставляем полный текст
 		if fa, ok := fullArticles[n.Link]; ok && len(fa.Content) > 200 {
 			n.Content = fa.Content
 		}
 
-		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 20 секунд ===
+		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 35 секунд ===
 		// Это позволяет уложиться в лимит ~3 запросов в минуту (безопасно для Free Tier)
 		// и избежать ошибки "Quota Exceeded" от Gemini
 		if geminiReqs > 0 { // Не ждем перед первой новостью
-			time.Sleep(20 * time.Second)
+			select {
+			case <-ctx.Done():
+				return result, ctx.Err()
+			case <-time.After(35 * time.Second):
+			}
 		}
 
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
@@ -153,7 +162,7 @@ func FilterAndTranslateWithOptions(items []*rss.FeedItem, opts Options) ([]News,
 			n.Mood = "neutral"
 		} else {
 			// AI
-			aiResp, err := opts.AIClient.TranslateAndSummarizeNews(n.Title, n.Content)
+			aiResp, err := opts.AIClient.TranslateAndSummarizeNews(ctx, n.Title, n.Content)
 			if err != nil {
 				log.Printf("Gemini failed for %s: %v", n.Title, err)
 				n.SummaryDanish = fallbackSummary(n.Content)

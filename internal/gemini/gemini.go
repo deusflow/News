@@ -62,7 +62,7 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslation, error) {
+func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content string) (*NewsTranslation, error) {
 	// 1. Проверяем кэш
 	cacheKey := c.cache.GenerateKey(title, content)
 	if cached, found := c.cache.Get(cacheKey); found {
@@ -73,7 +73,8 @@ func (c *Client) TranslateAndSummarizeNews(title, content string) (*NewsTranslat
 	}
 
 	// Increase timeout to handle potential rate limit waits
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	// Use the passed context as parent
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	var result *NewsTranslation

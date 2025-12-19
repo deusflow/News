@@ -121,7 +121,7 @@ func (a *App) Run(ctx context.Context) {
 	}
 
 	// 6. Фильтрация и перевод
-	filtered, err := news.FilterAndTranslateWithOptions(items, news.Options{
+	filtered, err := news.FilterAndTranslateWithOptions(ctx, items, news.Options{
 		Limit:                a.cfg.MaxNewsLimit,
 		MaxAge:               a.cfg.NewsMaxAge,
 		PerSource:            2,
@@ -211,12 +211,38 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 		var outText string
 		var err error
 
+		// Prepare buttons if enabled
+		var buttons [][]telegram.InlineButton
+
+		// Row 1: Link
+		if cfg.EnableInlineButtons && n.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+			})
+		}
+
+		// Row 2: Reactions
+		if cfg.EnableInlineButtons {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "👍", CallbackData: fmt.Sprintf("vote:up:%s", hash)},
+				{Text: "👎", CallbackData: fmt.Sprintf("vote:down:%s", hash)},
+			})
+		}
+
 		if canPhoto {
 			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
-			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+			if len(buttons) > 0 {
+				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
+			} else {
+				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+			}
 		} else {
 			outText = news.FormatNewsWithImage(n, 0, 0)
-			_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+			}
 		}
 
 		if err != nil {

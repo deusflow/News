@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,14 +22,20 @@ type ArticleContent struct {
 }
 
 // ExtractFullArticle gets full text of article by URL
-func ExtractFullArticle(url string) (*ArticleContent, error) {
+func ExtractFullArticle(ctx context.Context, url string) (*ArticleContent, error) {
 	// Make HTTP client with timeout
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 	}
 
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+
 	// Get HTML page
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error loading page: %v", err)
 	}
@@ -462,12 +469,12 @@ func cleanContent(content string) string {
 }
 
 // ExtractArticlesInBackground gets full content of articles in background (defaults)
-func ExtractArticlesInBackground(urls []string) map[string]*ArticleContent {
-	return ExtractArticlesInBackgroundWithLimits(urls, 10, 8)
+func ExtractArticlesInBackground(ctx context.Context, urls []string) map[string]*ArticleContent {
+	return ExtractArticlesInBackgroundWithLimits(ctx, urls, 10, 8)
 }
 
 // ExtractArticlesInBackgroundWithLimits gets full content with configurable parallelism and cap
-func ExtractArticlesInBackgroundWithLimits(urls []string, maxArticles, concurrency int) map[string]*ArticleContent {
+func ExtractArticlesInBackgroundWithLimits(ctx context.Context, urls []string, maxArticles, concurrency int) map[string]*ArticleContent {
 	result := make(map[string]*ArticleContent)
 	if maxArticles <= 0 {
 		maxArticles = 10
@@ -492,21 +499,33 @@ func ExtractArticlesInBackgroundWithLimits(urls []string, maxArticles, concurren
 
 	worker := func(id int) {
 		defer wg.Done()
-		for j := range jobs {
-			log.Printf("[scraper] worker %d: fetching %s", id, j.u)
-			article, err := ExtractFullArticle(j.u)
-			if err == nil && article != nil && len(article.Content) > 100 {
-				mu.Lock()
-				result[j.u] = article
-				mu.Unlock()
-				log.Printf("✅ Got content (%d chars)", len(article.Content))
-			} else if err != nil {
-				log.Printf("⚠️ Can't get content %s: %v", j.u, err)
-			} else {
-				log.Printf("⚠️ Content too short: %s", j.u)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case j, ok := <-jobs:
+				if !ok {
+					return
+				}
+				log.Printf("[scraper] worker %d: fetching %s", id, j.u)
+				article, err := ExtractFullArticle(ctx, j.u)
+				if err == nil && article != nil && len(article.Content) > 100 {
+					mu.Lock()
+					result[j.u] = article
+					mu.Unlock()
+					log.Printf("✅ Got content (%d chars)", len(article.Content))
+				} else if err != nil {
+					log.Printf("⚠️ Can't get content %s: %v", j.u, err)
+				} else {
+					log.Printf("⚠️ Content too short: %s", j.u)
+				}
+				// Tiny backoff between jobs to be gentle
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(200 * time.Millisecond):
+				}
 			}
-			// Tiny backoff between jobs to be gentle
-			time.Sleep(200 * time.Millisecond)
 		}
 	}
 
