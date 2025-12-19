@@ -65,11 +65,8 @@ func (c *Cache) cleanupLoop() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			c.cleanup()
-		}
+	for range ticker.C {
+		c.cleanup()
 	}
 }
 

@@ -508,7 +508,7 @@ func translateWithMistralAI(text, from, to string) (string, error) {
 	}
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Mistral AI API returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("mistral AI API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
@@ -769,7 +769,7 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unexpected cohere chat response")
 	}
-	contentArr, ok := msg["content"].([]interface{})
+	contentArr, _ := msg["content"].([]interface{})
 	if len(contentArr) == 0 {
 		return "", fmt.Errorf("no content in cohere message")
 	}

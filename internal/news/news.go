@@ -1,6 +1,7 @@
 package news
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"regexp"
@@ -144,14 +145,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			n.Content = fa.Content
 		}
 
-		// === ИСПРАВЛЕНИЕ: Добавляем паузу в 35 секунд ===
-		// Это позволяет уложиться в лимит ~3 запросов в минуту (безопасно для Free Tier)
-		// и избежать ошибки "Quota Exceeded" от Gemini
+		// === Пауза 60 секунд между запросами к Gemini ===
+		// Gemini Free Tier: 20 запросов/минуту, но с запасом ставим 1 запрос в минуту
+		// чтобы гарантированно избежать "Quota Exceeded"
 		if geminiReqs > 0 { // Не ждем перед первой новостью
 			select {
 			case <-ctx.Done():
 				return result, ctx.Err()
-			case <-time.After(35 * time.Second):
+			case <-time.After(60 * time.Second):
 			}
 		}
 
