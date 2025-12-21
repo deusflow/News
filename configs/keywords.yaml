@@ -1,24 +1,70 @@
 keywords:
   refugee_boost:
+    # Основные термины о беженцах
     - ukrain
     - flygtning
     - asyl
     - opholdstilladelse
+    - ophold
     - hjemsendelse
     - integrat
+    - udlænding
+    - udlændinge
+    - indvandrer
+    # Пособия и финансы
+    - ydelse
+    - selvforsørgelses
+    - hjemrejseydelse
+    - integrationsydelse
+    - kontanthjælp
+    - starthjælp
+    - børnetilskud
+    - boligsikring
+    - boligstøtte
+    # Статус и документы
+    - midlertidig beskyttelse
+    - særlov
+    - ukrainerloven
+    - forlæng
+    - permanent
+    - statsborgerskab
+    - familiesammenføring
+    - cpr
+    - nemid
+    - mitid
+    # Жильё и проживание
+    - bolig
+    - indkvartering
+    - asylcenter
+    - flygtningecenter
+    - kommune
+    # Работа и образование
     - job
+    - arbejde
+    - beskæftigelse
+    - praktik
+    - løntilskud
     - sprog
+    - sprogskole
+    - danskuddannelse
     - skole
     - børn
+    - daginstitution
+    - børnehave
+    # Здоровье и соцподдержка
+    - sundhed
+    - læge
+    - hospital
     - social
-    - ydelse
-    - bolig
-    - kommune
+    - rådgivning
+    # Законы и правила
     - lov
     - regel
     - grænse
     - pas
     - visum
+    - krav
+    - rettighed
   ukraine_war:
     - krig
     - rusland

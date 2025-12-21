@@ -42,8 +42,10 @@ type News struct {
 	ImportanceDanish    string
 	ImportanceUkrainian string
 
-	Mood string   // positive, negative, neutral
-	Tags []string // ["Політика", "Данія"]
+	Mood    string   // positive, negative, neutral
+	Tags    []string // ["Політика", "Данія"]
+	TLDR    string   // Одно предложение - суть новости
+	FunFact string   // Цікавий факт про Данію (генерується AI)
 }
 
 type Options struct {
@@ -170,11 +172,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				trTitle, _ := translate.TranslateText(n.Title, "da", "uk")
 				n.TitleUkrainian = trTitle
 				n.Mood = "neutral"
+				n.TLDR = ""
+				n.FunFact = GetRandomFact() // Fallback на статический факт
 			} else {
 				n.SummaryDanish = aiResp.Danish
 				n.SummaryUkrainian = aiResp.Ukrainian
 				n.Mood = aiResp.Mood
 				n.Tags = aiResp.Tags
+				n.TLDR = aiResp.TLDR
+				n.FunFact = aiResp.FunFact
 
 				if ukTitle, err := translate.TranslateText(n.Title, "da", "uk"); err == nil {
 					n.TitleUkrainian = ukTitle
@@ -190,12 +196,27 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		result = append(result, n)
 	}
 
-	// 5. Пересортировка: Поднимаем позитивные новости наверх
+	// 5. Пересортировка:
+	// 1) Сначала новости о беженцах (наивысший приоритет)
+	// 2) Потом позитивные новости
+	// 3) Остальные по настроению
 	sort.SliceStable(result, func(i, j int) bool {
+		// Категории беженцев всегда наверху
+		iRefugee := isRefugeeCategory(result[i].Category)
+		jRefugee := isRefugeeCategory(result[j].Category)
+		if iRefugee != jRefugee {
+			return iRefugee // refugee идут первыми
+		}
+		// Внутри остальных - по настроению
 		return getMoodScore(result[i].Mood) > getMoodScore(result[j].Mood)
 	})
 
 	return result, nil
+}
+
+// isRefugeeCategory проверяет относится ли категория к беженцам
+func isRefugeeCategory(cat string) bool {
+	return cat == "refugee" || cat == "refugee_ukraine"
 }
 
 func getMoodScore(mood string) int {
@@ -237,12 +258,25 @@ func GetMoodEmoji(mood string) string {
 func formatHeader(n News) string {
 	moodEmoji := GetMoodEmoji(n.Mood)
 	cat := strings.ToUpper(n.Category)
-	if cat == "" {
-		cat = "NYHED"
-	}
-	if cat == "UKRAINE" {
+
+	// Специальные заголовки для категорий
+	switch n.Category {
+	case "refugee_ukraine":
+		return "🇺🇦 <b>ВАЖЛИВО ДЛЯ УКРАЇНЦІВ</b>"
+	case "refugee":
+		return "📋 <b>ДЛЯ БІЖЕНЦІВ</b>"
+	case "ukraine":
 		cat = "UKRAINE"
+	case "viborg":
+		cat = "VIBORG"
+	case "denmark":
+		cat = "DANMARK"
+	default:
+		if cat == "" {
+			cat = "NYHED"
+		}
 	}
+
 	return fmt.Sprintf("%s <b>%s</b>", moodEmoji, cat)
 }
 
@@ -282,7 +316,14 @@ func FormatNewsWithImage(n News, _, _ int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(formatHeader(n) + "\n\n")
+	b.WriteString(formatHeader(n) + "\n")
+
+	// TL;DR - короткий підсумок для тих, хто поспішає
+	if n.TLDR != "" {
+		b.WriteString("💬 <b>" + n.TLDR + "</b>\n")
+	}
+	b.WriteString("\n")
+
 	b.WriteString(formatSmartBlock("🇩🇰", n.Title, n.ImportanceDanish, daSum))
 	b.WriteString("\n\n")
 	b.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, ukSum))
@@ -296,8 +337,17 @@ func FormatNewsWithImage(n News, _, _ int) string {
 		for i, t := range n.Tags {
 			tags[i] = "#" + strings.ReplaceAll(t, " ", "_")
 		}
-		b.WriteString("<i>" + strings.Join(tags, " ") + "</i>")
+		b.WriteString("<i>" + strings.Join(tags, " ") + "</i>\n")
 	}
+
+	// Цікавий факт про Данію (AI-генерований або fallback)
+	fact := n.FunFact
+	if fact == "" {
+		fact = GetRandomFact()
+	}
+	b.WriteString("\n━━━━━━━━━━━━━━━\n")
+	b.WriteString("💡 <i>" + fact + "</i>")
+
 	return b.String()
 }
 
@@ -312,7 +362,15 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 		ukTitle = n.Title
 	}
 
-	header := formatHeader(n) + "\n\n"
+	header := formatHeader(n) + "\n"
+
+	// TL;DR для швидкого читання
+	tldrBlock := ""
+	if n.TLDR != "" {
+		tldrBlock = "💬 <b>" + n.TLDR + "</b>\n"
+	}
+	header += tldrBlock + "\n"
+
 	footer := ""
 
 	if len(n.Tags) > 0 {
@@ -375,9 +433,21 @@ func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, str
 		return 40, "denmark"
 	}
 
-	if containsAny(text, kw.UkraineWar) || containsAny(text, kw.RefugeeBoost) {
+	// НАИВЫСШИЙ ПРИОРИТЕТ: Новости о беженцах, пособиях, статусе проживания
+	// Особенно для украинцев в Дании
+	if containsAny(text, kw.RefugeeBoost) {
+		// Дополнительный бонус если упоминается Украина
+		if containsAny(text, []string{"ukrain", "україн"}) {
+			return 200, "refugee_ukraine" // Максимальный приоритет
+		}
+		return 150, "refugee"
+	}
+
+	// Высокий приоритет: война в Украине
+	if containsAny(text, kw.UkraineWar) {
 		return 100, "ukraine"
 	}
+
 	if containsAny(text, kw.Viborg) {
 		return 80, "viborg"
 	}

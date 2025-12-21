@@ -211,21 +211,11 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 		var outText string
 		var err error
 
-		// Prepare buttons if enabled
+		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
-
-		// Row 1: Link
 		if cfg.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		// Row 2: Reactions
-		if cfg.EnableInlineButtons {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "👍", CallbackData: fmt.Sprintf("vote:up:%s", hash)},
-				{Text: "👎", CallbackData: fmt.Sprintf("vote:down:%s", hash)},
 			})
 		}
 
@@ -283,21 +273,13 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 		var outText string
 		var err error
 
-		// Prepare buttons if enabled
+		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
-
-		// Row 1: Link
 		if cfg.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 			})
 		}
-
-		// Row 2: Reactions
-		buttons = append(buttons, []telegram.InlineButton{
-			{Text: "👍", CallbackData: fmt.Sprintf("vote:up:%s", hash)},
-			{Text: "👎", CallbackData: fmt.Sprintf("vote:down:%s", hash)},
-		})
 
 		if canPhoto {
 			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)

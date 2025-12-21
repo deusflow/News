@@ -29,8 +29,10 @@ type NewsTranslation struct {
 	Summary   string
 	Danish    string
 	Ukrainian string
-	Mood      string   // Новый параметр: Настроение новости
-	Tags      []string // Новый параметр: Теги
+	Mood      string   // Настроение новости
+	Tags      []string // Теги
+	TLDR      string   // Одно предложение - суть новости
+	FunFact   string   // Цікавий факт про Данію
 }
 
 // NewsTranslationResponse - это "анкета" для Gemini (формат ответа API)
@@ -40,6 +42,8 @@ type NewsTranslationResponse struct {
 	Ukrainian string   `json:"ukrainian"`
 	Mood      string   `json:"mood"`
 	Tags      []string `json:"tags"`
+	TLDR      string   `json:"tldr"`
+	FunFact   string   `json:"fun_fact"`
 }
 
 func NewClient(apiKey string, m *metrics.Metrics) (*Client, error) {
@@ -154,7 +158,7 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 	model.ResponseMIMEType = "application/json"
 
 	// === ОБНОВЛЕННАЯ СХЕМА ===
-	// Добавили Mood (Enum) и Tags (Array)
+	// Добавили Mood (Enum), Tags (Array), TLDR, FunFact
 	model.ResponseSchema = &genai.Schema{
 		Type: genai.TypeObject,
 		Properties: map[string]*genai.Schema{
@@ -169,8 +173,10 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 				Type:  genai.TypeArray,
 				Items: &genai.Schema{Type: genai.TypeString},
 			},
+			"tldr":     {Type: genai.TypeString},
+			"fun_fact": {Type: genai.TypeString},
 		},
-		Required: []string{"summary", "danish", "ukrainian", "mood", "tags"},
+		Required: []string{"summary", "danish", "ukrainian", "mood", "tags", "tldr", "fun_fact"},
 	}
 
 	// Очистка контента
@@ -188,7 +194,6 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 	}
 
 	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
-	// Мы объясняем модели, как выбирать Mood и Tags
 	prompt := fmt.Sprintf(`
 	Analyze this news article.
 	
@@ -201,10 +206,17 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 	3. "ukrainian": Translate the news to Ukrainian (natural, native tone).
 	4. "mood": Determine the emotional vibe. Options: "positive" (good news), "negative" (bad news), "neutral" (facts), "shocking" (surprising/scandal), "urgent" (warnings).
 	5. "tags": Extract 2-4 keywords (hashtags) in Ukrainian (e.g., "Політика", "Економіка", "Спорт", "Біженці").
+	6. "tldr": Write ONE short sentence (max 100 chars) in Ukrainian that captures the main point. Start with emoji. Example: "🏛️ Данія виділила 2 млрд на оборону"
+	7. "fun_fact": Write ONE interesting fact about Denmark in Ukrainian (max 120 chars). The fact should be RELATED to the news topic if possible. Start with emoji. Examples:
+	   - If news about politics: "🏛️ Данський парламент називається Фолькетинг і має лише одну палату"
+	   - If news about economy: "💰 ВВП Данії на душу населення — один з найвищих у світі"
+	   - If news about refugees: "🤝 Данія прийняла понад 35 000 українських біженців"
+	   - Random facts are also OK: "🚴 У Копенгагені є більше велосипедів, ніж людей"
 	
 	CONSTRAINTS:
 	- Do NOT translate brand names.
 	- Output valid JSON.
+	- Make fun_fact UNIQUE and interesting, avoid repetition.
 	`, title, content)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
@@ -231,7 +243,9 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 		Summary:   parsedResp.Summary,
 		Danish:    parsedResp.Danish,
 		Ukrainian: parsedResp.Ukrainian,
-		Mood:      parsedResp.Mood, // Передаем Mood дальше
-		Tags:      parsedResp.Tags, // Передаем Tags дальше
+		Mood:      parsedResp.Mood,
+		Tags:      parsedResp.Tags,
+		TLDR:      parsedResp.TLDR,
+		FunFact:   parsedResp.FunFact,
 	}, nil
 }
