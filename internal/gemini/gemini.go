@@ -54,8 +54,10 @@ func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 	}
 
 	if modelName == "" {
-		modelName = "gemini-flash-latest"
+		modelName = "gemini-flash-latest" // always points to latest flash version
 	}
+
+	log.Printf("✅ Gemini client initialized with model: %s", modelName)
 
 	return &Client{
 		client:    client,
