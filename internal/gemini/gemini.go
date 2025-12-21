@@ -19,9 +19,10 @@ import (
 )
 
 type Client struct {
-	client  *genai.Client
-	cache   *cache.Cache
-	metrics *metrics.Metrics
+	client    *genai.Client
+	cache     *cache.Cache
+	metrics   *metrics.Metrics
+	modelName string
 }
 
 // NewsTranslation - это основная структура, которую мы отдаем наружу (в news.go)
@@ -37,7 +38,6 @@ type NewsTranslation struct {
 
 // NewsTranslationResponse - это "анкета" для Gemini (формат ответа API)
 type NewsTranslationResponse struct {
-	Summary   string   `json:"summary"`
 	Danish    string   `json:"danish"`
 	Ukrainian string   `json:"ukrainian"`
 	Mood      string   `json:"mood"`
@@ -46,17 +46,22 @@ type NewsTranslationResponse struct {
 	FunFact   string   `json:"fun_fact"`
 }
 
-func NewClient(apiKey string, m *metrics.Metrics) (*Client, error) {
+func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
+	if modelName == "" {
+		modelName = "gemini-flash-latest"
+	}
+
 	return &Client{
-		client:  client,
-		cache:   cache.New(),
-		metrics: m,
+		client:    client,
+		cache:     cache.New(),
+		metrics:   m,
+		modelName: modelName,
 	}, nil
 }
 
@@ -151,8 +156,8 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 }
 
 func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*NewsTranslation, error) {
-	// Используем Flash модель для скорости
-	model := c.client.GenerativeModel("gemini-2.5-flash")
+	// Используем модель из конфига
+	model := c.client.GenerativeModel(c.modelName)
 
 	model.SetTemperature(0.7)
 	model.ResponseMIMEType = "application/json"
@@ -240,7 +245,6 @@ func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*
 	}
 
 	return &NewsTranslation{
-		Summary:   parsedResp.Summary,
 		Danish:    parsedResp.Danish,
 		Ukrainian: parsedResp.Ukrainian,
 		Mood:      parsedResp.Mood,

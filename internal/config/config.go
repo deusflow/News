@@ -28,7 +28,8 @@ type Config struct {
 
 	// Gemini settings
 	GeminiAPIKey      string
-	MaxGeminiRequests int // maximum Gemini requests per run (0 = unlimited)
+	GeminiModel       string // model name, e.g. "gemini-flash-latest"
+	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 
 	// AI Rate Limiting (NEW - saves tokens!)
 	MaxGroqRequests    int  // maximum Groq requests per run (0 = unlimited)
@@ -161,6 +162,7 @@ func Load() (*Config, error) {
 	cfg.TelegramToken = os.Getenv("TELEGRAM_TOKEN")
 	cfg.TelegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	cfg.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-flash-latest")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 
 	// Cache settings

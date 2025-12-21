@@ -56,10 +56,11 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	}
 
 	// 2. Инициализация Gemini
-	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey, m)
+	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel, m)
 	if err != nil {
 		return nil, fmt.Errorf("gemini error: %v", err)
 	}
+	logger.Info("Using Gemini model", "model", cfg.GeminiModel)
 
 	// 3. Загрузка RSS фидов и ключевых слов
 	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)

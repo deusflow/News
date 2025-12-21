@@ -18,7 +18,7 @@ import (
 
 // Centralized model identifiers (free-tier friendly / GA as of late 2025)
 const (
-	geminiModel  = "gemini-2.5-flash"     // GA, fast; requires proper API quota
+	// geminiModel is now configured via GEMINI_MODEL env variable
 	groqModel    = "llama-3.1-8b-instant" // very fast free-tier on Groq
 	cohereModel  = "command-r-mini"       // Cohere Chat API (free-tier friendly)
 	mistralModel = "open-mistral-7b"      // Mistral free/open model
@@ -181,8 +181,12 @@ func translateWithGemini(text, from, to string) (string, error) {
 		return "", errors.New("GEMINI_API_KEY not set")
 	}
 
-	// Gemini API endpoint - используем самую новую стабильную версию Gemini 2.5 Flash
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, apiKey)
+	// Gemini API endpoint - читаем модель из env или используем дефолт
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "gemini-flash-latest"
+	}
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 
 	// Create translation prompt
 	targetName := languageName(to)
