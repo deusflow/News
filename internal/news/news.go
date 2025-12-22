@@ -434,16 +434,17 @@ func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, str
 	}
 
 	// НАИВЫСШИЙ ПРИОРИТЕТ: Новости о беженцах, пособиях, статусе проживания
-	// Особенно для украинцев в Дании
-	if containsAny(text, kw.RefugeeBoost) {
-		// Дополнительный бонус если упоминается Украина
-		if containsAny(text, []string{"ukrain", "україн"}) {
+	// Используем СТРОГУЮ логику - требуем комбинацию ключевых слов
+	if isRelevantForRefugees(text) {
+		// "ВАЖЛИВО ДЛЯ УКРАЇНЦІВ" - только если есть СПЕЦИФИЧНЫЕ для украинцев термины
+		// (ukrainerloven, særlov + ukrain, midlertidig beskyttelse + ukrain)
+		if isSpecificForUkrainians(text) {
 			return 200, "refugee_ukraine" // Максимальный приоритет
 		}
 		return 150, "refugee"
 	}
 
-	// Высокий приоритет: война в Украине
+	// Высокий приоритет: война в Украине (НЕ для беженцев, просто про войну)
 	if containsAny(text, kw.UkraineWar) {
 		return 100, "ukraine"
 	}
@@ -473,6 +474,88 @@ func containsAny(text string, keywords []string) bool {
 		}
 	}
 	return false
+}
+
+// isRelevantForRefugees - СТРОГАЯ проверка релевантности для беженцев
+// Новость должна содержать ПРЯМЫЕ указатели на беженцев/мигрантов в Дании
+// или комбинацию контекстных слов (тема + Дания)
+func isRelevantForRefugees(text string) bool {
+	// Прямые индикаторы - одного слова достаточно
+	directKeywords := []string{
+		"flygtning", "asyl", "opholdstilladelse", "hjemsendelse",
+		"udlænding", "udlændinge", "indvandrer",
+		"midlertidig beskyttelse", "særlov", "ukrainerloven",
+		"familiesammenføring", "asylcenter", "flygtningecenter",
+		"integrationsydelse", "hjemrejseydelse", "selvforsørgelses",
+		"statsborgerskab", "opholdslov",
+	}
+
+	for _, k := range directKeywords {
+		if strings.Contains(text, k) {
+			return true
+		}
+	}
+
+	// Контекстные слова требуют связи с Данией или беженцами
+	contextKeywords := []string{
+		"ydelse", "kontanthjælp", "boligstøtte", "boligsikring",
+		"opholdskort", "visum", "cpr", "nemid", "mitid",
+	}
+
+	danishContext := []string{
+		"danmark", "dansk", "kommune", "styrelse", "ministeriet",
+	}
+
+	refugeeContext := []string{
+		"flygtning", "asyl", "udlænding", "migrant",
+	}
+
+	for _, k := range contextKeywords {
+		if strings.Contains(text, k) {
+			// Проверяем есть ли датский контекст ИЛИ контекст беженцев
+			if containsAny(text, danishContext) || containsAny(text, refugeeContext) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isSpecificForUkrainians - проверяет что новость СПЕЦИФИЧНО для украинцев
+// Только законы, статусы и пособия именно для украинских беженцев
+func isSpecificForUkrainians(text string) bool {
+	// Прямые указатели на украинский закон/статус
+	ukrainianSpecificKeywords := []string{
+		"ukrainerloven",        // закон об украинцах
+		"ukraine-loven",        // альтернативное написание
+		"ukrainske flygtninge", // украинские беженцы
+		"ukrainere i danmark",  // украинцы в Дании
+		"ukrainsk flygtning",   // украинский беженец
+	}
+
+	for _, k := range ukrainianSpecificKeywords {
+		if strings.Contains(text, k) {
+			return true
+		}
+	}
+
+	// Комбинация: специфичные термины + упоминание Украины
+	ukraineIndicators := []string{"ukrain", "україн"}
+	refugeeStatusTerms := []string{
+		"midlertidig beskyttelse", // временная защита
+		"særlov",                  // специальный закон
+		"opholdstilladelse",       // разрешение на проживание
+		"forlængelse",             // продление
+		"permanent ophold",        // постоянное проживание
+		"ydelse",                  // пособие
+		"integrationsydelse",      // пособие по интеграции
+	}
+
+	hasUkraine := containsAny(text, ukraineIndicators)
+	hasRefugeeStatus := containsAny(text, refugeeStatusTerms)
+
+	return hasUkraine && hasRefugeeStatus
 }
 
 func trimToRuneCount(s string, limit int) string {
