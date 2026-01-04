@@ -19,10 +19,13 @@ import (
 )
 
 type Client struct {
-	client    *genai.Client
-	cache     *cache.Cache
-	metrics   *metrics.Metrics
-	modelName string
+	client        *genai.Client
+	cache         *cache.Cache
+	metrics       *metrics.Metrics
+	modelName     string
+	fallbackModel string           // gemini-2.0-flash as fallback
+	rateLimiter   <-chan time.Time // Rate limiter: 1 request per interval
+	rateInterval  time.Duration    // Interval between requests
 }
 
 // NewsTranslation - это основная структура, которую мы отдаем наружу (в news.go)
@@ -54,16 +57,27 @@ func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 	}
 
 	if modelName == "" {
-		modelName = "gemini-flash-latest" // always points to latest flash version
+		modelName = "gemini-2.5-flash" // always points to latest flash version
 	}
 
-	log.Printf("✅ Gemini client initialized with model: %s", modelName)
+	fallbackModel := "gemini-2.0-flash" // fallback if primary model fails
+
+	// Rate limiter: 1 requests per minute
+	// This stays well under Gemini's free tier limit (15 RPM)
+	rateInterval := 40 * time.Second
+	rateLimiter := time.NewTicker(rateInterval).C
+
+	log.Printf("✅ Gemini client initialized with model: %s (fallback: %s)", modelName, fallbackModel)
+	log.Printf("📊 Rate limit: 1 request per %v (6 RPM)", rateInterval)
 
 	return &Client{
-		client:    client,
-		cache:     cache.New(),
-		metrics:   m,
-		modelName: modelName,
+		client:        client,
+		cache:         cache.New(),
+		metrics:       m,
+		modelName:     modelName,
+		fallbackModel: fallbackModel,
+		rateLimiter:   rateLimiter,
+		rateInterval:  rateInterval,
 	}, nil
 }
 
@@ -91,31 +105,52 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 	var result *NewsTranslation
 	var err error
 
-	// 2. Retry logic
+	// 2. Try primary model first
 	retryConfig := retry.RetryConfig{
-		MaxAttempts: 3,
-		Delay:       5 * time.Second, // Increased base delay
+		MaxAttempts: 2, // Reduced attempts for primary model
+		Delay:       5 * time.Second,
 		Backoff:     true,
 	}
 
 	err = retry.WithRetry(ctx, retryConfig, func() error {
-		result, err = c.translateWithAPI(ctx, title, content)
+		result, err = c.translateWithModel(ctx, c.modelName, title, content)
 
 		// Handle Rate Limit (429) specifically
 		if err != nil {
 			if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 429 {
-				log.Printf("⚠️ Gemini Rate Limit hit. Waiting 60s...")
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(60 * time.Second):
-					// Continue to retry
-					return err
-				}
+				log.Printf("⚠️ Gemini Rate Limit hit on %s. Will try fallback...", c.modelName)
+				return err // Don't wait, go to fallback
 			}
 		}
 		return err
 	})
+
+	// 3. If primary model failed, try fallback model
+	if err != nil && c.fallbackModel != "" && c.fallbackModel != c.modelName {
+		log.Printf("⚠️ Primary model %s failed, trying fallback: %s", c.modelName, c.fallbackModel)
+
+		fallbackRetryConfig := retry.RetryConfig{
+			MaxAttempts: 2,
+			Delay:       3 * time.Second,
+			Backoff:     true,
+		}
+
+		fallbackErr := retry.WithRetry(ctx, fallbackRetryConfig, func() error {
+			result, err = c.translateWithModel(ctx, c.fallbackModel, title, content)
+			return err
+		})
+
+		if fallbackErr == nil {
+			log.Printf("✅ Fallback model %s succeeded!", c.fallbackModel)
+			// Save to cache and return
+			c.cache.Set(cacheKey, result, 24*time.Hour)
+			return result, nil
+		}
+
+		// Both models failed
+		log.Printf("❌ Both models failed. Primary: %s, Fallback: %s", c.modelName, c.fallbackModel)
+		err = fmt.Errorf("all Gemini models failed: primary=%v, fallback=%v", err, fallbackErr)
+	}
 
 	if err != nil {
 		if c.metrics != nil {
@@ -127,39 +162,23 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 
 	// 3. Сохраняем в кэш
 	c.cache.Set(cacheKey, result, 24*time.Hour)
-	// Removed duplicate increment here as it is done in news.go or should be handled carefully.
-	// Original code had it here AND in news.go?
-	// In news.go I added: if opts.Metrics != nil { opts.Metrics.IncrementSuccessfulTranslations() }
-	// So if I keep it here, it will be double counted.
-	// However, this method might be used elsewhere?
-	// Let's check if I should remove it from news.go or here.
-	// Usually, the service performing the action should record the metric.
-	// So gemini client should record it.
-	// But news.go also records it.
-	// I will remove it from here to avoid double counting if news.go does it.
-	// Wait, if I remove it here, and news.go does it, it's fine.
-	// But if I look at my previous edit to news.go, I added it there.
-	// Let's check the original code in news.go.
-	// Original news.go: metrics.Global.IncrementSuccessfulTranslations() was called inside the loop.
-	// Original gemini.go: metrics.Global.IncrementSuccessfulTranslations() was called at the end.
-	// So it WAS double counted or I am misreading.
-	// Let's assume I should keep it here for "Gemini success" and maybe news.go tracks "News processed success".
-	// But they seem to track the same thing "SuccessfulTranslations".
-	// I will comment it out here to be safe and rely on news.go which orchestrates the process.
-	// Actually, better to have it here if we want to track cache hits too.
-	// Cache hit: increments.
-	// API success: increments.
-	// In news.go: it increments if err == nil.
-	// So if cache hit, news.go increments. If API success, news.go increments.
-	// So if I keep it here, it is definitely double counting.
-	// I will remove the increment at the end of this function.
 
 	return result, nil
 }
 
-func (c *Client) translateWithAPI(ctx context.Context, title, content string) (*NewsTranslation, error) {
-	// Используем модель из конфига
-	model := c.client.GenerativeModel(c.modelName)
+func (c *Client) translateWithModel(ctx context.Context, modelName, title, content string) (*NewsTranslation, error) {
+	// Wait for rate limiter before making request
+	if c.rateLimiter != nil {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-c.rateLimiter:
+			log.Printf("⏱️ Rate limiter: proceeding with request to %s", modelName)
+		}
+	}
+
+	// Используем указанную модель
+	model := c.client.GenerativeModel(modelName)
 
 	model.SetTemperature(0.7)
 	model.ResponseMIMEType = "application/json"

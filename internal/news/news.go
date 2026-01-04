@@ -159,16 +159,38 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
-			// Лимит исчерпан
+			// Лимит исчерпан - используем Groq для перевода
+			log.Printf("⚠️ Gemini limit reached, using Groq fallback for: %s", n.Title)
 			n.SummaryDanish = fallbackSummary(n.Content)
-			n.SummaryUkrainian = fallbackSummary(n.Content)
+			// Переводим через Groq
+			if ukSummary, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
+				n.SummaryUkrainian = ukSummary
+				log.Printf("✅ Groq fallback translation ok for: %s", n.Title)
+			} else {
+				log.Printf("❌ Groq fallback failed for %s: %v", n.Title, err)
+				n.SummaryUkrainian = "⚠️ Переклад тимчасово недоступний."
+			}
+			if ukTitle, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && ukTitle != "" {
+				n.TitleUkrainian = ukTitle
+			} else {
+				n.TitleUkrainian = n.Title
+			}
 			n.Mood = "neutral"
+			n.FunFact = GetRandomFact()
 		} else {
 			// AI
 			aiResp, err := opts.AIClient.TranslateAndSummarizeNews(ctx, n.Title, n.Content)
 			if err != nil {
-				log.Printf("Gemini failed for %s: %v", n.Title, err)
+				log.Printf("❌ Gemini failed for %s: %v", n.Title, err)
 				n.SummaryDanish = fallbackSummary(n.Content)
+				// Переводим summary через Groq
+				if ukSummary, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
+					n.SummaryUkrainian = ukSummary
+					log.Printf("✅ Groq fallback translation ok: %s", n.Title)
+				} else {
+					log.Printf("❌ Groq fallback failed for %s: %v", n.Title, err)
+					n.SummaryUkrainian = "⚠️ Переклад тимчасово недоступний."
+				}
 				trTitle, _ := translate.TranslateText(n.Title, "da", "uk")
 				n.TitleUkrainian = trTitle
 				n.Mood = "neutral"
@@ -307,12 +329,28 @@ func FormatNewsWithImage(n News, _, _ int) string {
 
 	ukSum := limitText(n.SummaryUkrainian, 800)
 	if ukSum == "" {
-		ukSum = limitText(n.Content, 800)
+		// Если украинского перевода нет - пробуем перевести датский summary через Groq
+		if daSum != "" {
+			if translated, err := translate.TranslateText(daSum, "da", "uk"); err == nil && translated != "" {
+				ukSum = limitText(translated, 800)
+				log.Printf("✅ FormatNewsWithImage: Groq fallback translation ok")
+			} else {
+				log.Printf("⚠️ FormatNewsWithImage: Переклад недоступний для: %s", n.Title)
+				ukSum = "⚠️ Переклад тимчасово недоступний. Див. оригінал вище."
+			}
+		} else {
+			ukSum = "⚠️ Переклад недоступний."
+		}
 	}
 
 	ukTitle := n.TitleUkrainian
 	if ukTitle == "" {
-		ukTitle = n.Title
+		// Пробуем перевести заголовок
+		if translated, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
+			ukTitle = translated
+		} else {
+			ukTitle = n.Title // Fallback на оригинал только если перевод не удался
+		}
 	}
 
 	var b strings.Builder
@@ -359,7 +397,25 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 
 	ukTitle := n.TitleUkrainian
 	if ukTitle == "" {
-		ukTitle = n.Title
+		// Пробуем перевести заголовок через Groq
+		if translated, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
+			ukTitle = translated
+		} else {
+			ukTitle = n.Title
+		}
+	}
+
+	// Проверяем есть ли украинский summary, если нет - переводим
+	ukSummary := n.SummaryUkrainian
+	if ukSummary == "" && n.SummaryDanish != "" {
+		if translated, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && translated != "" {
+			ukSummary = translated
+			log.Printf("✅ FormatCaptionForPhoto: Groq fallback translation ok")
+		}
+	}
+	// Сохраняем перевод обратно в структуру для использования ниже
+	if ukSummary != "" {
+		n.SummaryUkrainian = ukSummary
 	}
 
 	header := formatHeader(n) + "\n"
