@@ -1,8 +1,10 @@
 # Конфігурація Hugo для dknews
-baseURL = "/"
+baseURL = "https://deusflow.github.io/News/"
 languageCode = "uk"
 title = "DK News — Новини Данії"
 buildFuture = true
+relativeURLs = true
+uglyURLs = false
 
 # Використовуємо власні layouts без теми
 disableKinds = ["taxonomy", "term"]

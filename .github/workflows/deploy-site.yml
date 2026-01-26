@@ -2,19 +2,13 @@ name: Deploy Website to GitHub Pages
 
 # Коли запускається цей workflow:
 on:
-  # 1. Після успішного виконання бота (news.yml)
-  workflow_run:
-    workflows: ["Danish News Bot - Scheduled"]
-    types:
-      - completed
-
-  # 2. При push змін в website/ папку
+  # 1. При push змін в website/ папку або main
   push:
     branches: [main]
     paths:
       - 'website/**'
 
-  # 3. Ручний запуск
+  # 2. Ручний запуск
   workflow_dispatch:
 
 # Права для деплою на GitHub Pages
@@ -34,13 +28,6 @@ jobs:
   # ============================================
   build:
     runs-on: ubuntu-latest
-
-    # Запускаємо тільки якщо workflow бота завершився успішно
-    # АБО якщо це push/manual trigger
-    if: |
-      github.event_name == 'push' || 
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       # 1. Checkout репозиторію
@@ -68,14 +55,13 @@ jobs:
           HUGO_ENVIRONMENT: production
           HUGO_ENV: production
         run: |
-          hugo \
-            --gc \
-            --minify \
-            --baseURL "${{ steps.pages.outputs.base_url }}/"
+          hugo --gc --minify
           
           echo "✅ Hugo build completed"
           echo "📁 Files in public/:"
           ls -la public/
+          echo "📄 Content of public/index.html (first 50 lines):"
+          head -50 public/index.html || echo "No index.html found"
 
       # 5. Upload artifact для деплою
       - name: Upload artifact

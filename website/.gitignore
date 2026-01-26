@@ -1,0 +1,3 @@
+# Hugo build output
+public/
+.hugo_build.lock
