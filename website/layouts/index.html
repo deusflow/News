@@ -2,154 +2,232 @@
 <main>
     <div class="container">
 
-        <!-- HERO SECTION: Featured + Trending Sidebar -->
-        <section class="hero-section">
-
-            <!-- Main Featured Article -->
-            {{ $featured := index .Site.RegularPages 0 }}
-            {{ with $featured }}
-            <a href="{{ .Permalink }}" class="hero-main">
-                {{ $img := .Params.image | default "https://placehold.co/800x600/23252b/FF0055?text=DK+News+Featured" }}
-                <img src="{{ $img }}" alt="{{ .Title }}" class="hero-main__image">
-                <div class="hero-main__overlay">
-                    <span class="hero-main__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}Top Story{{ end }}</span>
-                    <h1 class="hero-main__title">{{ .Title }}</h1>
-                    {{ with .Params.tldr }}
-                    <p class="hero-main__excerpt">{{ . }}</p>
+        <!-- HERO CAROUSEL -->
+        <section class="hero-carousel" id="heroCarousel">
+            <div class="carousel__container">
+                <div class="carousel__slides">
+                    {{ $carouselNews := first 10 .Site.RegularPages }}
+                    {{ if $carouselNews }}
+                        {{ range $index, $page := $carouselNews }}
+                        <div class="carousel__slide {{ if eq $index 0 }}active{{ end }}" data-index="{{ $index }}">
+                            <a href="{{ .Permalink }}" class="hero-main">
+                                {{ $img := .Params.image | default "https://placehold.co/800x600/23252b/FF0055?text=DK+News" }}
+                                <img src="{{ $img }}" alt="{{ .Title }}" class="hero-main__image">
+                                <div class="hero-main__overlay">
+                                    <span class="hero-main__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                                    <h1 class="hero-main__title">{{ .Title }}</h1>
+                                    {{ with .Params.tldr }}
+                                    <p class="hero-main__excerpt">{{ . }}</p>
+                                    {{ end }}
+                                    <div class="hero-main__meta">
+                                        <span>{{ with .Params.source_name }}{{ . }}{{ else }}DK News{{ end }}</span>
+                                        <span>•</span>
+                                        <span>{{ .Date.Format "Jan 02, 2006" }}</span>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                        {{ end }}
+                    {{ else }}
+                        <!-- Placeholder slide -->
+                        <div class="carousel__slide active">
+                            <div class="hero-main">
+                                <img src="https://placehold.co/800x600/23252b/FF0055?text=DK+News" alt="DK News" class="hero-main__image">
+                                <div class="hero-main__overlay">
+                                    <span class="hero-main__tag">Welcome</span>
+                                    <h1 class="hero-main__title">Denmark News Network</h1>
+                                    <p class="hero-main__excerpt">Новини Данії українською та данською мовами. Очікуйте новини!</p>
+                                </div>
+                            </div>
+                        </div>
                     {{ end }}
-                    <div class="hero-main__meta">
-                        <span>{{ with .Params.source_name }}{{ . }}{{ else }}DK News{{ end }}</span>
-                        <span>•</span>
-                        <span>{{ .Date.Format "Jan 02, 2006" }}</span>
-                    </div>
                 </div>
-            </a>
-            {{ else }}
-            <!-- Placeholder if no articles -->
-            <div class="hero-main">
-                <img src="https://placehold.co/800x600/23252b/FF0055?text=DK+News" alt="DK News" class="hero-main__image">
-                <div class="hero-main__overlay">
-                    <span class="hero-main__tag">Welcome</span>
-                    <h1 class="hero-main__title">Denmark News Network</h1>
-                    <p class="hero-main__excerpt">Новини Данії українською та данською мовами</p>
-                </div>
-            </div>
-            {{ end }}
 
-            <!-- Trending Sidebar -->
-            <div class="hero-sidebar">
-                <h3 class="hero-sidebar__title">Trending Now</h3>
+                <!-- Carousel Controls -->
+                <button class="carousel__btn carousel__btn--prev" onclick="changeSlide(-1)" aria-label="Previous">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 18l-6-6 6-6"/>
+                    </svg>
+                </button>
+                <button class="carousel__btn carousel__btn--next" onclick="changeSlide(1)" aria-label="Next">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                </button>
 
-                {{ $trending := after 1 .Site.RegularPages | first 3 }}
-                {{ if $trending }}
-                    {{ range $trending }}
-                    <a href="{{ .Permalink }}" class="mini-card">
-                        <div class="mini-card__image">
-                            {{ $img := .Params.image | default "https://placehold.co/150x150/FF0055/FFF?text=News" }}
-                            <img src="{{ $img }}" alt="{{ .Title }}">
-                        </div>
-                        <div class="mini-card__content">
-                            <span class="mini-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
-                            <h4 class="mini-card__title">{{ .Title | truncate 60 }}</h4>
-                            <span class="mini-card__time">{{ .Date.Format "Jan 02" }}</span>
-                        </div>
-                    </a>
+                <!-- Carousel Indicators -->
+                <div class="carousel__indicators">
+                    {{ $count := len (first 10 .Site.RegularPages) }}
+                    {{ if eq $count 0 }}{{ $count = 1 }}{{ end }}
+                    {{ range seq $count }}
+                    <button class="carousel__dot {{ if eq . 1 }}active{{ end }}" onclick="goToSlide({{ sub . 1 }})" aria-label="Slide {{ . }}"></button>
                     {{ end }}
-                {{ else }}
-                    <!-- Placeholder cards -->
-                    <div class="mini-card">
-                        <div class="mini-card__image">
-                            <img src="https://placehold.co/150x150/FF0055/FFF?text=1" alt="News">
-                        </div>
-                        <div class="mini-card__content">
-                            <span class="mini-card__tag">Politics</span>
-                            <h4 class="mini-card__title">Placeholder: Важливі новини Данії</h4>
-                            <span class="mini-card__time">Just Now</span>
-                        </div>
-                    </div>
-                    <div class="mini-card">
-                        <div class="mini-card__image">
-                            <img src="https://placehold.co/150x150/333/FFF?text=2" alt="News">
-                        </div>
-                        <div class="mini-card__content">
-                            <span class="mini-card__tag">Economy</span>
-                            <h4 class="mini-card__title">Placeholder: Економічні новини</h4>
-                            <span class="mini-card__time">1 Hour Ago</span>
-                        </div>
-                    </div>
-                    <div class="mini-card">
-                        <div class="mini-card__image">
-                            <img src="https://placehold.co/150x150/666/FFF?text=3" alt="News">
-                        </div>
-                        <div class="mini-card__content">
-                            <span class="mini-card__tag">Culture</span>
-                            <h4 class="mini-card__title">Placeholder: Культурні події</h4>
-                            <span class="mini-card__time">3 Hours Ago</span>
-                        </div>
-                    </div>
-                {{ end }}
+                </div>
             </div>
         </section>
 
-        <!-- LATEST NEWS GRID -->
-        <section>
-            <div class="news-section__header">
-                <h2 class="news-section__title">Latest News</h2>
-                <div class="news-section__filters">
-                    <button class="filter-btn active">All</button>
-                    <button class="filter-btn">Politics</button>
-                    <button class="filter-btn">Economy</button>
+        <!-- TRENDING NOW + TODAY'S NEWS -->
+        <section class="news-section">
+            <div class="news-section__grid">
+
+                <!-- Trending Sidebar -->
+                <aside class="trending-sidebar">
+                    <h3 class="trending-sidebar__title">🔥 Trending Now</h3>
+
+                    {{ $trending := first 3 .Site.RegularPages }}
+                    {{ if $trending }}
+                        {{ range $trending }}
+                        <a href="{{ .Permalink }}" class="mini-card">
+                            <div class="mini-card__image">
+                                {{ $img := .Params.image | default "https://placehold.co/150x150/FF0055/FFF?text=News" }}
+                                <img src="{{ $img }}" alt="{{ .Title }}">
+                            </div>
+                            <div class="mini-card__content">
+                                <span class="mini-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                                <h4 class="mini-card__title">{{ .Title | truncate 60 }}</h4>
+                                <span class="mini-card__time">{{ .Date.Format "Jan 02" }}</span>
+                            </div>
+                        </a>
+                        {{ end }}
+                    {{ else }}
+                        <!-- Placeholder mini-cards -->
+                        {{ range seq 3 }}
+                        <div class="mini-card mini-card--placeholder">
+                            <div class="mini-card__image">
+                                <img src="https://placehold.co/150x150/333/666?text=..." alt="Очікування">
+                            </div>
+                            <div class="mini-card__content">
+                                <span class="mini-card__tag">—</span>
+                                <h4 class="mini-card__title">Очікування новини...</h4>
+                                <span class="mini-card__time">—</span>
+                            </div>
+                        </div>
+                        {{ end }}
+                    {{ end }}
+                </aside>
+
+                <!-- Today's News Grid -->
+                <div class="news-main">
+                    <div class="news-section__header">
+                        <h2 class="news-section__title">📰 Сьогодні</h2>
+                    </div>
+
+                    <div class="news-grid">
+                        {{ $todayNews := first 8 .Site.RegularPages }}
+                        {{ $newsCount := len $todayNews }}
+
+                        {{ range $todayNews }}
+                        <article class="news-card">
+                            <div class="news-card__image-wrapper">
+                                {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
+                                <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
+                                <span class="news-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                            </div>
+                            <div class="news-card__content">
+                                <div class="news-card__meta">{{ .Date.Format "15:04" }}</div>
+                                <h3 class="news-card__title">
+                                    <a href="{{ .Permalink }}">{{ .Title | truncate 70 }}</a>
+                                </h3>
+                                {{ with .Params.tldr }}
+                                <p class="news-card__excerpt">{{ . | truncate 100 }}</p>
+                                {{ end }}
+                            </div>
+                        </article>
+                        {{ end }}
+
+                        <!-- Placeholder cards for empty slots -->
+                        {{ $emptySlots := sub 8 $newsCount }}
+                        {{ if gt $emptySlots 0 }}
+                            {{ range seq $emptySlots }}
+                            <article class="news-card news-card--placeholder">
+                                <div class="news-card__image-wrapper">
+                                    <img src="https://placehold.co/400x250/1a1a1a/333?text=..." class="news-card__image" alt="Очікування">
+                                    <span class="news-card__tag">—</span>
+                                </div>
+                                <div class="news-card__content">
+                                    <div class="news-card__meta">--:--</div>
+                                    <h3 class="news-card__title">
+                                        <span class="placeholder-text">Очікування новини...</span>
+                                    </h3>
+                                    <p class="news-card__excerpt placeholder-text">Нові новини з'являться найближчим часом</p>
+                                </div>
+                            </article>
+                            {{ end }}
+                        {{ end }}
+                    </div>
                 </div>
             </div>
+        </section>
 
-            <div class="news-grid">
-                {{ $remaining := after 4 .Site.RegularPages | first 8 }}
-                {{ if $remaining }}
-                    {{ range $remaining }}
-                    <article class="news-card">
-                        <div class="news-card__image-wrapper">
-                            {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
-                            <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
-                            <span class="news-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
-                        </div>
-                        <div class="news-card__content">
-                            <div class="news-card__meta">
-                                {{ .Date.Format "Jan 02, 2006" }}
-                            </div>
-                            <h3 class="news-card__title">
-                                <a href="{{ .Permalink }}">{{ .Title }}</a>
-                            </h3>
-                            {{ with .Params.tldr }}
-                            <p class="news-card__excerpt">{{ . }}</p>
-                            {{ end }}
-                        </div>
-                    </article>
-                    {{ end }}
-                {{ else }}
-                    <!-- Placeholder cards -->
-                    {{ range seq 4 }}
-                    <article class="news-card">
-                        <div class="news-card__image-wrapper">
-                            <img src="https://placehold.co/400x250/{{ if eq . 1 }}222{{ else if eq . 2 }}118833{{ else if eq . 3 }}881111{{ else }}333399{{ end }}/FFF?text=News+{{ . }}" alt="Placeholder" class="news-card__image">
-                            <span class="news-card__tag">{{ if eq . 1 }}Politics{{ else if eq . 2 }}Economy{{ else if eq . 3 }}Culture{{ else }}Tech{{ end }}</span>
-                        </div>
-                        <div class="news-card__content">
-                            <div class="news-card__meta">Jan 26, 2026</div>
-                            <h3 class="news-card__title">
-                                <a href="#">Placeholder: Заголовок новини номер {{ . }}</a>
-                            </h3>
-                            <p class="news-card__excerpt">Це placeholder текст для демонстрації дизайну сайту.</p>
-                        </div>
-                    </article>
-                    {{ end }}
+        <!-- PAGINATION BY DAYS -->
+        <section class="pagination-section">
+            <h3 class="pagination-section__title">📅 Архів по днях</h3>
+            <div class="day-pagination">
+                {{ $today := now }}
+                {{ range seq 10 }}
+                    {{ $dayOffset := sub . 1 }}
+                    {{ $date := $today.AddDate 0 0 (mul $dayOffset -1) }}
+                    <a href="/archive/{{ $date.Format "2006-01-02" }}/" class="day-pagination__item {{ if eq $dayOffset 0 }}active{{ end }}">
+                        <span class="day-pagination__day">{{ if eq $dayOffset 0 }}Сьогодні{{ else if eq $dayOffset 1 }}Вчора{{ else }}{{ $date.Format "02.01" }}{{ end }}</span>
+                        <span class="day-pagination__date">{{ $date.Format "Mon" }}</span>
+                    </a>
                 {{ end }}
-            </div>
-
-            <div class="load-more">
-                <a href="/posts/" class="load-more__btn">Load More News</a>
+                <a href="/archive/" class="day-pagination__item day-pagination__item--archive">
+                    <span class="day-pagination__day">Архів</span>
+                    <span class="day-pagination__date">10+ днів</span>
+                </a>
             </div>
         </section>
 
     </div>
 </main>
+
+<!-- Carousel JavaScript -->
+<script>
+let currentSlide = 0;
+const slides = document.querySelectorAll('.carousel__slide');
+const dots = document.querySelectorAll('.carousel__dot');
+const totalSlides = slides.length;
+
+function showSlide(index) {
+    if (index >= totalSlides) index = 0;
+    if (index < 0) index = totalSlides - 1;
+
+    slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === index);
+    });
+
+    dots.forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+    });
+
+    currentSlide = index;
+}
+
+function changeSlide(direction) {
+    showSlide(currentSlide + direction);
+}
+
+function goToSlide(index) {
+    showSlide(index);
+}
+
+// Auto-advance carousel every 5 seconds
+let autoSlide = setInterval(() => changeSlide(1), 5000);
+
+// Pause on hover
+const carousel = document.getElementById('heroCarousel');
+if (carousel) {
+    carousel.addEventListener('mouseenter', () => clearInterval(autoSlide));
+    carousel.addEventListener('mouseleave', () => {
+        autoSlide = setInterval(() => changeSlide(1), 5000);
+    });
+}
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') changeSlide(-1);
+    if (e.key === 'ArrowRight') changeSlide(1);
+});
+</script>
 {{ end }}
