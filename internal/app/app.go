@@ -23,6 +23,7 @@ type App struct {
 	feeds            []rss.FeedSource
 	keywords         *config.KeywordsConfig
 	websiteGenerator *website.Generator
+	supabaseClient   *storage.SupabaseClient
 }
 
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
@@ -81,6 +82,27 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		logger.Info("Website generation enabled", "content_dir", cfg.WebsiteContentDir)
 	}
 
+	// Initialize Supabase client for website archive
+	var supabaseClient *storage.SupabaseClient
+	if cfg.EnableSupabase {
+		supabaseClient, err = storage.NewSupabaseClient(cfg.SupabaseURL, cfg.SupabaseServiceKey)
+		if err != nil {
+			logger.Warn("Failed to initialize Supabase client", "error", err)
+		} else {
+			// Test connection
+			if pingErr := supabaseClient.Ping(); pingErr != nil {
+				logger.Warn("Supabase ping failed", "error", pingErr)
+				supabaseClient = nil
+			} else {
+				logger.Info("Supabase client initialized for website archive")
+				// Archive old news (older than 10 days)
+				if archiveErr := supabaseClient.ArchiveOldNews(); archiveErr != nil {
+					logger.Warn("Failed to archive old news", "error", archiveErr)
+				}
+			}
+		}
+	}
+
 	return &App{
 		cfg:              cfg,
 		metrics:          m,
@@ -89,6 +111,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		feeds:            feeds,
 		keywords:         keywords,
 		websiteGenerator: websiteGen,
+		supabaseClient:   supabaseClient,
 	}, nil
 }
 
@@ -150,9 +173,9 @@ func (a *App) Run(ctx context.Context) {
 
 	// 7. Отправка в Telegram
 	if a.cfg.BotMode == "single" {
-		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator)
+		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator, a.supabaseClient)
 	} else {
-		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics, a.websiteGenerator)
+		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics, a.websiteGenerator, a.supabaseClient)
 	}
 
 	// Метрики
@@ -209,7 +232,7 @@ func (a *App) ReloadConfig() error {
 }
 
 // sendSingleNews отправляет одну новость (с фото или без)
-func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator) {
+func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	for _, n := range newsList {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if cacheAdapter.IsAlreadySent(hash) {
@@ -259,6 +282,11 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 
+			// Save to Supabase for website archive (non-blocking)
+			if supabase != nil {
+				go saveToSupabase(supabase, n)
+			}
+
 			// Generate website post (non-blocking, errors logged but don't stop flow)
 			if websiteGen != nil && websiteGen.IsEnabled() {
 				go generateWebsitePost(websiteGen, n)
@@ -271,7 +299,7 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 }
 
 // sendMultipleNews отправляет список новостей
-func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator) {
+func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	sent := 0
 	for _, n := range newsList {
 		if sent >= max {
@@ -327,6 +355,11 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 			m.IncrementTelegramMessagesSent()
 			sent++
 
+			// Save to Supabase for website archive (non-blocking)
+			if supabase != nil {
+				go saveToSupabase(supabase, n)
+			}
+
 			// Generate website post (non-blocking, errors logged but don't stop flow)
 			if websiteGen != nil && websiteGen.IsEnabled() {
 				go generateWebsitePost(websiteGen, n)
@@ -358,6 +391,31 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 		logger.Warn("Failed to generate website post", "title", n.Title, "error", err)
 	} else {
 		logger.Info("Generated website post", "title", n.Title)
+	}
+}
+
+// saveToSupabase saves news to Supabase for website archive
+func saveToSupabase(client *storage.SupabaseClient, n news.News) {
+	archive := storage.NewsArchive{
+		Title:            n.Title,
+		TitleUkrainian:   n.TitleUkrainian,
+		SummaryUkrainian: n.SummaryUkrainian,
+		SummaryDanish:    n.SummaryDanish,
+		TLDR:             n.TLDR,
+		FunFact:          n.FunFact,
+		ImageURL:         n.ImageURL,
+		SourceURL:        n.Link,
+		SourceName:       n.SourceName,
+		Category:         n.Category,
+		Tags:             n.Tags,
+		Mood:             n.Mood,
+		PublishedAt:      n.Published,
+	}
+
+	if err := client.SaveNews(archive); err != nil {
+		logger.Warn("Failed to save to Supabase", "title", n.Title, "error", err)
+	} else {
+		logger.Info("Saved to Supabase archive", "title", n.Title)
 	}
 }
 

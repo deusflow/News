@@ -84,6 +84,11 @@ type Config struct {
 	// Website generation settings
 	EnableWebsite     bool   // if true, generate Hugo posts for website
 	WebsiteContentDir string // path to Hugo content directory (e.g., "website/content")
+
+	// Supabase settings (for website archive)
+	SupabaseURL        string // Supabase project URL
+	SupabaseServiceKey string // Supabase service_role key
+	EnableSupabase     bool   // if true, save news to Supabase archive
 }
 
 // KeywordsConfig holds the keywords for filtering
@@ -325,6 +330,13 @@ func Load() (*Config, error) {
 		cfg.EnableWebsite = true
 	}
 	cfg.WebsiteContentDir = getEnvOrDefault("WEBSITE_CONTENT_DIR", "website/content")
+
+	// Supabase settings
+	cfg.SupabaseURL = os.Getenv("SUPABASE_URL")
+	cfg.SupabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
+	if cfg.SupabaseURL != "" && cfg.SupabaseServiceKey != "" {
+		cfg.EnableSupabase = true
+	}
 
 	return cfg, cfg.Validate()
 }
