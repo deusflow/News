@@ -72,6 +72,28 @@ echo "$RESPONSE" | jq -c '.[]' | while read -r item; do
     MOOD=$(echo "$item" | jq -r '.mood // "neutral"')
     PUBLISHED_AT=$(echo "$item" | jq -r '.published_at')
 
+    # Use placeholder if no image
+    if [ -z "$IMAGE_URL" ] || [ "$IMAGE_URL" = "null" ]; then
+        # Generate category-based placeholder
+        case "$CATEGORY" in
+            "politics"|"Politics")
+                IMAGE_URL="https://placehold.co/800x600/1e3a5f/ffffff?text=🏛️+Politik"
+                ;;
+            "economy"|"Economy")
+                IMAGE_URL="https://placehold.co/800x600/2d5016/ffffff?text=💰+Økonomi"
+                ;;
+            "culture"|"Culture")
+                IMAGE_URL="https://placehold.co/800x600/5c1f5c/ffffff?text=🎭+Kultur"
+                ;;
+            "ukraine"|"Ukraine")
+                IMAGE_URL="https://placehold.co/800x600/005bbb/ffd500?text=🇺🇦+Ukraine"
+                ;;
+            *)
+                IMAGE_URL="https://placehold.co/800x600/23252b/FF0055?text=🇩🇰+DK+News"
+                ;;
+        esac
+    fi
+
     # Generate filename
     DATE_PREFIX=$(echo "$PUBLISHED_AT" | cut -d'T' -f1)
     FILENAME="${DATE_PREFIX}-${SLUG}.md"

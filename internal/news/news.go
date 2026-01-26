@@ -656,6 +656,7 @@ func fallbackSummary(content string) string {
 }
 
 func extractImageURL(item *rss.FeedItem) string {
+	// 1. Try RSS enclosures first
 	if item.Enclosures != nil {
 		for _, e := range item.Enclosures {
 			if e != nil && strings.HasPrefix(e.Type, "image/") {
@@ -663,6 +664,8 @@ func extractImageURL(item *rss.FeedItem) string {
 			}
 		}
 	}
+
+	// 2. Try to find <img> in description
 	if strings.Contains(item.Description, "<img") {
 		start := strings.Index(item.Description, "src=\"")
 		if start != -1 {
@@ -673,5 +676,13 @@ func extractImageURL(item *rss.FeedItem) string {
 			}
 		}
 	}
+
+	// 3. Fallback: try to extract og:image from the article page
+	if item.Link != "" {
+		if imgURL, err := scraper.ExtractImageURL(item.Link); err == nil && imgURL != "" {
+			return imgURL
+		}
+	}
+
 	return ""
 }

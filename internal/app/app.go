@@ -235,16 +235,7 @@ func (a *App) ReloadConfig() error {
 func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	for _, n := range newsList {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		alreadySent := cacheAdapter.IsAlreadySent(hash)
-
-		// Save to Supabase ALWAYS (independent of Telegram cache)
-		// Supabase has its own duplicate protection via unique slug
-		if supabase != nil {
-			saveToSupabase(supabase, n)
-		}
-
-		// Skip Telegram if already sent (but Supabase save already happened above)
-		if alreadySent {
+		if cacheAdapter.IsAlreadySent(hash) {
 			continue
 		}
 
@@ -291,6 +282,11 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 
+			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
+			if supabase != nil {
+				saveToSupabase(supabase, n)
+			}
+
 			// Generate website post (non-blocking, errors logged but don't stop flow)
 			if websiteGen != nil && websiteGen.IsEnabled() {
 				go generateWebsitePost(websiteGen, n)
@@ -311,16 +307,7 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 		}
 
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		alreadySent := cacheAdapter.IsAlreadySent(hash)
-
-		// Save to Supabase ALWAYS (independent of Telegram cache)
-		// Supabase has its own duplicate protection via unique slug
-		if supabase != nil {
-			saveToSupabase(supabase, n)
-		}
-
-		// Skip Telegram if already sent (but Supabase save already happened above)
-		if alreadySent {
+		if cacheAdapter.IsAlreadySent(hash) {
 			continue
 		}
 
@@ -367,6 +354,11 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 			sent++
+
+			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
+			if supabase != nil {
+				saveToSupabase(supabase, n)
+			}
 
 			// Generate website post (non-blocking, errors logged but don't stop flow)
 			if websiteGen != nil && websiteGen.IsEnabled() {
