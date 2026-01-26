@@ -1,0 +1,41 @@
+{{ define "main" }}
+<main>
+    <div class="container">
+        <article class="news-article">
+            <header class="news-article__header">
+                <h1 class="news-article__title">{{ .Title }}</h1>
+
+                <div class="news-article__meta">
+                    <time>{{ .Date.Format "January 02, 2006" }}</time>
+                    {{ with .Params.source_name }}
+                    <span class="news-article__source">{{ . }}</span>
+                    {{ end }}
+                </div>
+            </header>
+
+            {{ with .Params.tldr }}
+            <p class="news-article__tldr">{{ . }}</p>
+            {{ end }}
+
+            {{ with .Params.image }}
+            <figure class="news-article__image">
+                <img src="{{ . }}" alt="{{ $.Title }}">
+            </figure>
+            {{ end }}
+
+            <div class="news-article__content">
+                {{ .Content }}
+            </div>
+
+            <footer class="news-article__footer">
+                {{ with .Params.source_url }}
+                <a href="{{ . }}" target="_blank" rel="noopener" class="news-article__original">
+                    Read Original →
+                </a>
+                {{ end }}
+                <a href="/" class="news-article__back">← Back to News</a>
+            </footer>
+        </article>
+    </div>
+</main>
+{{ end }}

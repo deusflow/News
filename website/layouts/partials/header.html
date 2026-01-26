@@ -1,0 +1,35 @@
+<header class="header">
+    <div class="header__inner">
+        <a href="/" class="header__logo">
+            <span class="header__logo-badge">DK</span>
+            <span>News</span>
+        </a>
+        <nav class="header__nav">
+            <a href="/" class="hide-mobile">News</a>
+            <a href="/posts/" class="hide-mobile">Archive</a>
+            <a href="https://t.me/YOUR_CHANNEL" target="_blank" class="hide-mobile">Telegram</a>
+            <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+                <span id="theme-icon">☀</span>
+            </button>
+        </nav>
+    </div>
+</header>
+
+<script>
+function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    document.getElementById('theme-icon').textContent = next === 'dark' ? '☀' : '☾';
+}
+(function() {
+    const saved = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    document.addEventListener('DOMContentLoaded', () => {
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.textContent = saved === 'dark' ? '☀' : '☾';
+    });
+})();
+</script>
+

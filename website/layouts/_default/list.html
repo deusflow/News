@@ -1,0 +1,34 @@
+{{ define "main" }}
+<main>
+    <div class="container">
+        <section style="padding: 48px 0;">
+            <div class="news-section__header">
+                <h2 class="news-section__title">{{ .Title }}</h2>
+            </div>
+
+            <div class="news-grid">
+            {{ range .Pages }}
+            <article class="news-card">
+                <div class="news-card__image-wrapper">
+                    {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
+                    <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
+                    <span class="news-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                </div>
+                <div class="news-card__content">
+                    <div class="news-card__meta">
+                        {{ .Date.Format "Jan 02, 2006" }}
+                    </div>
+                    <h3 class="news-card__title">
+                        <a href="{{ .Permalink }}">{{ .Title }}</a>
+                    </h3>
+                    {{ with .Params.tldr }}
+                    <p class="news-card__excerpt">{{ . }}</p>
+                    {{ end }}
+                </div>
+            </article>
+            {{ end }}
+            </div>
+        </section>
+    </div>
+</main>
+{{ end }}

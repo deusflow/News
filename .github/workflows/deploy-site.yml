@@ -1,0 +1,100 @@
+name: Deploy Website to GitHub Pages
+
+# Коли запускається цей workflow:
+on:
+  # 1. Після успішного виконання бота (news.yml)
+  workflow_run:
+    workflows: ["Danish News Bot - Scheduled"]
+    types:
+      - completed
+
+  # 2. При push змін в website/ папку
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+
+  # 3. Ручний запуск
+  workflow_dispatch:
+
+# Права для деплою на GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Не запускати паралельно (щоб не було конфліктів)
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # ============================================
+  # JOB 1: Build Hugo site
+  # ============================================
+  build:
+    runs-on: ubuntu-latest
+
+    # Запускаємо тільки якщо workflow бота завершився успішно
+    # АБО якщо це push/manual trigger
+    if: |
+      github.event_name == 'push' || 
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      # 1. Checkout репозиторію
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Потрібно для Git info в Hugo
+
+      # 2. Встановлення Hugo
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: 'latest'
+          extended: true  # Потрібно для SCSS
+
+      # 3. Налаштування GitHub Pages
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v4
+
+      # 4. Build сайту
+      - name: Build with Hugo
+        working-directory: website
+        env:
+          HUGO_ENVIRONMENT: production
+          HUGO_ENV: production
+        run: |
+          hugo \
+            --gc \
+            --minify \
+            --baseURL "${{ steps.pages.outputs.base_url }}/"
+          
+          echo "✅ Hugo build completed"
+          echo "📁 Files in public/:"
+          ls -la public/
+
+      # 5. Upload artifact для деплою
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./website/public
+
+  # ============================================
+  # JOB 2: Deploy to GitHub Pages
+  # ============================================
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    needs: build  # Чекаємо завершення build
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

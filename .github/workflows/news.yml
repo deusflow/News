@@ -14,7 +14,7 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # Потрібно для коміту нових постів сайту
 
     env:
       # PostgreSQL Database - КРИТИЧЕСКИ ВАЖНО для предотвращения дубликатов!
@@ -37,6 +37,10 @@ jobs:
       ENABLE_IMPORTANCE_LINE: 'true'
       ENABLE_VOCAB_POST: 'false'
       VOCAB_WORDS_PER_DAY: 5
+
+      # Website generation (NEW)
+      ENABLE_WEBSITE: 'true'
+      WEBSITE_CONTENT_DIR: 'website/content'
 
       # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -108,6 +112,24 @@ jobs:
           echo "🚀 Starting Danish News Bot..."
           echo "Database mode: PostgreSQL (primary) + File cache (fallback)"
           ./bin/dknews | tee run.log
+        working-directory: ${{ github.workspace }}
+
+      # Commit new website posts (if any were generated)
+      - name: Commit website posts
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Check if there are new posts
+          if [ -n "$(git status website/content/posts --porcelain)" ]; then
+            echo "📝 New website posts detected!"
+            git add website/content/posts/
+            git commit -m "🌐 Auto-generate website posts [skip ci]"
+            git push
+            echo "✅ Website posts committed and pushed"
+          else
+            echo "ℹ️ No new website posts to commit"
+          fi
         working-directory: ${{ github.workspace }}
 
       - name: Show resulting cache file

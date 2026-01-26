@@ -1,0 +1,24 @@
+# Конфігурація Hugo для dknews
+baseURL = "/"
+languageCode = "uk"
+title = "DK News — Новини Данії"
+buildFuture = true
+
+# Використовуємо власні layouts без теми
+disableKinds = ["taxonomy", "term"]
+
+[params]
+  description = "Новини Данії українською та данською мовами"
+  author = "DK News Bot"
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true  # Дозволяє HTML в markdown
+
+[outputs]
+  home = ["HTML", "RSS"]
+  section = ["HTML", "RSS"]
+
+[permalinks]
+  posts = "/news/:year/:month/:slug/"

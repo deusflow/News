@@ -80,6 +80,10 @@ type Config struct {
 	// Monitoring settings
 	EnableHTTPMonitoring bool
 	MonitoringPort       string
+
+	// Website generation settings
+	EnableWebsite     bool   // if true, generate Hugo posts for website
+	WebsiteContentDir string // path to Hugo content directory (e.g., "website/content")
 }
 
 // KeywordsConfig holds the keywords for filtering
@@ -315,6 +319,12 @@ func Load() (*Config, error) {
 	if v := os.Getenv("MONITORING_PORT"); v != "" {
 		cfg.MonitoringPort = v
 	}
+
+	// Website generation settings
+	if v := os.Getenv("ENABLE_WEBSITE"); v == "true" {
+		cfg.EnableWebsite = true
+	}
+	cfg.WebsiteContentDir = getEnvOrDefault("WEBSITE_CONTENT_DIR", "website/content")
 
 	return cfg, cfg.Validate()
 }

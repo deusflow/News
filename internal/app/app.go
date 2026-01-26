@@ -12,15 +12,17 @@ import (
 	"github.com/deusflow/News/internal/rss"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
+	"github.com/deusflow/News/internal/website"
 )
 
 type App struct {
-	cfg          *config.Config
-	metrics      *metrics.Metrics
-	cacheAdapter CacheAdapter
-	geminiClient *gemini.Client
-	feeds        []rss.FeedSource
-	keywords     *config.KeywordsConfig
+	cfg              *config.Config
+	metrics          *metrics.Metrics
+	cacheAdapter     CacheAdapter
+	geminiClient     *gemini.Client
+	feeds            []rss.FeedSource
+	keywords         *config.KeywordsConfig
+	websiteGenerator *website.Generator
 }
 
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
@@ -73,13 +75,20 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		logger.Warn("Failed to load keywords config, using defaults or empty", "error", err)
 	}
 
+	// Initialize website generator
+	websiteGen := website.NewGenerator(cfg.WebsiteContentDir, cfg.EnableWebsite)
+	if cfg.EnableWebsite {
+		logger.Info("Website generation enabled", "content_dir", cfg.WebsiteContentDir)
+	}
+
 	return &App{
-		cfg:          cfg,
-		metrics:      m,
-		cacheAdapter: cacheAdapter,
-		geminiClient: gmClient,
-		feeds:        feeds,
-		keywords:     keywords,
+		cfg:              cfg,
+		metrics:          m,
+		cacheAdapter:     cacheAdapter,
+		geminiClient:     gmClient,
+		feeds:            feeds,
+		keywords:         keywords,
+		websiteGenerator: websiteGen,
 	}, nil
 }
 
@@ -141,9 +150,9 @@ func (a *App) Run(ctx context.Context) {
 
 	// 7. Отправка в Telegram
 	if a.cfg.BotMode == "single" {
-		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics)
+		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator)
 	} else {
-		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics)
+		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics, a.websiteGenerator)
 	}
 
 	// Метрики
@@ -200,7 +209,7 @@ func (a *App) ReloadConfig() error {
 }
 
 // sendSingleNews отправляет одну новость (с фото или без)
-func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics) {
+func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator) {
 	for _, n := range newsList {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if cacheAdapter.IsAlreadySent(hash) {
@@ -249,6 +258,11 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 		} else {
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
+
+			// Generate website post (non-blocking, errors logged but don't stop flow)
+			if websiteGen != nil && websiteGen.IsEnabled() {
+				go generateWebsitePost(websiteGen, n)
+			}
 		}
 
 		// В режиме single шлем только одну и выходим
@@ -257,7 +271,7 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 }
 
 // sendMultipleNews отправляет список новостей
-func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics) {
+func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator) {
 	sent := 0
 	for _, n := range newsList {
 		if sent >= max {
@@ -312,7 +326,38 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 			sent++
+
+			// Generate website post (non-blocking, errors logged but don't stop flow)
+			if websiteGen != nil && websiteGen.IsEnabled() {
+				go generateWebsitePost(websiteGen, n)
+			}
 		}
+	}
+}
+
+// generateWebsitePost converts news.News to website.NewsPost and generates the post
+func generateWebsitePost(gen *website.Generator, n news.News) {
+	post := website.NewsPost{
+		Title:            n.Title,
+		TitleUkrainian:   n.TitleUkrainian,
+		Content:          n.Content,
+		SummaryUkrainian: n.SummaryUkrainian,
+		SummaryDanish:    n.SummaryDanish,
+		Link:             n.Link,
+		ImageURL:         n.ImageURL,
+		SourceName:       n.SourceName,
+		Category:         n.Category,
+		Tags:             n.Tags,
+		Mood:             n.Mood,
+		TLDR:             n.TLDR,
+		FunFact:          n.FunFact,
+		PublishedAt:      n.Published,
+	}
+
+	if err := gen.GeneratePost(post); err != nil {
+		logger.Warn("Failed to generate website post", "title", n.Title, "error", err)
+	} else {
+		logger.Info("Generated website post", "title", n.Title)
 	}
 }
 
