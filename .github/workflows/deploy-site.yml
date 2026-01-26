@@ -2,11 +2,17 @@ name: Deploy Website to GitHub Pages
 
 # Коли запускається цей workflow:
 on:
-  # 1. При push змін в website/ папку або main
+  # 1. АВТОМАТИЧНО після завершення бота
+  workflow_run:
+    workflows: ["Danish News Bot - Scheduled"]
+    types:
+      - completed
+
+  # 2. При push змін в main
   push:
     branches: [main]
 
-  # 2. Ручний запуск
+  # 3. Ручний запуск
   workflow_dispatch:
 
 # Права для деплою на GitHub Pages
@@ -26,6 +32,12 @@ jobs:
   # ============================================
   build:
     runs-on: ubuntu-latest
+
+    # Запускаємо якщо: бот успішний АБО це push/manual
+    if: |
+      github.event_name == 'push' || 
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
