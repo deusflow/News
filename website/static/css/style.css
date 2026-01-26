@@ -179,10 +179,10 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 2px;
     background: var(--cr-pink);
     color: white !important;
-    padding: 8px 14px;
+    padding: 4px 10px;
     border-radius: 4px;
     transition: all 0.2s;
     line-height: 1;
