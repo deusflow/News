@@ -61,6 +61,33 @@ body {
     top: 0;
     z-index: 50;
     box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    overflow: hidden;
+    position: relative;
+}
+
+/* PS4-style flowing wave overlay */
+.header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 300%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 0, 85, 0.03) 20%,
+        rgba(255, 255, 255, 0.05) 40%,
+        rgba(255, 0, 85, 0.03) 60%,
+        transparent 80%
+    );
+    animation: ps4Wave 20s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes ps4Wave {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(33.33%); }
 }
 
 .header__inner {
@@ -71,36 +98,64 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    position: relative;
+    z-index: 1;
 }
 
 .header__logo {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     text-decoration: none;
     color: white;
+    flex-wrap: wrap;
 }
 
 .header__logo-badge {
     background: var(--cr-pink);
-    color: black;
+    color: white;
     font-weight: 900;
-    padding: 4px 8px;
+    padding: 4px 10px;
     font-size: 1.25rem;
     border-radius: 2px;
 }
 
-.header__logo span {
-    font-weight: 700;
-    font-size: 1.125rem;
+.header__logo-text {
+    font-weight: 900;
+    font-size: 1.25rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    color: white;
+}
+
+.header__slogan {
+    font-size: 0.65rem !important;
+    font-weight: 400 !important;
+    color: #9ca3af !important;
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .header__slogan {
+        display: inline;
+        margin-left: 8px;
+        padding-left: 8px;
+        border-left: 1px solid #4b5563;
+    }
 }
 
 .header__nav {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
+}
+
+@media (min-width: 768px) {
+    .header__nav {
+        gap: 24px;
+    }
 }
 
 .header__nav a {
@@ -113,6 +168,27 @@ body {
 
 .header__nav a:hover {
     color: white;
+}
+
+/* Telegram button in header */
+.header__telegram {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--cr-pink);
+    color: white !important;
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.header__telegram:hover {
+    background: var(--cr-pink-hover);
+    transform: translateY(-1px);
+}
+
+.header__telegram svg {
+    flex-shrink: 0;
 }
 
 .theme-toggle {
@@ -400,16 +476,51 @@ main {
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     cursor: pointer;
-    transition: box-shadow 0.2s, transform 0.2s;
+    transition: box-shadow 0.3s, transform 0.3s;
+    /* Fade-in animation on page load */
+    animation: fadeInUp 0.6s ease-out backwards, cardBreathing 8s ease-in-out infinite;
+    animation-delay: 0.1s, 0s;
+}
+
+/* Staggered fade-in and breathing offset */
+.news-card:nth-child(1) { animation-delay: 0.1s, 0s; }
+.news-card:nth-child(2) { animation-delay: 0.15s, 1s; }
+.news-card:nth-child(3) { animation-delay: 0.2s, 2s; }
+.news-card:nth-child(4) { animation-delay: 0.25s, 3s; }
+.news-card:nth-child(5) { animation-delay: 0.3s, 4s; }
+.news-card:nth-child(6) { animation-delay: 0.35s, 5s; }
+.news-card:nth-child(7) { animation-delay: 0.4s, 6s; }
+.news-card:nth-child(8) { animation-delay: 0.45s, 7s; }
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(1);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Very subtle breathing effect - barely noticeable */
+@keyframes cardBreathing {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.008);
+    }
 }
 
 .news-card:hover {
     box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(1.02);
+    animation: none; /* Stop breathing on hover */
 }
 
 .news-card__image-wrapper {
-    height: 160px;
+    height: 180px; /* Fixed height for symmetry */
     overflow: hidden;
     position: relative;
 }
@@ -417,7 +528,7 @@ main {
 .news-card__image {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: cover; /* Crop image to fit, not stretch */
     transition: transform 0.3s;
 }
 
@@ -923,6 +1034,21 @@ main {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    padding: 16px;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Subtle pulse glow animation */
+    animation: trendingGlow 4s ease-in-out infinite;
+}
+
+@keyframes trendingGlow {
+    0%, 100% {
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    50% {
+        box-shadow: 0 2px 15px rgba(255, 0, 85, 0.15);
+    }
 }
 
 .trending-sidebar__title {
@@ -933,6 +1059,12 @@ main {
     font-size: 0.875rem;
     padding-bottom: 8px;
     border-bottom: 2px solid var(--cr-pink);
+    margin: -16px -16px 0 -16px;
+    padding: 12px 16px;
+    background: linear-gradient(90deg, var(--cr-pink) 0%, transparent 100%);
+    background-size: 200% 2px;
+    background-position: bottom;
+    background-repeat: no-repeat;
 }
 
 /* News Main Area */

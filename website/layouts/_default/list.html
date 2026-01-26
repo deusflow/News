@@ -1,4 +1,24 @@
 {{ define "main" }}
+{{/* Category translation helper */}}
+{{ $categoryMap := dict
+    "denmark" "Данія"
+    "Denmark" "Данія"
+    "ukraine" "Україна"
+    "Ukraine" "Україна"
+    "refugee" "Біженці"
+    "Refugee" "Біженці"
+    "refugee_ukraine" "Для українців"
+    "viborg" "Віборг"
+    "Viborg" "Віборг"
+    "politics" "Політика"
+    "Politics" "Політика"
+    "economy" "Економіка"
+    "Economy" "Економіка"
+    "culture" "Культура"
+    "Culture" "Культура"
+    "News" "Новини"
+    "news" "Новини"
+}}
 <main>
     <div class="container">
         <section style="padding: 48px 0;">
@@ -12,7 +32,9 @@
                 <div class="news-card__image-wrapper">
                     {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
                     <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
-                    <span class="news-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                    {{ $cat := "Новини" }}
+                    {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
+                    <span class="news-card__tag">{{ $cat }}</span>
                 </div>
                 <div class="news-card__content">
                     <div class="news-card__meta">

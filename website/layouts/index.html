@@ -1,4 +1,24 @@
 {{ define "main" }}
+{{/* Category translation helper */}}
+{{ $categoryMap := dict
+    "denmark" "Данія"
+    "Denmark" "Данія"
+    "ukraine" "Україна"
+    "Ukraine" "Україна"
+    "refugee" "Біженці"
+    "Refugee" "Біженці"
+    "refugee_ukraine" "Для українців"
+    "viborg" "Віборг"
+    "Viborg" "Віборг"
+    "politics" "Політика"
+    "Politics" "Політика"
+    "economy" "Економіка"
+    "Economy" "Економіка"
+    "culture" "Культура"
+    "Culture" "Культура"
+    "News" "Новини"
+    "news" "Новини"
+}}
 <main>
     <div class="container">
 
@@ -14,7 +34,9 @@
                                 {{ $img := .Params.image | default "https://placehold.co/800x600/23252b/FF0055?text=DK+News" }}
                                 <img src="{{ $img }}" alt="{{ .Title }}" class="hero-main__image">
                                 <div class="hero-main__overlay">
-                                    <span class="hero-main__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                                    {{ $cat := "Новини" }}
+                                    {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
+                                    <span class="hero-main__tag">{{ $cat }}</span>
                                     <h1 class="hero-main__title">{{ .Title }}</h1>
                                     {{ with .Params.tldr }}
                                     <p class="hero-main__excerpt">{{ . }}</p>
@@ -83,7 +105,9 @@
                                 <img src="{{ $img }}" alt="{{ .Title }}">
                             </div>
                             <div class="mini-card__content">
-                                <span class="mini-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                                {{ $cat := "Новини" }}
+                                {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
+                                <span class="mini-card__tag">{{ $cat }}</span>
                                 <h4 class="mini-card__title">{{ .Title | truncate 60 }}</h4>
                                 <span class="mini-card__time">{{ .Date.Format "Jan 02" }}</span>
                             </div>
@@ -121,7 +145,9 @@
                             <div class="news-card__image-wrapper">
                                 {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
                                 <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
-                                <span class="news-card__tag">{{ with .Params.categories }}{{ index . 0 }}{{ else }}News{{ end }}</span>
+                                {{ $cat := "Новини" }}
+                                {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
+                                <span class="news-card__tag">{{ $cat }}</span>
                             </div>
                             <div class="news-card__content">
                                 <div class="news-card__meta">{{ .Date.Format "15:04" }}</div>
