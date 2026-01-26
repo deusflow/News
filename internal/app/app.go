@@ -282,9 +282,9 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 
-			// Save to Supabase for website archive (non-blocking)
+			// Save to Supabase for website archive (synchronous to ensure completion)
 			if supabase != nil {
-				go saveToSupabase(supabase, n)
+				saveToSupabase(supabase, n)
 			}
 
 			// Generate website post (non-blocking, errors logged but don't stop flow)
@@ -355,9 +355,9 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 			m.IncrementTelegramMessagesSent()
 			sent++
 
-			// Save to Supabase for website archive (non-blocking)
+			// Save to Supabase for website archive (synchronous to ensure completion)
 			if supabase != nil {
-				go saveToSupabase(supabase, n)
+				saveToSupabase(supabase, n)
 			}
 
 			// Generate website post (non-blocking, errors logged but don't stop flow)
