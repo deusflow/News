@@ -87,7 +87,7 @@ body {
 
 @keyframes ps4Wave {
     0% { transform: translateX(0); }
-    100% { transform: translateX(50.33%); }
+    100% { transform: translateX(33.33%); }
 }
 
 .header__inner {
@@ -359,7 +359,7 @@ main {
     border-radius: 4px;
     cursor: pointer;
     transition: box-shadow 0.2s, transform 0.2s;
-    animation: miniCardBreathing 6s ease-in-out infinite;
+    animation: miniCardBreathing 8s ease-in-out infinite;
 }
 
 /* Staggered breathing for each card */
@@ -371,9 +371,11 @@ main {
 @keyframes miniCardBreathing {
     0%, 100% {
         transform: scale(1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
     50% {
-        transform: scale(1.015);
+        transform: scale(1.025);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.12);
     }
 }
 
