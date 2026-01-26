@@ -104,11 +104,16 @@ body {
 
 .header__logo {
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
+    gap: 2px;
     text-decoration: none;
     color: white;
-    flex-wrap: wrap;
+}
+
+.header__logo-main {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .header__logo-badge {
@@ -118,32 +123,32 @@ body {
     padding: 4px 10px;
     font-size: 1.25rem;
     border-radius: 2px;
+    text-transform: none; /* No uppercase */
 }
 
 .header__logo-text {
     font-weight: 900;
     font-size: 1.25rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: none; /* No uppercase */
+    letter-spacing: 0.02em;
     color: white;
 }
 
 .header__slogan {
-    font-size: 0.65rem !important;
-    font-weight: 400 !important;
-    color: #9ca3af !important;
-    text-transform: none !important;
-    letter-spacing: 0.02em !important;
-    display: none;
+    font-size: 0.6rem;
+    font-weight: 400;
+    color: #9ca3af;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    display: block;
+    margin-top: -2px;
 }
 
-@media (min-width: 768px) {
+@media (max-width: 767px) {
     .header__slogan {
-        display: inline;
-        margin-left: 8px;
-        padding-left: 8px;
-        border-left: 1px solid #4b5563;
+        display: none;
     }
+}
 }
 
 .header__nav {
@@ -172,14 +177,16 @@ body {
 
 /* Telegram button in header */
 .header__telegram {
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     background: var(--cr-pink);
     color: white !important;
-    padding: 6px 12px;
+    padding: 8px 14px;
     border-radius: 4px;
     transition: all 0.2s;
+    line-height: 1;
 }
 
 .header__telegram:hover {
@@ -189,6 +196,8 @@ body {
 
 .header__telegram svg {
     flex-shrink: 0;
+    display: block;
+    vertical-align: middle;
 }
 
 .theme-toggle {
