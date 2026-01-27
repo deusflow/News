@@ -1,17 +1,26 @@
 # Конфігурація Hugo для dknews
 baseURL = "https://deusflow.github.io/News/"
-languageCode = "uk"
-title = "DK News — Новини Данії"
+languageCode = "uk-UA"
+title = "DaUa News — Новини Данії"
 buildFuture = true
 relativeURLs = true
 uglyURLs = false
+enableRobotsTXT = true
 
 # Використовуємо власні layouts без теми
 disableKinds = ["taxonomy", "term"]
 
+# Налатшування мапи сайту (Sitemap)
+[sitemap]
+  changefreq = "hourly" # Новости меняются часто
+  priority = 0.5
+  filename = "sitemap.xml"
+
 [params]
-  description = "Новини Данії українською та данською мовами"
+description = "Новини Данії українською та данською мовами. Актуальна інформація для біженців та експатів."
+  keywords = "Данія, новини, українці в Данії, робота, віза, політика"
   author = "DK News Bot"
+  og_image = "/images/default-og.png"
 
 [markup]
   [markup.goldmark]
