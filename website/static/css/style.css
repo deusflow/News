@@ -1123,6 +1123,77 @@ main {
     background-repeat: no-repeat;
 }
 
+/* Sidebar CTA - Telegram Subscribe */
+.sidebar-cta {
+    margin-top: 16px;
+    padding: 20px 16px;
+    background: linear-gradient(135deg, var(--cr-pink) 0%, #d90045 100%);
+    border-radius: var(--radius);
+    text-align: center;
+    color: white;
+}
+
+.sidebar-cta__icon {
+    margin-bottom: 8px;
+}
+
+.sidebar-cta__icon svg {
+    opacity: 0.9;
+}
+
+.sidebar-cta__title {
+    font-size: 1rem;
+    font-weight: 900;
+    margin-bottom: 4px;
+}
+
+.sidebar-cta__text {
+    font-size: 0.75rem;
+    opacity: 0.9;
+    margin-bottom: 12px;
+}
+
+.sidebar-cta__btn {
+    display: inline-block;
+    background: white;
+    color: var(--cr-pink);
+    padding: 8px 20px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.sidebar-cta__btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* Sidebar Fun Fact */
+.sidebar-fact {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-body);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--cr-pink);
+}
+
+.sidebar-fact__icon {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+}
+
+.sidebar-fact__text {
+    font-size: 0.8rem;
+    color: var(--text-gray);
+    line-height: 1.5;
+}
+
+.sidebar-fact__text strong {
+    color: var(--text-dark);
+}
+
 /* News Main Area */
 .news-main {
     flex: 1;

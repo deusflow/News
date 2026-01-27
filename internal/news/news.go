@@ -624,18 +624,62 @@ func trimToRuneCount(s string, limit int) string {
 
 func trimToNearestSentenceOrWord(s string, limit int) string {
 	s = strings.TrimSpace(s)
-	r := []rune(s)
-	if len(r) <= limit {
+	if s == "" || limit <= 0 {
+		return ""
+	}
+
+	// Convert to runes for proper Unicode handling (æ, ø, å, emojis)
+	runes := []rune(s)
+	runeLen := len(runes)
+
+	// If text fits within limit, return as-is
+	if runeLen <= limit {
 		return s
 	}
-	cut := string(r[:limit])
+
+	// Safety check: ensure limit doesn't exceed rune length
+	if limit > runeLen {
+		limit = runeLen
+	}
+
+	// Create a cut version (in runes, not bytes)
+	cutRunes := runes[:limit]
+	cut := string(cutRunes)
+
+	// Try to find last sentence boundary (.) in the cut portion
+	if idx := strings.LastIndex(cut, ". "); idx > limit/2 {
+		// Convert byte index to rune index
+		runeIdx := utf8.RuneCountInString(cut[:idx])
+		if runeIdx > 0 && runeIdx < limit {
+			return string(runes[:runeIdx+1]) // Include the dot
+		}
+	}
+
+	// Try to find last period at end
 	if idx := strings.LastIndex(cut, "."); idx > limit/2 {
-		return string(r[:idx+1])
+		runeIdx := utf8.RuneCountInString(cut[:idx])
+		if runeIdx > 0 && runeIdx < limit {
+			return string(runes[:runeIdx+1])
+		}
 	}
+
+	// Try to find last space for word boundary
 	if idx := strings.LastIndex(cut, " "); idx > limit/3 {
-		return string(r[:idx]) + "..."
+		runeIdx := utf8.RuneCountInString(cut[:idx])
+		if runeIdx > 0 && runeIdx < limit {
+			return string(runes[:runeIdx]) + "..."
+		}
 	}
-	return string(r[:limit-1]) + "..."
+
+	// Fallback: just cut at limit (safely)
+	safeLimit := limit - 1
+	if safeLimit < 1 {
+		safeLimit = 1
+	}
+	if safeLimit > runeLen {
+		safeLimit = runeLen
+	}
+	return string(runes[:safeLimit]) + "..."
 }
 
 func limitText(s string, max int) string {
