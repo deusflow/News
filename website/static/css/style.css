@@ -538,47 +538,35 @@ main {
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     cursor: pointer;
-    transition: box-shadow 0.3s, transform 0.3s;
-    /* Fade-in animation on page load */
-    animation: fadeInUp 0.6s ease-out backwards, cardBreathing 8s ease-in-out infinite;
-    animation-delay: 0.1s, 0s;
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+    /* Fade-in animation on page load only */
+    animation: fadeInUp 0.6s ease-out forwards;
 }
 
-/* Staggered fade-in and breathing offset */
-.news-card:nth-child(1) { animation-delay: 0.1s, 0s; }
-.news-card:nth-child(2) { animation-delay: 0.15s, 1s; }
-.news-card:nth-child(3) { animation-delay: 0.2s, 2s; }
-.news-card:nth-child(4) { animation-delay: 0.25s, 3s; }
-.news-card:nth-child(5) { animation-delay: 0.3s, 4s; }
-.news-card:nth-child(6) { animation-delay: 0.35s, 5s; }
-.news-card:nth-child(7) { animation-delay: 0.4s, 6s; }
-.news-card:nth-child(8) { animation-delay: 0.45s, 7s; }
+/* Staggered fade-in */
+.news-card:nth-child(1) { animation-delay: 0.05s; }
+.news-card:nth-child(2) { animation-delay: 0.1s; }
+.news-card:nth-child(3) { animation-delay: 0.15s; }
+.news-card:nth-child(4) { animation-delay: 0.2s; }
+.news-card:nth-child(5) { animation-delay: 0.25s; }
+.news-card:nth-child(6) { animation-delay: 0.3s; }
+.news-card:nth-child(7) { animation-delay: 0.35s; }
+.news-card:nth-child(8) { animation-delay: 0.4s; }
 
 @keyframes fadeInUp {
     from {
         opacity: 0;
-        transform: translateY(30px) scale(1);
+        transform: translateY(20px);
     }
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-}
-
-/* Very subtle breathing effect - barely noticeable */
-@keyframes cardBreathing {
-    0%, 100% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.008);
+        transform: translateY(0);
     }
 }
 
 .news-card:hover {
     box-shadow: 0 10px 25px rgba(0,0,0,0.15);
     transform: translateY(-4px) scale(1.02);
-    animation: none; /* Stop breathing on hover */
 }
 
 .news-card__image-wrapper {
