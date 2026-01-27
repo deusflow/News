@@ -53,7 +53,6 @@ body {
 /* ============================================
    HEADER — Dark with Pink Accent
    ============================================ */
-
 .header {
     background: var(--bg-dark);
     color: white;
@@ -64,30 +63,58 @@ body {
     overflow: hidden;
 }
 
-/* PS4-style flowing wave overlay - more visible */
+/* Soft blue flowing wave */
 .header::before {
     content: '';
     position: absolute;
-    top: 0;
+    inset: 0;
+    left: -120%;
+    width: 340%;
+    height: 100%;
+    background: linear-gradient(
+            100deg,
+            transparent 0%,
+            rgba(120, 190, 255, 0.06) 20%,
+            rgba(180, 220, 255, 0.12) 35%,
+            rgba(120, 190, 255, 0.06) 50%,
+            transparent 70%
+    );
+    animation: softWave 18s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 0;
+    filter: blur(2px);
+}
+
+/* Second subtle wave for depth */
+.header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
     left: -100%;
     width: 300%;
     height: 100%;
     background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(255, 0, 85, 0.08) 15%,
-        rgba(255, 255, 255, 0.12) 35%,
-        rgba(255, 0, 85, 0.08) 55%,
-        transparent 75%
+            90deg,
+            transparent 0%,
+            rgba(160, 210, 255, 0.04) 30%,
+            rgba(200, 230, 255, 0.08) 45%,
+            rgba(160, 210, 255, 0.04) 60%,
+            transparent 80%
     );
-    animation: ps4Wave 12s linear infinite;
+    animation: softWaveSlow 28s linear infinite;
     pointer-events: none;
     z-index: 0;
 }
 
-@keyframes ps4Wave {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(33.33%); }
+@keyframes softWave {
+    0%   { transform: translateX(0); }
+    50%  { transform: translateX(15%); }
+    100% { transform: translateX(30%); }
+}
+
+@keyframes softWaveSlow {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(25%); }
 }
 
 .header__inner {
