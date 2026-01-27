@@ -67,54 +67,60 @@ body {
 .header::before {
     content: '';
     position: absolute;
-    inset: 0;
-    left: -120%;
-    width: 340%;
-    height: 100%;
-    background: linear-gradient(
-            100deg,
-            transparent 0%,
-            rgba(120, 190, 255, 0.06) 20%,
-            rgba(180, 220, 255, 0.12) 35%,
-            rgba(120, 190, 255, 0.06) 50%,
-            transparent 70%
-    );
-    animation: softWave 18s ease-in-out infinite;
+    inset: -50% -100%;
+    background:
+            radial-gradient(
+                    60% 120% at 50% 50%,
+                    rgba(140, 200, 255, 0.18) 0%,
+                    rgba(140, 200, 255, 0.10) 25%,
+                    rgba(140, 200, 255, 0.04) 45%,
+                    transparent 60%
+            );
+    animation: ps4Wave 22s linear infinite;
     pointer-events: none;
     z-index: 0;
-    filter: blur(2px);
+    mix-blend-mode: screen;
+    transform-origin: center;
+    filter: blur(6px);
 }
 
 /* Second subtle wave for depth */
 .header::after {
     content: '';
     position: absolute;
-    inset: 0;
-    left: -100%;
-    width: 300%;
-    height: 100%;
-    background: linear-gradient(
-            90deg,
-            transparent 0%,
-            rgba(160, 210, 255, 0.04) 30%,
-            rgba(200, 230, 255, 0.08) 45%,
-            rgba(160, 210, 255, 0.04) 60%,
-            transparent 80%
-    );
-    animation: softWaveSlow 28s linear infinite;
+    inset: -60% -120%;
+    background:
+            radial-gradient(
+                    50% 100% at 40% 60%,
+                    rgba(100, 170, 255, 0.12),
+                    transparent 60%
+            );
+    animation: ps4WaveSlow 36s linear infinite;
     pointer-events: none;
     z-index: 0;
+    mix-blend-mode: screen;
+    filter: blur(10px);
 }
 
-@keyframes softWave {
-    0%   { transform: translateX(0); }
-    50%  { transform: translateX(15%); }
-    100% { transform: translateX(30%); }
+@keyframes ps4WaveSlow {
+    from { transform: translateX(-30%); }
+    to   { transform: translateX(30%); }
 }
 
 @keyframes softWaveSlow {
     0%   { transform: translateX(0); }
     100% { transform: translateX(25%); }
+}
+@keyframes ps4Wave {
+    0% {
+        transform: translateX(-20%) translateY(0) scaleY(1) skewX(0deg);
+    }
+    50% {
+        transform: translateX(10%) translateY(-8%) scaleY(1.15) skewX(4deg);
+    }
+    100% {
+        transform: translateX(40%) translateY(0) scaleY(1) skewX(0deg);
+    }
 }
 
 .header__inner {
