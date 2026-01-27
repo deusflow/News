@@ -1176,28 +1176,99 @@ main {
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
-/* Sidebar Fun Fact */
+/* Sidebar Fun Fact - Interactive */
 .sidebar-fact {
     margin-top: 16px;
     padding: 16px;
     background: var(--bg-body);
     border-radius: var(--radius);
     border-left: 3px solid var(--cr-pink);
+    position: relative;
+    overflow: hidden;
+}
+
+.sidebar-fact__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
 .sidebar-fact__icon {
-    font-size: 1.5rem;
-    margin-bottom: 8px;
+    font-size: 1.2rem;
+    animation: iconBounce 2s ease-in-out infinite;
+}
+
+@keyframes iconBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+.sidebar-fact__label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--cr-pink);
 }
 
 .sidebar-fact__text {
     font-size: 0.8rem;
     color: var(--text-gray);
-    line-height: 1.5;
+    line-height: 1.6;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    min-height: 60px;
 }
 
-.sidebar-fact__text strong {
-    color: var(--text-dark);
+.sidebar-fact__btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 12px;
+    padding: 10px 16px;
+    background: transparent;
+    border: 2px dashed var(--cr-pink);
+    border-radius: 6px;
+    color: var(--cr-pink);
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.sidebar-fact__btn:hover {
+    background: var(--cr-pink);
+    border-style: solid;
+    color: white;
+    transform: scale(1.02);
+}
+
+.sidebar-fact__btn:active {
+    transform: scale(0.98);
+}
+
+.sidebar-fact__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.sidebar-fact__btn span {
+    font-size: 1rem;
+    transition: transform 0.3s ease;
+}
+
+.sidebar-fact__btn:hover span {
+    animation: diceRoll 0.5s ease;
+}
+
+@keyframes diceRoll {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(90deg); }
+    50% { transform: rotate(180deg); }
+    75% { transform: rotate(270deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* News Main Area */

@@ -137,19 +137,87 @@
                             </svg>
                         </div>
                         <h4 class="sidebar-cta__title">Підписуйтесь!</h4>
-                        <p class="sidebar-cta__text">Отримуйте новини першими в Telegram</p>
+                        <p class="sidebar-cta__text">Отримуйте новини першими</p>
                         <a href="https://t.me/news_about_dk" target="_blank" class="sidebar-cta__btn">
-                            Підписатися →
+                            Telegram →
                         </a>
                     </div>
 
-                    <!-- Fun Fact Block -->
-                    <div class="sidebar-fact">
-                        <div class="sidebar-fact__icon">💡</div>
-                        <p class="sidebar-fact__text">
-                            <strong>Цікавий факт:</strong> Данія — найщасливіша країна світу за рейтингом World Happiness Report. Секрет — концепція "hygge" (затишок).
+                    <!-- Random Fun Fact Block -->
+                    <div class="sidebar-fact" id="funFactBlock">
+                        <div class="sidebar-fact__header">
+                            <span class="sidebar-fact__icon">💡</span>
+                            <span class="sidebar-fact__label">Цікавий факт</span>
+                        </div>
+                        <p class="sidebar-fact__text" id="funFactText">
+                            Данія — найщасливіша країна світу за рейтингом World Happiness Report. Секрет — концепція "hygge" (затишок).
                         </p>
+                        <button class="sidebar-fact__btn" id="newFactBtn" onclick="showNewFact()">
+                            <span>🎲</span> Інший факт
+                        </button>
                     </div>
+
+                    <script>
+                    const denmarkFacts = [
+                        "Данія — найщасливіша країна світу за рейтингом World Happiness Report. Секрет — концепція 'hygge' (затишок).",
+                        "Данці споживають найбільше кави на душу населення в світі — близько 8.7 кг на рік!",
+                        "В Данії понад 400 островів, але лише 70 з них заселені людьми.",
+                        "Данський прапор (Dannebrog) — найстаріший державний прапор у світі, йому понад 800 років!",
+                        "У Копенгагені більше велосипедів, ніж автомобілів. 62% жителів їздять на роботу на велосипеді.",
+                        "LEGO було винайдено в Данії у 1932 році. Назва походить від 'leg godt' — 'грай добре'.",
+                        "Данія має найнижчий рівень корупції у світі за індексом Transparency International.",
+                        "Найвища точка Данії — лише 171 метр над рівнем моря (Møllehøj).",
+                        "В Данії безкоштовна освіта, включаючи університети. Студенти ще й отримують стипендію!",
+                        "Данці винайшли концепцію 'flexicurity' — гнучкий ринок праці з високим соціальним захистом.",
+                        "Тіволі в Копенгагені — другий найстаріший парк розваг у світі (1843 рік).",
+                        "Данія виробляє понад 50% електроенергії з відновлюваних джерел, переважно вітру.",
+                        "Середня тривалість робочого тижня в Данії — 37 годин, одна з найкоротших у світі.",
+                        "Данське слово 'tak' (дякую) використовується постійно — данці дуже ввічливі!",
+                        "В Данії немає гір, але є понад 7300 км берегової лінії.",
+                        "Копенгаген визнано найкращим містом для велосипедистів у світі.",
+                        "Данія — батьківщина Ганса Крістіана Андерсена, автора 'Русалоньки' та 'Снігової королеви'.",
+                        "В Данії можна безкоштовно відвідувати лікаря — медицина повністю покривається податками.",
+                        "Данці — одні з найбільших споживачів свинини в Європі. Свиней тут більше, ніж людей!",
+                        "Слово 'ombudsman' (омбудсмен) походить з данської мови."
+                    ];
+
+                    let currentFactIndex = Math.floor(Math.random() * denmarkFacts.length);
+
+                    function showNewFact() {
+                        const textEl = document.getElementById('funFactText');
+                        const btn = document.getElementById('newFactBtn');
+
+                        // Disable button temporarily
+                        btn.disabled = true;
+
+                        // Fade out
+                        textEl.style.opacity = '0';
+                        textEl.style.transform = 'translateY(-10px)';
+
+                        setTimeout(() => {
+                            // Get new random fact (different from current)
+                            let newIndex;
+                            do {
+                                newIndex = Math.floor(Math.random() * denmarkFacts.length);
+                            } while (newIndex === currentFactIndex && denmarkFacts.length > 1);
+
+                            currentFactIndex = newIndex;
+                            textEl.textContent = denmarkFacts[currentFactIndex];
+
+                            // Fade in
+                            textEl.style.opacity = '1';
+                            textEl.style.transform = 'translateY(0)';
+
+                            // Re-enable button
+                            btn.disabled = false;
+                        }, 300);
+                    }
+
+                    // Show random fact on page load
+                    document.addEventListener('DOMContentLoaded', () => {
+                        document.getElementById('funFactText').textContent = denmarkFacts[currentFactIndex];
+                    });
+                    </script>
                 </aside>
 
                 <!-- Today's News Grid -->
