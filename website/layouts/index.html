@@ -143,80 +143,126 @@
                         </a>
                     </div>
 
-                    <!-- Random Fun Fact Block -->
-                    <div class="sidebar-fact" id="funFactBlock">
-                        <div class="sidebar-fact__header">
-                            <span class="sidebar-fact__icon">💡</span>
-                            <span class="sidebar-fact__label">Цікавий факт</span>
+                    <!-- Copenhagen Weather Widget -->
+                    <div class="weather-widget" id="weatherWidget">
+                        <div class="weather-widget__header">
+                            <span class="weather-widget__flag">🇩🇰</span>
+                            <div class="weather-widget__location">
+                                <span class="weather-widget__city">København</span>
+                                <span class="weather-widget__country">Denmark</span>
+                            </div>
                         </div>
-                        <p class="sidebar-fact__text" id="funFactText">
-                            Данія — найщасливіша країна світу за рейтингом World Happiness Report. Секрет — концепція "hygge" (затишок).
-                        </p>
-                        <button class="sidebar-fact__btn" id="newFactBtn" onclick="showNewFact()">
-                            <span>🎲</span> Інший факт
-                        </button>
+
+                        <div class="weather-widget__main">
+                            <div class="weather-widget__icon" id="weatherIcon">
+                                <span class="weather-widget__icon-loading">⏳</span>
+                            </div>
+                            <div class="weather-widget__temp">
+                                <span class="weather-widget__temp-value" id="weatherTemp">--</span>
+                                <span class="weather-widget__temp-unit">°C</span>
+                            </div>
+                        </div>
+
+                        <div class="weather-widget__desc" id="weatherDesc">Завантаження...</div>
+
+                        <div class="weather-widget__details">
+                            <div class="weather-widget__detail">
+                                <span class="weather-widget__detail-icon">💨</span>
+                                <span class="weather-widget__detail-value" id="weatherWind">--</span>
+                                <span class="weather-widget__detail-label">км/г</span>
+                            </div>
+                            <div class="weather-widget__detail">
+                                <span class="weather-widget__detail-icon">💧</span>
+                                <span class="weather-widget__detail-value" id="weatherHumidity">--</span>
+                                <span class="weather-widget__detail-label">%</span>
+                            </div>
+                            <div class="weather-widget__detail">
+                                <span class="weather-widget__detail-icon">🌡️</span>
+                                <span class="weather-widget__detail-value" id="weatherFeels">--</span>
+                                <span class="weather-widget__detail-label">відч.</span>
+                            </div>
+                        </div>
+
+                        <div class="weather-widget__footer">
+                            <span class="weather-widget__update" id="weatherUpdate">—</span>
+                        </div>
                     </div>
 
                     <script>
-                    const denmarkFacts = [
-                        "Данія — найщасливіша країна світу за рейтингом World Happiness Report. Секрет — концепція 'hygge' (затишок).",
-                        "Данці споживають найбільше кави на душу населення в світі — близько 8.7 кг на рік!",
-                        "В Данії понад 400 островів, але лише 70 з них заселені людьми.",
-                        "Данський прапор (Dannebrog) — найстаріший державний прапор у світі, йому понад 800 років!",
-                        "У Копенгагені більше велосипедів, ніж автомобілів. 62% жителів їздять на роботу на велосипеді.",
-                        "LEGO було винайдено в Данії у 1932 році. Назва походить від 'leg godt' — 'грай добре'.",
-                        "Данія має найнижчий рівень корупції у світі за індексом Transparency International.",
-                        "Найвища точка Данії — лише 171 метр над рівнем моря (Møllehøj).",
-                        "В Данії безкоштовна освіта, включаючи університети. Студенти ще й отримують стипендію!",
-                        "Данці винайшли концепцію 'flexicurity' — гнучкий ринок праці з високим соціальним захистом.",
-                        "Тіволі в Копенгагені — другий найстаріший парк розваг у світі (1843 рік).",
-                        "Данія виробляє понад 50% електроенергії з відновлюваних джерел, переважно вітру.",
-                        "Середня тривалість робочого тижня в Данії — 37 годин, одна з найкоротших у світі.",
-                        "Данське слово 'tak' (дякую) використовується постійно — данці дуже ввічливі!",
-                        "В Данії немає гір, але є понад 7300 км берегової лінії.",
-                        "Копенгаген визнано найкращим містом для велосипедистів у світі.",
-                        "Данія — батьківщина Ганса Крістіана Андерсена, автора 'Русалоньки' та 'Снігової королеви'.",
-                        "В Данії можна безкоштовно відвідувати лікаря — медицина повністю покривається податками.",
-                        "Данці — одні з найбільших споживачів свинини в Європі. Свиней тут більше, ніж людей!",
-                        "Слово 'ombudsman' (омбудсмен) походить з данської мови."
-                    ];
+                    // Weather codes mapping
+                    const weatherCodes = {
+                        0: { icon: '☀️', desc: 'Ясно' },
+                        1: { icon: '🌤️', desc: 'Переважно ясно' },
+                        2: { icon: '⛅', desc: 'Хмарно з проясненнями' },
+                        3: { icon: '☁️', desc: 'Хмарно' },
+                        45: { icon: '🌫️', desc: 'Туман' },
+                        48: { icon: '🌫️', desc: 'Туман з інеєм' },
+                        51: { icon: '🌧️', desc: 'Легка мряка' },
+                        53: { icon: '🌧️', desc: 'Мряка' },
+                        55: { icon: '🌧️', desc: 'Сильна мряка' },
+                        61: { icon: '🌧️', desc: 'Легкий дощ' },
+                        63: { icon: '🌧️', desc: 'Дощ' },
+                        65: { icon: '🌧️', desc: 'Сильний дощ' },
+                        66: { icon: '🌨️', desc: 'Крижаний дощ' },
+                        67: { icon: '🌨️', desc: 'Сильний крижаний дощ' },
+                        71: { icon: '🌨️', desc: 'Легкий сніг' },
+                        73: { icon: '🌨️', desc: 'Сніг' },
+                        75: { icon: '❄️', desc: 'Сильний сніг' },
+                        77: { icon: '❄️', desc: 'Снігові зерна' },
+                        80: { icon: '🌦️', desc: 'Легкі зливи' },
+                        81: { icon: '🌦️', desc: 'Зливи' },
+                        82: { icon: '⛈️', desc: 'Сильні зливи' },
+                        85: { icon: '🌨️', desc: 'Снігові зливи' },
+                        86: { icon: '🌨️', desc: 'Сильні снігові зливи' },
+                        95: { icon: '⛈️', desc: 'Гроза' },
+                        96: { icon: '⛈️', desc: 'Гроза з градом' },
+                        99: { icon: '⛈️', desc: 'Сильна гроза з градом' }
+                    };
 
-                    let currentFactIndex = Math.floor(Math.random() * denmarkFacts.length);
+                    async function fetchWeather() {
+                        try {
+                            // Copenhagen coordinates
+                            const lat = 55.6761;
+                            const lon = 12.5683;
 
-                    function showNewFact() {
-                        const textEl = document.getElementById('funFactText');
-                        const btn = document.getElementById('newFactBtn');
+                            const response = await fetch(
+                                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Europe/Copenhagen`
+                            );
 
-                        // Disable button temporarily
-                        btn.disabled = true;
+                            if (!response.ok) throw new Error('Weather API error');
 
-                        // Fade out
-                        textEl.style.opacity = '0';
-                        textEl.style.transform = 'translateY(-10px)';
+                            const data = await response.json();
+                            const current = data.current;
 
-                        setTimeout(() => {
-                            // Get new random fact (different from current)
-                            let newIndex;
-                            do {
-                                newIndex = Math.floor(Math.random() * denmarkFacts.length);
-                            } while (newIndex === currentFactIndex && denmarkFacts.length > 1);
+                            // Update UI
+                            const weather = weatherCodes[current.weather_code] || { icon: '🌡️', desc: 'Невідомо' };
 
-                            currentFactIndex = newIndex;
-                            textEl.textContent = denmarkFacts[currentFactIndex];
+                            document.getElementById('weatherIcon').innerHTML = `<span class="weather-widget__icon-emoji">${weather.icon}</span>`;
+                            document.getElementById('weatherTemp').textContent = Math.round(current.temperature_2m);
+                            document.getElementById('weatherDesc').textContent = weather.desc;
+                            document.getElementById('weatherWind').textContent = Math.round(current.wind_speed_10m);
+                            document.getElementById('weatherHumidity').textContent = current.relative_humidity_2m;
+                            document.getElementById('weatherFeels').textContent = Math.round(current.apparent_temperature) + '°';
 
-                            // Fade in
-                            textEl.style.opacity = '1';
-                            textEl.style.transform = 'translateY(0)';
+                            // Update time
+                            const now = new Date();
+                            document.getElementById('weatherUpdate').textContent = `Оновлено: ${now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`;
 
-                            // Re-enable button
-                            btn.disabled = false;
-                        }, 300);
+                            // Add loaded class for animation
+                            document.getElementById('weatherWidget').classList.add('loaded');
+
+                        } catch (error) {
+                            console.error('Weather fetch error:', error);
+                            document.getElementById('weatherDesc').textContent = 'Не вдалося завантажити';
+                            document.getElementById('weatherIcon').innerHTML = '<span class="weather-widget__icon-emoji">❓</span>';
+                        }
                     }
 
-                    // Show random fact on page load
-                    document.addEventListener('DOMContentLoaded', () => {
-                        document.getElementById('funFactText').textContent = denmarkFacts[currentFactIndex];
-                    });
+                    // Fetch weather on page load
+                    document.addEventListener('DOMContentLoaded', fetchWeather);
+
+                    // Refresh every 30 minutes
+                    setInterval(fetchWeather, 30 * 60 * 1000);
                     </script>
                 </aside>
 
