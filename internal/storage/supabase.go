@@ -62,6 +62,17 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 
 // SaveNews saves a news item to Supabase
 func (c *SupabaseClient) SaveNews(news NewsArchive) error {
+	// Check for duplicate by similar title (prevent same news from different sources)
+	isDuplicate, err := c.IsDuplicateNews(news.Title)
+	if err != nil {
+		// Log but don't fail - continue with save attempt
+		fmt.Printf("Warning: duplicate check failed: %v\n", err)
+	}
+	if isDuplicate {
+		fmt.Printf("Skipping duplicate news: %s\n", news.Title)
+		return nil // Skip duplicate
+	}
+
 	// Generate slug if not provided
 	if news.Slug == "" {
 		news.Slug = GenerateSlug(news.Title)
@@ -109,6 +120,115 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 	}
 
 	return nil
+}
+
+// IsDuplicateNews checks if a similar news already exists in Supabase
+func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
+	// Normalize title for comparison
+	normalizedTitle := normalizeTitle(title)
+
+	// Get recent news (last 24 hours) to check for duplicates
+	oneDayAgo := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
+
+	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?published_at=gte.%s&select=title",
+		c.url, oneDayAgo)
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("apikey", c.serviceKey)
+	req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("failed to fetch news for duplicate check")
+	}
+
+	var existingNews []struct {
+		Title string `json:"title"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&existingNews); err != nil {
+		return false, err
+	}
+
+	// Check if any existing title is similar (>80% match)
+	for _, existing := range existingNews {
+		existingNormalized := normalizeTitle(existing.Title)
+		if isSimilarTitle(normalizedTitle, existingNormalized) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// normalizeTitle removes common variations to compare titles
+func normalizeTitle(title string) string {
+	// Convert to lowercase
+	title = strings.ToLower(title)
+
+	// Remove punctuation
+	re := regexp.MustCompile(`[^\p{L}\p{N}\s]`)
+	title = re.ReplaceAllString(title, "")
+
+	// Remove extra whitespace
+	title = strings.Join(strings.Fields(title), " ")
+
+	return title
+}
+
+// isSimilarTitle checks if two normalized titles are similar enough to be duplicates
+func isSimilarTitle(title1, title2 string) bool {
+	// If titles are exactly the same
+	if title1 == title2 {
+		return true
+	}
+
+	// Check if one contains the other (common for different sources)
+	if strings.Contains(title1, title2) || strings.Contains(title2, title1) {
+		return true
+	}
+
+	// Calculate word overlap
+	words1 := strings.Fields(title1)
+	words2 := strings.Fields(title2)
+
+	if len(words1) == 0 || len(words2) == 0 {
+		return false
+	}
+
+	// Count common words
+	wordSet := make(map[string]bool)
+	for _, w := range words1 {
+		if len(w) > 2 { // Skip very short words
+			wordSet[w] = true
+		}
+	}
+
+	commonWords := 0
+	for _, w := range words2 {
+		if len(w) > 2 && wordSet[w] {
+			commonWords++
+		}
+	}
+
+	// Calculate similarity ratio
+	minLen := len(words1)
+	if len(words2) < minLen {
+		minLen = len(words2)
+	}
+
+	// If more than 70% of words match, consider it a duplicate
+	similarity := float64(commonWords) / float64(minLen)
+	return similarity >= 0.7
 }
 
 // GetActiveNews retrieves non-archived news from the last 10 days
