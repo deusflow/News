@@ -693,8 +693,23 @@ func cleanContent(s string) string {
 }
 
 func fallbackSummary(content string) string {
-	if len(content) > 300 {
-		return content[:300] + "..."
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+
+	runes := []rune(content)
+	if len(runes) > 300 {
+		// Try to cut at sentence boundary
+		cut := string(runes[:300])
+		if idx := strings.LastIndex(cut, ". "); idx > 150 {
+			return string(runes[:utf8.RuneCountInString(cut[:idx+1])])
+		}
+		// Try to cut at word boundary
+		if idx := strings.LastIndex(cut, " "); idx > 200 {
+			return string(runes[:utf8.RuneCountInString(cut[:idx])]) + "..."
+		}
+		return string(runes[:299]) + "..."
 	}
 	return content
 }

@@ -123,7 +123,32 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 }
 
 // IsDuplicateNews checks if a similar news already exists in Supabase
+// Has a 2 second timeout to prevent blocking the bot
 func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
+	// Create a channel for the result
+	type result struct {
+		isDuplicate bool
+		err         error
+	}
+	resultChan := make(chan result, 1)
+
+	go func() {
+		isDup, err := c.checkDuplicateInternal(title)
+		resultChan <- result{isDup, err}
+	}()
+
+	// Wait for result with 2 second timeout
+	select {
+	case res := <-resultChan:
+		return res.isDuplicate, res.err
+	case <-time.After(2 * time.Second):
+		fmt.Println("⚠️ Supabase duplicate check timeout (2s), skipping check")
+		return false, nil // On timeout, allow the news (don't block)
+	}
+}
+
+// checkDuplicateInternal performs the actual duplicate check
+func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 	// Normalize title for comparison
 	normalizedTitle := normalizeTitle(title)
 
@@ -159,7 +184,7 @@ func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
 		return false, err
 	}
 
-	// Check if any existing title is similar (>80% match)
+	// Check if any existing title is similar (>70% match)
 	for _, existing := range existingNews {
 		existingNormalized := normalizeTitle(existing.Title)
 		if isSimilarTitle(normalizedTitle, existingNormalized) {
