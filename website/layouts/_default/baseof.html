@@ -3,11 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
     <title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} | {{ .Site.Title }}{{ end }}</title>
+
+    {{/* CSS */}}
     <link rel="stylesheet" href="{{ .Site.BaseURL }}css/style.css">
+
+    {{/* RSS Feed */}}
     <link rel="alternate" type="application/rss+xml" title="{{ .Site.Title }}" href="{{ .Site.BaseURL }}index.xml">
-    <link rel="stylesheet" href="{{ "css/style.css" | relURL }}">
+
+    {{/* SEO Meta Tags & Structured Data */}}
+    {{ partial "seo.html" . }}
 </head>
 <body>
     {{ partial "header.html" . }}

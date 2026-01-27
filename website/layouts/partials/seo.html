@@ -1,3 +1,4 @@
+{{/* SEO meta and structured data partial */}}
 <meta name="description" content="{{ if .IsPage }}{{ .Params.tldr | default .Summary }}{{ else }}{{ .Site.Params.description }}{{ end }}">
 <meta name="keywords" content="{{ if .Params.tags }}{{ delimit .Params.tags ", " }}{{ else }}{{ .Site.Params.keywords }}{{ end }}">
 <meta name="author" content="{{ .Site.Params.author }}">
@@ -14,7 +15,7 @@
 <meta name="twitter:title" content="{{ .Title }}">
 <meta name="twitter:description" content="{{ if .IsPage }}{{ .Params.tldr | default .Summary }}{{ else }}{{ .Site.Params.description }}{{ end }}">
 <meta name="twitter:image" content="{{ if .Params.image }}{{ .Params.image }}{{ else }}{{ .Site.BaseURL }}images/default-og.png{{ end }}">
-
+<meta name="google-site-verification" content="7XLYyjzVDv_NW0ost7WCO2D4QLzxAGcgb_7irwBogTo" />
 {{ if .IsPage }}
 <script type="application/ld+json">
   {
