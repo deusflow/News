@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,6 +14,85 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 )
+
+// Retry configuration for Supabase requests
+const (
+	maxRetries     = 3
+	retryBaseDelay = 2 * time.Second
+	retryMaxDelay  = 10 * time.Second
+)
+
+// isRetryableError checks if the HTTP status code is retryable (server errors, gateway issues)
+func isRetryableError(statusCode int) bool {
+	return statusCode == 502 || // Bad Gateway
+		statusCode == 503 || // Service Unavailable
+		statusCode == 504 || // Gateway Timeout
+		statusCode == 429 || // Too Many Requests
+		statusCode == 500 // Internal Server Error
+}
+
+// retryableRequest executes an HTTP request with retry logic for transient errors
+func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*http.Response, error) {
+	var lastErr error
+	var resp *http.Response
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Create new request for each attempt (body reader needs to be fresh)
+		var reqBody io.Reader
+		if body != nil {
+			reqBody = bytes.NewBuffer(body)
+		}
+
+		req, err := http.NewRequest(method, url, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("apikey", c.serviceKey)
+		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+		if method == "POST" {
+			req.Header.Set("Prefer", "return=minimal")
+		}
+
+		// Execute request
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("⚠️ Supabase request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
+
+			// Wait before retry with exponential backoff
+			delay := retryBaseDelay * time.Duration(1<<attempt)
+			if delay > retryMaxDelay {
+				delay = retryMaxDelay
+			}
+			time.Sleep(delay)
+			continue
+		}
+
+		// Check if response is retryable
+		if isRetryableError(resp.StatusCode) {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
+			log.Printf("⚠️ Supabase returned %d (attempt %d/%d): %s", resp.StatusCode, attempt+1, maxRetries, string(respBody))
+
+			// Wait before retry with exponential backoff
+			delay := retryBaseDelay * time.Duration(1<<attempt)
+			if delay > retryMaxDelay {
+				delay = retryMaxDelay
+			}
+			time.Sleep(delay)
+			continue
+		}
+
+		// Success or non-retryable error
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("supabase request failed after %d retries: %w", maxRetries, lastErr)
+}
 
 // SupabaseClient handles interactions with Supabase for website archive
 type SupabaseClient struct {
@@ -60,16 +140,16 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 	}, nil
 }
 
-// SaveNews saves a news item to Supabase
+// SaveNews saves a news item to Supabase with retry logic for transient errors
 func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 	// Check for duplicate by similar title (prevent same news from different sources)
 	isDuplicate, err := c.IsDuplicateNews(news.Title)
 	if err != nil {
 		// Log but don't fail - continue with save attempt
-		fmt.Printf("Warning: duplicate check failed: %v\n", err)
+		log.Printf("Warning: duplicate check failed: %v", err)
 	}
 	if isDuplicate {
-		fmt.Printf("Skipping duplicate news: %s\n", news.Title)
+		log.Printf("Skipping duplicate news: %s", news.Title)
 		return nil // Skip duplicate
 	}
 
@@ -89,23 +169,11 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 		return fmt.Errorf("failed to marshal news: %w", err)
 	}
 
-	// Create request
+	// Execute request with retry logic
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive", c.url)
-	req, err := http.NewRequest("POST", reqURL, bytes.NewBuffer(body))
+	resp, err := c.retryableRequest("POST", reqURL, body)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("apikey", c.serviceKey)
-	req.Header.Set("Authorization", "Bearer "+c.serviceKey)
-	req.Header.Set("Prefer", "return=minimal")
-
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("failed to save news after retries: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -119,6 +187,7 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
+	log.Printf("✅ News saved to Supabase: %s", news.Title)
 	return nil
 }
 
