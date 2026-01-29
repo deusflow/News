@@ -221,28 +221,47 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 
 	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
 	prompt := fmt.Sprintf(`
-	Analyze this news article.
+	You are a professional news editor and translator. Analyze this Danish news article and create localized versions.
 	
 	TITLE: %s
 	CONTENT: %s
 	
 	TASKS:
-	1. "summary": Create a concise summary (max 1500 chars).
-	2. "danish": Translate the news to Danish (natural, native tone).
-	3. "ukrainian": Translate the news to Ukrainian (natural, native tone).
-	4. "mood": Determine the emotional vibe. Options: "positive" (good news), "negative" (bad news), "neutral" (facts), "shocking" (surprising/scandal), "urgent" (warnings).
-	5. "tags": Extract 2-4 keywords (hashtags) in Ukrainian (e.g., "Політика", "Економіка", "Спорт", "Біженці").
-	6. "tldr": Write ONE short sentence (max 100 chars) in Ukrainian that captures the main point. Start with emoji. Example: "🏛️ Данія виділила 2 млрд на оборону"
-	7. "fun_fact": Write ONE interesting fact about Denmark in Ukrainian (max 120 chars). The fact should be RELATED to the news topic if possible. Start with emoji. Examples:
-	   - If news about politics: "🏛️ Данський парламент називається Фолькетинг і має лише одну палату"
-	   - If news about economy: "💰 ВВП Данії на душу населення — один з найвищих у світі"
-	   - If news about refugees: "🤝 Данія прийняла понад 35 000 українських біженців"
-	   - Random facts are also OK: "🚴 У Копенгагені є більше велосипедів, ніж людей"
+	1. "summary": Create a concise summary (max 1500 chars) capturing the key facts.
+	
+	2. "danish": Rewrite the news in Danish.
+	   - Use natural, journalistic Danish.
+	   - Keep it informative but engaging.
+	   - Max 800 characters.
+	
+	3. "ukrainian": Create a Ukrainian version of the news.
+	   IMPORTANT TRANSLATION RULES:
+	   - DO NOT translate word-by-word. ADAPT the text for Ukrainian readers.
+	   - Write as if a Ukrainian journalist wrote this news from scratch.
+	   - Use natural Ukrainian expressions and sentence structures.
+	   - Explain Danish-specific terms if needed (e.g., "Folketing" → "данський парламент Фолькетинг").
+	   - Convert measurements/currencies if helpful (e.g., add UAH equivalent in parentheses).
+	   - Keep proper nouns (names, places) but transliterate them naturally.
+	   - The tone should be informative, clear, and easy to read.
+	   - Max 800 characters.
+	
+	4. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
+	
+	5. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці").
+	
+	6. "tldr": ONE sentence (max 100 chars) in Ukrainian summarizing the main point. Start with emoji.
+	   Example: "🏛️ Данія виділила 2 млрд на оборону"
+	
+	7. "fun_fact": ONE interesting fact about Denmark in Ukrainian (max 120 chars), related to the news topic. Start with emoji.
+	   Examples:
+	   - "🏛️ Данський парламент Фолькетинг має лише одну палату"
+	   - "🚴 У Копенгагені більше велосипедів, ніж людей"
 	
 	CONSTRAINTS:
-	- Do NOT translate brand names.
-	- Output valid JSON.
-	- Make fun_fact UNIQUE and interesting, avoid repetition.
+	- Do NOT translate brand names (keep "LEGO", "Carlsberg", etc.).
+	- Output valid JSON only.
+	- Make translations sound NATURAL, not robotic or literal.
+	- Prioritize clarity and readability over literal accuracy.
 	`, title, content)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))

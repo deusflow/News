@@ -188,9 +188,18 @@ func translateWithGemini(text, from, to string) (string, error) {
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 
-	// Create translation prompt
+	// Create translation prompt with emphasis on natural adaptation
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations:\n\n%s`, from, targetName, text)
+	prompt := fmt.Sprintf(`Translate the following news text from %s to %s.
+
+IMPORTANT RULES:
+- Do NOT translate word-by-word. Adapt the text naturally for %s readers.
+- Use natural %s expressions and sentence structures.
+- Keep brand names unchanged (LEGO, Carlsberg, etc.).
+- Return ONLY the translation, no explanations.
+
+TEXT:
+%s`, from, targetName, targetName, targetName, text)
 
 	// Request payload
 	payload := map[string]interface{}{
@@ -283,9 +292,18 @@ func translateWithGroq(text, from, to string) (string, error) {
 	// Groq API endpoint
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 
-	// Create translation prompt
+	// Create translation prompt with natural adaptation emphasis
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations or additional text:\n\n%s`, from, targetName, text)
+	prompt := fmt.Sprintf(`Translate this news text from %s to %s.
+
+Rules:
+- Adapt naturally for %s readers, not word-by-word.
+- Use idiomatic %s expressions.
+- Keep brand names unchanged.
+- Return ONLY the translation.
+
+Text:
+%s`, from, targetName, targetName, targetName, text)
 
 	// Request payload - ОБНОВЛЕНА МОДЕЛЬ!
 	payload := map[string]interface{}{
@@ -380,9 +398,11 @@ func translateWithCohere(text, from, to string) (string, error) {
 	// Cohere Chat API endpoint
 	apiURL := "https://api.cohere.ai/v1/chat"
 
-	// Create translation prompt
+	// Create translation prompt with natural adaptation
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations or additional text:\n\n%s`, from, targetName, text)
+	prompt := fmt.Sprintf(`Translate this news from %s to %s. Adapt naturally for %s readers, not word-by-word. Keep brand names. Return ONLY the translation:
+
+%s`, from, targetName, targetName, text)
 
 	payload := map[string]interface{}{
 		"model": cohereModel,
@@ -461,9 +481,11 @@ func translateWithMistralAI(text, from, to string) (string, error) {
 	// Mistral AI endpoint
 	apiURL := "https://api.mistral.ai/v1/chat/completions"
 
-	// Create translation prompt
+	// Create translation prompt with natural adaptation
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate the following text from %s to %s. Return ONLY the translation, no explanations:\n\n%s`, from, targetName, text)
+	prompt := fmt.Sprintf(`Translate this news from %s to %s. Adapt naturally for %s readers, not word-by-word. Keep brand names. Return ONLY the translation:
+
+%s`, from, targetName, targetName, text)
 
 	// Request payload for Mistral AI
 	payload := map[string]interface{}{

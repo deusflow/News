@@ -153,9 +153,13 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 		return nil // Skip duplicate
 	}
 
-	// Generate slug if not provided
+	// Generate slug if not provided - use PublishedAt for consistent slugs
 	if news.Slug == "" {
-		news.Slug = GenerateSlug(news.Title)
+		if !news.PublishedAt.IsZero() {
+			news.Slug = GenerateSlugWithDate(news.Title, news.PublishedAt)
+		} else {
+			news.Slug = GenerateSlug(news.Title)
+		}
 	}
 
 	// Set default category
@@ -457,7 +461,13 @@ func (c *SupabaseClient) Ping() error {
 }
 
 // GenerateSlug creates a URL-friendly slug from title
+// Uses published date for uniqueness instead of current time
 func GenerateSlug(title string) string {
+	return GenerateSlugWithDate(title, time.Now())
+}
+
+// GenerateSlugWithDate creates a URL-friendly slug from title with specific date
+func GenerateSlugWithDate(title string, publishedAt time.Time) string {
 	// Normalize unicode
 	title = norm.NFC.String(title)
 
@@ -510,9 +520,10 @@ func GenerateSlug(title string) string {
 		}
 	}
 
-	// Add timestamp suffix for uniqueness
-	timestamp := time.Now().Format("20060102-150405")
-	slug = fmt.Sprintf("%s-%s", slug, timestamp)
+	// Add date suffix based on PUBLISHED date (not current time!)
+	// This ensures the same news always gets the same slug
+	dateSuffix := publishedAt.Format("20060102")
+	slug = fmt.Sprintf("%s-%s", slug, dateSuffix)
 
 	return slug
 }
