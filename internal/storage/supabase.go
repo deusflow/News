@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -142,24 +143,24 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 
 // SaveNews saves a news item to Supabase with retry logic for transient errors
 func (c *SupabaseClient) SaveNews(news NewsArchive) error {
-	// Check for duplicate by similar title (prevent same news from different sources)
-	isDuplicate, err := c.IsDuplicateNews(news.Title)
+	// Step 1: Check by source_url (most reliable)
+	isDuplicateURL, err := c.IsDuplicateBySourceURL(news.SourceURL)
 	if err != nil {
-		// Log but don't fail - continue with save attempt
-		log.Printf("Warning: duplicate check failed: %v", err)
+		log.Printf("Warning: source_url duplicate check failed: %v", err)
 	}
-	if isDuplicate {
-		log.Printf("Skipping duplicate news: %s", news.Title)
-		return nil // Skip duplicate
+	if isDuplicateURL {
+		log.Printf("⏭️ Skipping duplicate (same source_url): %s", news.SourceURL)
+		return nil
 	}
 
-	// Generate slug if not provided - use PublishedAt for consistent slugs
-	if news.Slug == "" {
-		if !news.PublishedAt.IsZero() {
-			news.Slug = GenerateSlugWithDate(news.Title, news.PublishedAt)
-		} else {
-			news.Slug = GenerateSlug(news.Title)
-		}
+	// Step 2: Check by similar title (backup check)
+	isDuplicate, err := c.IsDuplicateNews(news.Title)
+	if err != nil {
+		log.Printf("Warning: title duplicate check failed: %v", err)
+	}
+	if isDuplicate {
+		log.Printf("⏭️ Skipping duplicate (similar title): %s", news.Title)
+		return nil
 	}
 
 	// Set default category
@@ -266,6 +267,70 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// IsDuplicateBySourceURL checks if news with the same source_url already exists
+// This is more reliable than title comparison because URLs are unique per news
+func (c *SupabaseClient) IsDuplicateBySourceURL(sourceURL string) (bool, error) {
+	// Validate input
+	if sourceURL == "" {
+		return false, nil // No URL to check, allow the news
+	}
+
+	// Create result channel for timeout handling
+	type result struct {
+		isDuplicate bool
+		err         error
+	}
+	resultChan := make(chan result, 1)
+
+	// Run check in goroutine (for timeout)
+	go func() {
+		// Build request URL with filter
+		// eq. means "equals" in Supabase query language
+		reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
+			c.url,
+			url.QueryEscape(sourceURL)) // Escape special characters in URL
+
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			resultChan <- result{false, err}
+			return
+		}
+
+		// Add authentication headers
+		req.Header.Set("apikey", c.serviceKey)
+		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+
+		// Execute request
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			resultChan <- result{false, err}
+			return
+		}
+		defer resp.Body.Close()
+
+		// Parse response
+		var existing []struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&existing); err != nil {
+			resultChan <- result{false, err}
+			return
+		}
+
+		// If we found any records, it's a duplicate
+		resultChan <- result{len(existing) > 0, nil}
+	}()
+
+	// Wait with 2 second timeout
+	select {
+	case res := <-resultChan:
+		return res.isDuplicate, res.err
+	case <-time.After(2 * time.Second):
+		log.Println("⚠️ Source URL duplicate check timeout (2s), allowing news")
+		return false, nil
+	}
 }
 
 // normalizeTitle removes common variations to compare titles

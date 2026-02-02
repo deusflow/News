@@ -99,7 +99,20 @@ echo "$RESPONSE" | jq -c '.[]' | while read -r item; do
     FILENAME="${DATE_PREFIX}-${SLUG}.md"
     FILEPATH="${CONTENT_DIR}/${FILENAME}"
 
-    # Skip if file already exists
+    # Extract base slug (without date suffix) for duplicate check
+    # Example: "putins-spinmaskine-falsk-mordhistorie-om-trump-og-groenland-20260128"
+    # We want to check if ANY file with similar slug exists
+    BASE_SLUG=$(echo "$SLUG" | sed 's/-[0-9]\{8\}$//')  # Remove trailing -YYYYMMDD
+
+    # Check for duplicates: any file containing this base slug
+    EXISTING_FILES=$(find "$CONTENT_DIR" -name "*${BASE_SLUG}*.md" 2>/dev/null | head -1)
+
+    if [ -n "$EXISTING_FILES" ]; then
+        echo -e "  ⏭️ Skipping (similar file exists): ${BASE_SLUG}"
+        continue
+    fi
+
+    # Also check exact filename (original check)
     if [ -f "$FILEPATH" ]; then
         continue
     fi
