@@ -41,6 +41,7 @@ type NewsTranslation struct {
 
 // NewsTranslationResponse - это "анкета" для Gemini (формат ответа API)
 type NewsTranslationResponse struct {
+	Summary   string   `json:"summary"`
 	Danish    string   `json:"danish"`
 	Ukrainian string   `json:"ukrainian"`
 	Mood      string   `json:"mood"`
@@ -62,13 +63,14 @@ func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 
 	fallbackModel := "gemini-2.0-flash" // fallback if primary model fails
 
-	// Rate limiter: 1 requests per minute
-	// This stays well under Gemini's free tier limit (15 RPM)
+	// Rate limiter: 1 request per 40 seconds
+	// Gemini Free Tier allows 15 RPM, we use ~1.5 RPM (very safe margin)
+	// This ensures we NEVER hit rate limits
 	rateInterval := 40 * time.Second
 	rateLimiter := time.NewTicker(rateInterval).C
 
 	log.Printf("✅ Gemini client initialized with model: %s (fallback: %s)", modelName, fallbackModel)
-	log.Printf("📊 Rate limit: 1 request per %v (6 RPM)", rateInterval)
+	log.Printf("📊 Rate limit: 1 request per %v (~1.5 RPM, safe for Free Tier)", rateInterval)
 
 	return &Client{
 		client:        client,
@@ -221,7 +223,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 
 	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
 	prompt := fmt.Sprintf(`
-	You are a professional news editor and translator. Analyze this Danish news article and create localized versions.
+	You are a skilled Ukrainian journalist working in Denmark. Your job is to write news for Ukrainians living in Denmark.
 	
 	TITLE: %s
 	CONTENT: %s
@@ -234,34 +236,42 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	   - Keep it informative but engaging.
 	   - Max 800 characters.
 	
-	3. "ukrainian": Create a Ukrainian version of the news.
-	   IMPORTANT TRANSLATION RULES:
-	   - DO NOT translate word-by-word. ADAPT the text for Ukrainian readers.
-	   - Write as if a Ukrainian journalist wrote this news from scratch.
-	   - Use natural Ukrainian expressions and sentence structures.
-	   - Explain Danish-specific terms if needed (e.g., "Folketing" → "данський парламент Фолькетинг").
-	   - Convert measurements/currencies if helpful (e.g., add UAH equivalent in parentheses).
-	   - Keep proper nouns (names, places) but transliterate them naturally.
-	   - The tone should be informative, clear, and easy to read.
+	3. "ukrainian": Write this news AS IF you are a Ukrainian journalist telling this to a friend.
+	   
+	   STRICT RULES:
+	   - Write NATURALLY, like spoken Ukrainian. Use живу мову!
+	   - NEVER add notes, explanations, or translator comments like "(Примітка: ...)"
+	   - NEVER explain what words mean in parentheses
+	   - If a Danish term needs context, weave it into the sentence naturally
+	     BAD: "Folketing (данський парламент)"
+	     GOOD: "данський парламент Фолькетинг"
+	   - Keep the text CLEAN - no meta-commentary about translation
+	   - Use Ukrainian idioms and expressions where appropriate
+	   - The reader is Ukrainian living in Denmark - they understand both cultures
 	   - Max 800 characters.
+	   
+	   TONE: Informative but friendly, like news from a trusted friend.
 	
 	4. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
 	
-	5. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці").
+	5. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці", "Діти", "Сім'я").
 	
-	6. "tldr": ONE sentence (max 100 chars) in Ukrainian summarizing the main point. Start with emoji.
+	6. "tldr": ONE punchy sentence (max 100 chars) in Ukrainian. Start with emoji.
 	   Example: "🏛️ Данія виділила 2 млрд на оборону"
 	
 	7. "fun_fact": ONE interesting fact about Denmark in Ukrainian (max 120 chars), related to the news topic. Start with emoji.
 	   Examples:
-	   - "🏛️ Данський парламент Фолькетинг має лише одну палату"
 	   - "🚴 У Копенгагені більше велосипедів, ніж людей"
+	   - "🎓 Освіта в Данії безкоштовна навіть для іноземців"
 	
-	CONSTRAINTS:
-	- Do NOT translate brand names (keep "LEGO", "Carlsberg", etc.).
-	- Output valid JSON only.
-	- Make translations sound NATURAL, not robotic or literal.
-	- Prioritize clarity and readability over literal accuracy.
+	ABSOLUTE PROHIBITIONS:
+	- NO "(Примітка: ...)" or any translator notes
+	- NO "означає" explanations mid-sentence
+	- NO word-by-word translations
+	- NO robotic language
+	- NO commentary about the translation process
+	
+	Output valid JSON only.
 	`, title, content)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
@@ -285,6 +295,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	}
 
 	return &NewsTranslation{
+		Summary:   parsedResp.Summary,
 		Danish:    parsedResp.Danish,
 		Ukrainian: parsedResp.Ukrainian,
 		Mood:      parsedResp.Mood,

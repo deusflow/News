@@ -147,16 +147,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			n.Content = fa.Content
 		}
 
-		// === Пауза 60 секунд между запросами к Gemini ===
-		// Gemini Free Tier: 20 запросов/минуту, но с запасом ставим 1 запрос в минуту
-		// чтобы гарантированно избежать "Quota Exceeded"
-		if geminiReqs > 0 { // Не ждем перед первой новостью
-			select {
-			case <-ctx.Done():
-				return result, ctx.Err()
-			case <-time.After(60 * time.Second):
-			}
-		}
+		// Rate limiter в gemini.go вже контролює швидкість запитів (40 сек між запитами)
+		// Додаткова пауза тут не потрібна
 
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
 			// Лимит исчерпан - используем Groq для перевода
@@ -489,37 +481,68 @@ func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, str
 		return 40, "denmark"
 	}
 
-	// НАИВЫСШИЙ ПРИОРИТЕТ: Новости о беженцах, пособиях, статусе проживания
-	// Используем СТРОГУЮ логику - требуем комбинацию ключевых слов
+	// Виключаємо непотрібні новини
+	if containsAny(text, kw.Exclude) {
+		return 0, ""
+	}
+
+	// ========================================
+	// НАЙВИЩИЙ ПРІОРИТЕТ: Українці в Данії (віза SL1, робота, інтеграція)
+	// ========================================
+	if containsAny(text, kw.UkrainiansInDenmark) {
+		return 250, "refugee_ukraine" // Максимальний пріоритет!
+	}
+
+	// Новини про біженців з ПРЯМИМ зв'язком з Україною
 	if isRelevantForRefugees(text) {
-		// "ВАЖЛИВО ДЛЯ УКРАЇНЦІВ" - только если есть СПЕЦИФИЧНЫЕ для украинцев термины
-		// (ukrainerloven, særlov + ukrain, midlertidig beskyttelse + ukrain)
 		if isSpecificForUkrainians(text) {
-			return 200, "refugee_ukraine" // Максимальный приоритет
+			return 200, "refugee_ukraine"
 		}
 		return 150, "refugee"
 	}
 
-	// Высокий приоритет: война в Украине (НЕ для беженцев, просто про войну)
-	if containsAny(text, kw.UkraineWar) {
-		return 100, "ukraine"
+	// ========================================
+	// ВИСОКИЙ ПРІОРИТЕТ: Життя в Данії (діти, сім'я, освіта)
+	// ========================================
+	if containsAny(text, kw.FamilyLife) {
+		return 140, "denmark" // Високий пріоритет для сімейних новин
 	}
 
-	if containsAny(text, kw.Viborg) {
-		return 80, "viborg"
+	// ========================================
+	// ВИСОКИЙ ПРІОРИТЕТ: Позитивні новини про Данію
+	// ========================================
+	if containsAny(text, kw.PositiveDenmark) {
+		return 120, "denmark" // Культура, спорт, свята
 	}
+
+	// Віборг та регіон (для локальних новин)
+	if containsAny(text, kw.Viborg) {
+		return 100, "viborg"
+	}
+
+	// Економіка та робота
 	if containsAny(text, kw.Economy) {
+		return 90, "denmark"
+	}
+
+	// Будівництво та інфраструктура
+	if containsAny(text, kw.Construction) {
+		return 80, "denmark"
+	}
+
+	// Дозвілля (нижчий пріоритет, ніж раніше)
+	if containsAny(text, kw.Leisure) {
 		return 70, "denmark"
 	}
-	if containsAny(text, kw.Construction) {
-		return 65, "denmark"
+
+	// ========================================
+	// ЗНИЖЕНИЙ ПРІОРИТЕТ: Війна в Україні (загальні новини)
+	// ========================================
+	// Якщо новина тільки про війну, але НЕ про українців в Данії - нижчий пріоритет
+	if containsAny(text, kw.UkraineWar) {
+		return 60, "ukraine" // Знижено з 100 до 60
 	}
-	if containsAny(text, kw.Leisure) {
-		return 60, "denmark"
-	}
-	if containsAny(text, kw.Exclude) {
-		return 0, ""
-	}
+
 	return 40, "denmark"
 }
 

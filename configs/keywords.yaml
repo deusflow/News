@@ -1,6 +1,108 @@
 keywords:
+  # ========================================
+  # НАЙВИЩИЙ ПРІОРИТЕТ: Українці в Данії
+  # ========================================
+  ukrainians_in_denmark:
+    # Візи та статус
+    - ukrainer
+    - ukrainsk
+    - særlov
+    - ukrainerloven
+    - midlertidig beskyttelse
+    - opholdstilladelse
+    - forlængelse
+    - ophold
+    # Робота для українців
+    - arbejdstilladelse
+    - job til ukrainer
+    - ansættelse
+    # Пособия та підтримка
+    - selvforsørgelses
+    - integrationsydelse
+    - ydelse
+    # Навчання
+    - sprogskole
+    - danskuddannelse
+    - integrationskursus
+
+  # ========================================
+  # ВИСОКИЙ ПРІОРИТЕТ: Життя в Данії (сім'я, діти)
+  # ========================================
+  family_life:
+    # Діти та підлітки
+    - barn
+    - børn
+    - ung
+    - unge
+    - teenager
+    - skoleelev
+    - studerende
+    # Школа та освіта
+    - folkeskole
+    - gymnasium
+    - skole
+    - uddannelse
+    - eksamen
+    - læring
+    - undervisning
+    # Дитячі садки
+    - børnehave
+    - vuggestue
+    - daginstitution
+    - dagpleje
+    - pasning
+    # Сім'я
+    - familie
+    - forældre
+    - mor
+    - far
+    - familieliv
+    # Дитячі виплати
+    - børnepenge
+    - børnecheck
+    - barsel
+    - barselsorlov
+    - forældreorlov
+
+  # ========================================
+  # ПОЗИТИВНІ НОВИНИ ПРО ДАНІЮ
+  # ========================================
+  positive_denmark:
+    # Культура та дозвілля
+    - festival
+    - koncert
+    - musik
+    - kultur
+    - teater
+    - museum
+    - udstilling
+    - kunst
+    # Спорт та здоров'я
+    - sport
+    - løb
+    - royal run
+    - fodbold
+    - håndbold
+    - cykling
+    - motion
+    # Події та свята
+    - jul
+    - påske
+    - pinse
+    - sankthans
+    - fastelavn
+    - arrangement
+    - marked
+    - event
+    # Туризм
+    - ferie
+    - rejse
+    - turist
+    - seværdighed
+    - oplevelse
+
   refugee_boost:
-    # ПРЯМЫЕ термины о беженцах (одного достаточно)
+    # ПРЯМІ терміни про біженців (одного достатньо)
     - flygtning
     - asyl
     - opholdstilladelse
@@ -9,41 +111,29 @@ keywords:
     - udlænding
     - udlændinge
     - indvandrer
-    # Пособия специфичные для беженцев
+    # Допомоги специфічні для біженців
     - selvforsørgelses
     - hjemrejseydelse
     - integrationsydelse
-    # Статус и документы (специфичные)
+    # Статус і документи (специфічні)
     - midlertidig beskyttelse
     - særlov
     - ukrainerloven
     - statsborgerskab
     - familiesammenføring
-    # Специальные центры
+    # Спеціальні центри
     - asylcenter
     - flygtningecenter
     - indkvartering
+
   ukraine_war:
-    - krig
-    - rusland
-    - putin
+    # Тільки КЛЮЧОВІ військові терміни (знижуємо пріоритет)
+    - krig i ukraine
+    - ruslands invasion
     - zelensky
-    - våben
-    - kampvogn
-    - missil
-    - drone
-    - angreb
-    - forsvar
-    - nato
-    - eu
-    - sanktion
-    - donbas
-    - kyiv
-    - kharkiv
-    - odesa
-    - lviv
-    - front
-    - soldat
+    - våbenhjælp til ukraine
+    - dansk støtte til ukraine
+
   viborg:
     - viborg
     - midtjylland
@@ -54,7 +144,9 @@ keywords:
     - sunds
     - kjellerup
     - silkeborg
+    - mercantec
     - 8800
+
   economy:
     - løn
     - lønforhøjelse
@@ -105,34 +197,38 @@ keywords:
     - skole
     - daginstitution
   leisure:
-    - festival
+    # Залишаємо тільки важливі дозвіллєві події
     - koncert
     - musik
-    - kultur
-    - biograf
     - teater
     - museum
     - udstilling
-    - kunst
-    - oplevelse
-    - event
     - arrangement
     - marked
-    - ferie
-    - rejse
-    - turist
-    - weekend
-    - restaurant
-    - cafe
-    - spise
-    - mad
-    - sport
-    - fodbold
-    - håndbold
-    - løb
+
   exclude:
+    # Погода та гороскопи
     - vejr
+    - vejrudsigt
     - horoskop
+    - stjernetegn
+    # Рецепти та їжа
     - madopskrift
+    - opskrift
     - krydsord
+    # Кримінал (занадто негативно)
+    - mord
+    - voldtægt
+    - drab
+    - skyderi
+    - knivstik
+    # Жовта преса
+    - reality
+    - kendis
+    - paradise
+    - ex on the beach
+    # Реклама
+    - tilbud
+    - rabat
+    - annonce
 

@@ -93,13 +93,16 @@ type Config struct {
 
 // KeywordsConfig holds the keywords for filtering
 type KeywordsConfig struct {
-	RefugeeBoost []string `yaml:"refugee_boost"`
-	UkraineWar   []string `yaml:"ukraine_war"`
-	Viborg       []string `yaml:"viborg"`
-	Economy      []string `yaml:"economy"`
-	Construction []string `yaml:"construction"`
-	Leisure      []string `yaml:"leisure"`
-	Exclude      []string `yaml:"exclude"`
+	UkrainiansInDenmark []string `yaml:"ukrainians_in_denmark"` // Найвищий пріоритет
+	FamilyLife          []string `yaml:"family_life"`           // Діти, підлітки, сім'я
+	PositiveDenmark     []string `yaml:"positive_denmark"`      // Позитивні новини
+	RefugeeBoost        []string `yaml:"refugee_boost"`
+	UkraineWar          []string `yaml:"ukraine_war"`
+	Viborg              []string `yaml:"viborg"`
+	Economy             []string `yaml:"economy"`
+	Construction        []string `yaml:"construction"`
+	Leisure             []string `yaml:"leisure"`
+	Exclude             []string `yaml:"exclude"`
 }
 
 func LoadKeywords(path string) (*KeywordsConfig, error) {
@@ -131,10 +134,10 @@ func Load() (*Config, error) {
 		// Default values
 		FeedsConfigPath:         "configs/feeds.yaml",
 		KeywordsConfigPath:      "configs/keywords.yaml",
-		MaxGeminiRequests:       2,    // lowered to 2 to avoid hitting limits, override via env
-		MaxGroqRequests:         10,   // Groq is fast and free, allow more
-		MaxCohereRequests:       5,    // Cohere has 100/month free limit
-		MaxMistralRequests:      5,    // Mistral free tier
+		MaxGeminiRequests:       10,   // Gemini is PRIMARY - handles all translation
+		MaxGroqRequests:         3,    // Groq is FALLBACK ONLY - when Gemini fails
+		MaxCohereRequests:       3,    // Cohere has 100/month free limit
+		MaxMistralRequests:      3,    // Mistral free tier
 		MaxTotalAIRequests:      15,   // Total AI requests limit per run
 		EnableBatching:          true, // Enable batching by default (saves 40% tokens)
 		BatchSize:               2,    // Process 2 news items per AI request
