@@ -64,8 +64,6 @@ func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 	fallbackModel := "gemini-2.0-flash" // fallback if primary model fails
 
 	// Rate limiter: 1 request per 40 seconds
-	// Gemini Free Tier allows 15 RPM, we use ~1.5 RPM (very safe margin)
-	// This ensures we NEVER hit rate limits
 	rateInterval := 40 * time.Second
 	rateLimiter := time.NewTicker(rateInterval).C
 
