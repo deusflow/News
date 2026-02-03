@@ -30,24 +30,26 @@ type Client struct {
 
 // NewsTranslation - это основная структура, которую мы отдаем наружу (в news.go)
 type NewsTranslation struct {
-	Summary   string
-	Danish    string
-	Ukrainian string
-	Mood      string   // Настроение новости
-	Tags      []string // Теги
-	TLDR      string   // Одно предложение - суть новости
-	FunFact   string   // Цікавий факт про Данію
+	Summary        string
+	Danish         string
+	Ukrainian      string
+	TitleUkrainian string   // Український переклад заголовку
+	Mood           string   // Настроение новости
+	Tags           []string // Теги
+	TLDR           string   // Одно предложение - суть новости
+	FunFact        string   // Цікавий факт про Данію
 }
 
 // NewsTranslationResponse - это "анкета" для Gemini (формат ответа API)
 type NewsTranslationResponse struct {
-	Summary   string   `json:"summary"`
-	Danish    string   `json:"danish"`
-	Ukrainian string   `json:"ukrainian"`
-	Mood      string   `json:"mood"`
-	Tags      []string `json:"tags"`
-	TLDR      string   `json:"tldr"`
-	FunFact   string   `json:"fun_fact"`
+	Summary        string   `json:"summary"`
+	Danish         string   `json:"danish"`
+	Ukrainian      string   `json:"ukrainian"`
+	TitleUkrainian string   `json:"title_ukrainian"`
+	Mood           string   `json:"mood"`
+	Tags           []string `json:"tags"`
+	TLDR           string   `json:"tldr"`
+	FunFact        string   `json:"fun_fact"`
 }
 
 func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
@@ -248,14 +250,19 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	   
 	   TONE: Professional news, informative but engaging. NOT robotic, NOT chatty.
 	
-	4. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
+	4. "title_ukrainian": Translate the news TITLE to Ukrainian.
+	   - Keep brand names, place names UNCHANGED
+	   - Professional style, same meaning as original
+	   - NO notes or explanations
 	
-	5. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці", "Діти", "Сім'я").
+	5. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
 	
-	6. "tldr": ONE punchy sentence (max 100 chars) in Ukrainian. Start with emoji.
+	6. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці", "Діти", "Сім'я").
+	
+	7. "tldr": ONE punchy sentence (max 100 chars) in Ukrainian. Start with emoji.
 	   Example: "🏛️ Данія виділила 2 млрд на оборону"
 	
-	7. "fun_fact": ONE interesting fact about Denmark in Ukrainian (max 120 chars), related to the news topic. Start with emoji.
+	8. "fun_fact": ONE interesting fact about Denmark in Ukrainian (max 120 chars), related to the news topic. Start with emoji.
 	   Examples:
 	   - "🚴 У Копенгагені більше велосипедів, ніж людей"
 	   - "🎓 Освіта в Данії безкоштовна навіть для іноземців"
@@ -292,12 +299,13 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	}
 
 	return &NewsTranslation{
-		Summary:   parsedResp.Summary,
-		Danish:    parsedResp.Danish,
-		Ukrainian: parsedResp.Ukrainian,
-		Mood:      parsedResp.Mood,
-		Tags:      parsedResp.Tags,
-		TLDR:      parsedResp.TLDR,
-		FunFact:   parsedResp.FunFact,
+		Summary:        parsedResp.Summary,
+		Danish:         parsedResp.Danish,
+		Ukrainian:      parsedResp.Ukrainian,
+		TitleUkrainian: parsedResp.TitleUkrainian,
+		Mood:           parsedResp.Mood,
+		Tags:           parsedResp.Tags,
+		TLDR:           parsedResp.TLDR,
+		FunFact:        parsedResp.FunFact,
 	}, nil
 }

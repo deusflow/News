@@ -1093,15 +1093,15 @@ func StrictTranslateText(text, from, to string) (string, error) {
 		text = text[:4000] + "..."
 	}
 
-	// Providers order: Groq -> Gemini -> others (same as TranslateText)
-	if result, err := strictTranslateWithGroq(text, from, target); err == nil && result != "" && result != text {
-		result = SanitizeAIText(result)
-		log.Printf("✅ Groq STRICT %s->%s ok", from, target)
-		return result, nil
-	}
+	// Providers order: Gemini first (quality), then Groq (fallback)
 	if result, err := strictTranslateWithGemini(text, from, target); err == nil && result != "" && result != text {
 		result = SanitizeAIText(result)
 		log.Printf("✅ Gemini STRICT %s->%s ok", from, target)
+		return result, nil
+	}
+	if result, err := strictTranslateWithGroq(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
+		log.Printf("✅ Groq STRICT %s->%s ok", from, target)
 		return result, nil
 	}
 

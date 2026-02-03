@@ -196,10 +196,16 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				n.TLDR = aiResp.TLDR
 				n.FunFact = aiResp.FunFact
 
-				if ukTitle, err := translate.TranslateText(n.Title, "da", "uk"); err == nil {
-					n.TitleUkrainian = ukTitle
+				// Використовуємо TitleUkrainian з відповіді Gemini
+				if aiResp.TitleUkrainian != "" {
+					n.TitleUkrainian = aiResp.TitleUkrainian
 				} else {
-					n.TitleUkrainian = n.Title
+					// Fallback: перекладаємо через Gemini (TranslateText тепер спочатку Gemini)
+					if ukTitle, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && ukTitle != "" {
+						n.TitleUkrainian = ukTitle
+					} else {
+						n.TitleUkrainian = n.Title
+					}
 				}
 				if opts.Metrics != nil {
 					opts.Metrics.IncrementSuccessfulTranslations()
