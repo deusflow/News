@@ -224,7 +224,7 @@ TEXT:
 	}
 
 	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 
 	// Make request
 	resp, err := client.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
@@ -1240,7 +1240,7 @@ TEXT:
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
