@@ -54,3 +54,4 @@ docs/CONFIG_CHEATSHEET.md
 # build artifacts
 /dknews
 
+output.log
