@@ -2,13 +2,7 @@ package news
 
 import (
 	"math/rand"
-	"time"
 )
-
-func init() {
-	// Инициализируем генератор случайных чисел один раз при загрузке пакета
-	rand.Seed(time.Now().UnixNano())
-}
 
 // Интересные факты о Дании для привлечения внимания читателей
 var denmarkFacts = []string{
