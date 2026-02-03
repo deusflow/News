@@ -190,9 +190,10 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	model.ResponseSchema = &genai.Schema{
 		Type: genai.TypeObject,
 		Properties: map[string]*genai.Schema{
-			"summary":   {Type: genai.TypeString},
-			"danish":    {Type: genai.TypeString},
-			"ukrainian": {Type: genai.TypeString},
+			"summary":         {Type: genai.TypeString},
+			"danish":          {Type: genai.TypeString},
+			"ukrainian":       {Type: genai.TypeString},
+			"title_ukrainian": {Type: genai.TypeString},
 			"mood": {
 				Type: genai.TypeString,
 				Enum: []string{"positive", "negative", "neutral", "shocking", "urgent"},
@@ -204,7 +205,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 			"tldr":     {Type: genai.TypeString},
 			"fun_fact": {Type: genai.TypeString},
 		},
-		Required: []string{"summary", "danish", "ukrainian", "mood", "tags", "tldr", "fun_fact"},
+		Required: []string{"summary", "danish", "ukrainian", "title_ukrainian", "mood", "tags", "tldr", "fun_fact"},
 	}
 
 	// Очистка контента
@@ -223,59 +224,57 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 
 	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
 	prompt := fmt.Sprintf(`
-	You are a professional news editor creating bilingual news content for Ukrainians living in Denmark.
-	
-	TITLE: %s
-	CONTENT: %s
-	
-	TASKS:
-	1. "summary": Create a concise summary (max 1500 chars) capturing the key facts.
-	
-	2. "danish": Write a professional news article in Danish.
-	   - Journalistic style: informative, clear, engaging
-	   - NOT dry or bureaucratic - make it pleasant to read
-	   - Keep brand names, place names, organization names UNCHANGED
-	   - Max 800 characters.
-	
-	3. "ukrainian": Write the SAME news in Ukrainian.
-	   
-	   CRITICAL RULES:
-	   - The Ukrainian version must convey the SAME facts and meaning as the Danish version
-	   - Professional journalistic Ukrainian - NOT casual chat
-	   - NO greetings like "Привіт!", NO rhetorical questions like "Ти чув?"
-	   - NEVER add notes like "(Примітка: ...)" or "(це означає...)"
-	   - Keep brand names, place names, personal names UNCHANGED (Tinderbox, Copenhagen, LEGO)
-	   - If a Danish term needs context, weave it naturally: "данський парламент Фолькетинг" NOT "Folketing (данський парламент)"
-	   - Max 800 characters.
-	   
-	   TONE: Professional news, informative but engaging. NOT robotic, NOT chatty.
-	
-	4. "title_ukrainian": Translate the news TITLE to Ukrainian.
-	   - Keep brand names, place names UNCHANGED
-	   - Professional style, same meaning as original
-	   - NO notes or explanations
-	
-	5. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
-	
-	6. "tags": Extract 2-4 relevant keywords in Ukrainian (e.g., "Політика", "Економіка", "Біженці", "Діти", "Сім'я").
-	
-	7. "tldr": ONE punchy sentence (max 100 chars) in Ukrainian. Start with emoji.
-	   Example: "🏛️ Данія виділила 2 млрд на оборону"
-	
-	8. "fun_fact": ONE interesting fact about Denmark in Ukrainian (max 120 chars), related to the news topic. Start with emoji.
-	   Examples:
-	   - "🚴 У Копенгагені більше велосипедів, ніж людей"
-	   - "🎓 Освіта в Данії безкоштовна навіть для іноземців"
-	
-	ABSOLUTE PROHIBITIONS:
-	- NO "(Примітка: ...)" or any translator notes
-	- NO "означає" explanations mid-sentence  
-	- NO greetings or rhetorical questions
-	- NO word-by-word translations
-	- NO robotic bureaucratic language
-	- NO commentary about the translation process
-	
-	Output valid JSON only.
+You are an editor in a bilingual newsroom. Create ONE news item in two languages: Danish and Ukrainian.
+
+INPUT:
+TITLE: %s
+CONTENT: %s
+
+GLOBAL STYLE (applies to ALL fields):
+- Journalistic / reporter tone: neutral, factual, readable, dynamic
+- No opinions, no эмоции, no публицистика
+- Not bureaucratic and not "machine-translation" sounding
+- Keep proper nouns EXACTLY as in source: personal names, brands, organizations, countries, cities, events
+  Examples: "Tinderbox", "EU", "New Delhi", "Fredericia", "Skanderborg", "NATO" must stay unchanged
+
+CRITICAL CONSISTENCY RULE:
+- Danish and Ukrainian must describe the SAME facts, logic, and key accents.
+- They must NOT contradict each other.
+- They should NOT be word-for-word identical; wording should be natural in each language.
+
+TASKS (return valid JSON only):
+1) "summary": internal working summary (max 1500 chars)
+
+2) "danish": Write a compact news text in Danish (max 800 chars)
+   - Start with the Danish title as the FIRST sentence (same as input title, unchanged)
+   - Then 2–5 sentences with key facts
+
+3) "ukrainian": Write the SAME news text in Ukrainian (max 800 chars)
+   - Start with a Ukrainian title sentence (natural Ukrainian, but proper nouns unchanged)
+   - Then 2–5 sentences with the SAME facts as the Danish version
+   - No greetings, no rhetorical questions, no notes
+
+4) "title_ukrainian": Ukrainian translation of the TITLE only
+   - Proper nouns unchanged
+   - Neutral newsroom headline style
+
+5) "mood": One of: "positive", "negative", "neutral", "shocking", "urgent"
+
+6) "tags": 2–4 Ukrainian tags (short nouns)
+
+7) "tldr": ONE short Ukrainian TL;DR sentence (max 100 chars) starting with ONE emoji
+   - Must reflect the same key point as danish/ukrainian texts
+
+8) "fun_fact": ONE interesting fact about Denmark or the Danish Kingdom (Королівство Данія)
+   - Ukrainian, max 140 chars, start with ONE emoji
+   - Neutral and factual (no реклами)
+
+ABSOLUTE PROHIBITIONS:
+- No "(Примітка: ...)" or any translator commentary
+- No explanations like "це означає"
+- No hashtags in danish/ukrainian texts (tags are separate)
+
+Output valid JSON only.
 	`, title, content)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))

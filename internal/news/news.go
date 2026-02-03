@@ -354,9 +354,11 @@ func FormatNewsWithImage(n News, _, _ int) string {
 	var b strings.Builder
 	b.WriteString(formatHeader(n) + "\n")
 
-	// TL;DR - короткий підсумок для тих, хто поспішає
-	if n.TLDR != "" {
-		b.WriteString("💬 <b>" + n.TLDR + "</b>\n")
+	// TL;DR - обов'язковий короткий акцент (💬 + emoji)
+	tldr := strings.TrimSpace(n.TLDR)
+	if tldr != "" {
+		// гарантируем, что TL;DR начинается с emoji/символа (хотя бы)
+		b.WriteString("💬 <b>" + tldr + "</b>\n")
 	}
 	b.WriteString("\n")
 
@@ -369,15 +371,21 @@ func FormatNewsWithImage(n News, _, _ int) string {
 		b.WriteString("🔗 <a href=\"" + n.Link + "\">Læs mere / Читати оригінал</a>\n")
 	}
 	if len(n.Tags) > 0 {
-		tags := make([]string, len(n.Tags))
-		for i, t := range n.Tags {
-			tags[i] = "#" + strings.ReplaceAll(t, " ", "_")
+		tags := make([]string, 0, len(n.Tags))
+		for _, t := range n.Tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			tags = append(tags, "#"+strings.ReplaceAll(t, " ", "_"))
 		}
-		b.WriteString("<i>" + strings.Join(tags, " ") + "</i>\n")
+		if len(tags) > 0 {
+			b.WriteString("<i>" + strings.Join(tags, " ") + "</i>\n")
+		}
 	}
 
-	// Цікавий факт про Данію (AI-генерований або fallback)
-	fact := n.FunFact
+	// separator + fun fact (always about Denmark/Kingdom)
+	fact := strings.TrimSpace(n.FunFact)
 	if fact == "" {
 		fact = GetRandomFact()
 	}
