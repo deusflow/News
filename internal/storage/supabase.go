@@ -143,23 +143,13 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 
 // SaveNews saves a news item to Supabase with retry logic for transient errors
 func (c *SupabaseClient) SaveNews(news NewsArchive) error {
-	// Step 1: Check by source_url (most reliable)
+	// Check by source_url (most reliable duplicate detection)
 	isDuplicateURL, err := c.IsDuplicateBySourceURL(news.SourceURL)
 	if err != nil {
 		log.Printf("Warning: source_url duplicate check failed: %v", err)
 	}
 	if isDuplicateURL {
 		log.Printf("⏭️ Skipping duplicate (same source_url): %s", news.SourceURL)
-		return nil
-	}
-
-	// Step 2: Check by similar title (backup check)
-	isDuplicate, err := c.IsDuplicateNews(news.Title)
-	if err != nil {
-		log.Printf("Warning: title duplicate check failed: %v", err)
-	}
-	if isDuplicate {
-		log.Printf("⏭️ Skipping duplicate (similar title): %s", news.Title)
 		return nil
 	}
 

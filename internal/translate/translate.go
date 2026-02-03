@@ -24,6 +24,16 @@ const (
 	mistralModel = "open-mistral-7b"         // Mistral free/open model
 )
 
+// Global HTTP client for reusing TCP connections (avoid creating new clients per request)
+var httpClient = &http.Client{
+	Timeout: 60 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 // SanitizeAIText removes common AI disclaimer lines (e.g., "Note: This translation is a machine translation ...")
 func SanitizeAIText(s string) string {
 	s = strings.TrimSpace(s)
@@ -228,11 +238,8 @@ TEXT:
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 60 * time.Second}
-
-	// Make request
-	resp, err := client.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
+	// Make request using global httpClient
+	resp, err := httpClient.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -287,6 +294,87 @@ TEXT:
 	return strings.TrimSpace(translatedText), nil
 }
 
+// summarizeWithGemini uses Gemini API for summarization
+func summarizeWithGemini(text, lang string) (string, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return "", errors.New("GEMINI_API_KEY not set")
+	}
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "gemini-flash-latest"
+	}
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
+
+	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text. Journalistic style. Output ONLY the summary.\n\nTEXT:\n%s", languageName(lang), text)
+
+	payload := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"parts": []map[string]interface{}{
+					{
+						"text": prompt,
+					},
+				},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.2,
+			"maxOutputTokens": 800,
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	resp, err := httpClient.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("HTTP error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == 429 {
+		return "", fmt.Errorf("quota exceeded (too many requests)")
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("gemini API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	candidates, ok := response["candidates"].([]interface{})
+	if !ok || len(candidates) == 0 {
+		return "", errors.New("no candidates in response")
+	}
+	candidate := candidates[0].(map[string]interface{})
+	content, ok := candidate["content"].(map[string]interface{})
+	if !ok {
+		return "", errors.New("no content in candidate")
+	}
+	parts, ok := content["parts"].([]interface{})
+	if !ok || len(parts) == 0 {
+		return "", errors.New("no parts in content")
+	}
+	part := parts[0].(map[string]interface{})
+	textVal, ok := part["text"].(string)
+	if !ok {
+		return "", errors.New("no text in part")
+	}
+
+	return strings.TrimSpace(textVal), nil
+}
+
 // translateWithGroq uses Groq API (FREE and very fast)
 func translateWithGroq(text, from, to string) (string, error) {
 	apiKey := os.Getenv("GROQ_API_KEY")
@@ -309,7 +397,7 @@ CRITICAL RULES:
 1. Translate sentence by sentence, preserving the SAME structure
 2. Output ONLY the translated text - NOTHING ELSE
 3. NEVER add greetings like "Привіт!", "Hello!", "Hey!"
-4. NEVER add questions like "Ти чув?", "Did you hear?"
+4. NEVER add questions like "Ти чув?", "Did ти hear?"
 5. NEVER add your opinions or commentary
 6. NEVER add phrases in parentheses explaining terms
 7. NEVER add "Note:", "Примітка:", or any disclaimers
@@ -349,9 +437,6 @@ NOT: "Привіт! Чув про фестиваль X? Вони розпрод�
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 30 * time.Second}
-
 	// Create request
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
@@ -362,8 +447,8 @@ NOT: "Привіт! Чув про фестиваль X? Вони розпрод�
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	// Make request
-	resp, err := client.Do(req)
+	// Make request using global httpClient
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -442,7 +527,6 @@ func translateWithCohere(text, from, to string) (string, error) {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
@@ -450,7 +534,7 @@ func translateWithCohere(text, from, to string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -529,9 +613,6 @@ func translateWithMistralAI(text, from, to string) (string, error) {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 30 * time.Second}
-
 	// Create request
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
@@ -542,8 +623,8 @@ func translateWithMistralAI(text, from, to string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	// Make request
-	resp, err := client.Do(req)
+	// Make request using global httpClient
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -607,11 +688,8 @@ func translateWithGoogleTranslate(text, from, to string) (string, error) {
 
 	fullURL := baseURL + "?" + params.Encode()
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 15 * time.Second}
-
-	// Make request
-	resp, err := client.Get(fullURL)
+	// Make request using global httpClient
+	resp, err := httpClient.Get(fullURL)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -711,6 +789,11 @@ func SummarizeText(text, lang string) (string, error) {
 		input = input[:4500] + "..."
 	}
 
+	if s, err := summarizeWithGemini(input, lang); err == nil && strings.TrimSpace(s) != "" {
+		return SanitizeAIText(s), nil
+	} else {
+		log.Printf("⚠️ Gemini summarize failed: %v", err)
+	}
 	if s, err := summarizeWithGroq(input, lang); err == nil && strings.TrimSpace(s) != "" {
 		return SanitizeAIText(s), nil
 	} else {
@@ -745,11 +828,10 @@ func summarizeWithGroq(text, lang string) (string, error) {
 		"max_tokens":  600,
 	}
 	jsonPayload, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -793,11 +875,10 @@ func summarizeWithCohere(text, lang string) (string, error) {
 		"max_tokens":  500,
 	}
 	jsonPayload, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -842,11 +923,10 @@ func summarizeWithMistral(text, lang string) (string, error) {
 		"max_tokens":  600,
 	}
 	jsonPayload, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -940,11 +1020,10 @@ func importanceWithGroq(prompt, lang string) (string, error) {
 		"max_tokens":  120,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 20 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("groq importance failed: %w", err)
 	}
@@ -988,11 +1067,10 @@ func importanceWithCohere(prompt, lang string) (string, error) {
 		"max_tokens":  120,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 20 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("cohere importance failed: %w", err)
 	}
@@ -1036,11 +1114,10 @@ func importanceWithMistral(prompt, lang string) (string, error) {
 		"max_tokens":  120,
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 20 * time.Second}
 	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("mistral importance failed: %w", err)
 	}
@@ -1156,7 +1233,6 @@ ABSOLUTE RULES:
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
@@ -1164,7 +1240,7 @@ ABSOLUTE RULES:
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}
@@ -1244,8 +1320,7 @@ TEXT:
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
+	resp, err := httpClient.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return "", fmt.Errorf("HTTP error: %v", err)
 	}

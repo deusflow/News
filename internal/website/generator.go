@@ -1,6 +1,7 @@
 package website
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,6 +51,30 @@ func NewGenerator(contentDir string, enabled bool) *Generator {
 // IsEnabled returns whether website generation is enabled
 func (g *Generator) IsEnabled() bool {
 	return g.enabled
+}
+
+// GeneratePostWithTimeout creates a markdown file with a timeout to prevent hanging
+func (g *Generator) GeneratePostWithTimeout(ctx context.Context, post NewsPost, timeout time.Duration) error {
+	if !g.enabled {
+		return nil
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Run generation in a channel to respect timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- g.GeneratePost(post)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("website post generation timed out after %v", timeout)
+	}
 }
 
 // GeneratePost creates a markdown file for the news post

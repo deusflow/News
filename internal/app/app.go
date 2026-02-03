@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
@@ -155,16 +156,15 @@ func (a *App) Run(ctx context.Context) {
 
 	// 6. Фильтрация и перевод
 	filtered, err := news.FilterAndTranslateWithOptions(ctx, items, news.Options{
-		Limit:                a.cfg.MaxNewsLimit,
-		MaxAge:               a.cfg.NewsMaxAge,
-		PerSource:            2,
-		MaxGeminiRequests:    a.cfg.MaxGeminiRequests,
-		ScrapeMaxArticles:    a.cfg.ScrapeMaxArticles,
-		ScrapeConcurrency:    a.cfg.ScrapeConcurrency,
-		EnableImportanceLine: a.cfg.EnableImportanceLine,
-		Keywords:             a.keywords,
-		AIClient:             a.geminiClient,
-		Metrics:              a.metrics,
+		Limit:             a.cfg.MaxNewsLimit,
+		MaxAge:            a.cfg.NewsMaxAge,
+		PerSource:         2,
+		MaxGeminiRequests: a.cfg.MaxGeminiRequests,
+		ScrapeMaxArticles: a.cfg.ScrapeMaxArticles,
+		ScrapeConcurrency: a.cfg.ScrapeConcurrency,
+		Keywords:          a.keywords,
+		AIClient:          a.geminiClient,
+		Metrics:           a.metrics,
 	})
 	if err != nil {
 		logger.Error("Filter error", "err", err)
@@ -368,7 +368,7 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 	}
 }
 
-// generateWebsitePost converts news.News to website.NewsPost and generates the post
+// generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout
 func generateWebsitePost(gen *website.Generator, n news.News) {
 	post := website.NewsPost{
 		Title:            n.Title,
@@ -387,7 +387,9 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 		PublishedAt:      n.Published,
 	}
 
-	if err := gen.GeneratePost(post); err != nil {
+	// Use timeout to prevent hanging goroutines (10 seconds should be plenty for file write)
+	ctx := context.Background()
+	if err := gen.GeneratePostWithTimeout(ctx, post, 10*time.Second); err != nil {
 		logger.Warn("Failed to generate website post", "title", n.Title, "error", err)
 	} else {
 		logger.Info("Generated website post", "title", n.Title)

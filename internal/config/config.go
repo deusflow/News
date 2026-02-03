@@ -31,14 +31,6 @@ type Config struct {
 	GeminiModel       string // model name, e.g. "gemini-flash-latest"
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 
-	// AI Rate Limiting (NEW - saves tokens!)
-	MaxGroqRequests    int  // maximum Groq requests per run (0 = unlimited)
-	MaxCohereRequests  int  // maximum Cohere requests per run (0 = unlimited)
-	MaxMistralRequests int  // maximum Mistral requests per run (0 = unlimited)
-	MaxTotalAIRequests int  // maximum total AI requests per run (0 = unlimited)
-	EnableBatching     bool // enable batch processing for AI requests (saves ~40% tokens)
-	BatchSize          int  // number of news items to process in one AI request (2-3 recommended)
-
 	// RSS settings
 	FeedsConfigPath    string
 	KeywordsConfigPath string
@@ -66,16 +58,12 @@ type Config struct {
 	DatabaseTTL int  // hours to keep records in database
 
 	// Feature flags
-	EnableThreadMode     bool
-	EnableImportanceLine bool
-	EnableVocabPost      bool
-	EnableInlineButtons  bool
-	VocabWordsPerDay     int
-	InlineButtonMode     string // "callback" or "url"
-	ChannelUsername      string // for building URL buttons (e.g. deusflow_news)
-
-	// NEW: ImportanceTopN field
-	ImportanceTopN int // show importance line only for first N news (0 = all)
+	EnableThreadMode    bool
+	EnableVocabPost     bool
+	EnableInlineButtons bool
+	VocabWordsPerDay    int
+	InlineButtonMode    string // "callback" or "url"
+	ChannelUsername     string // for building URL buttons (e.g. deusflow_news)
 
 	// Monitoring settings
 	EnableHTTPMonitoring bool
@@ -134,13 +122,7 @@ func Load() (*Config, error) {
 		// Default values
 		FeedsConfigPath:         "configs/feeds.yaml",
 		KeywordsConfigPath:      "configs/keywords.yaml",
-		MaxGeminiRequests:       10,   // Gemini is PRIMARY - handles all translation
-		MaxGroqRequests:         3,    // Groq is FALLBACK ONLY - when Gemini fails
-		MaxCohereRequests:       3,    // Cohere has 100/month free limit
-		MaxMistralRequests:      3,    // Mistral free tier
-		MaxTotalAIRequests:      15,   // Total AI requests limit per run
-		EnableBatching:          true, // Enable batching by default (saves 40% tokens)
-		BatchSize:               2,    // Process 2 news items per AI request
+		MaxGeminiRequests:       10, // Gemini is PRIMARY - handles all translation
 		MaxNewsLimit:            8,
 		NewsMaxAge:              24 * time.Hour,
 		RequestTimeout:          30 * time.Second,
@@ -159,13 +141,11 @@ func Load() (*Config, error) {
 		ScrapeMaxArticles:       10,
 		DatabaseTTL:             48, // default TTL for database records
 		EnableThreadMode:        false,
-		EnableImportanceLine:    true,
 		EnableVocabPost:         true,
 		EnableInlineButtons:     true,
 		VocabWordsPerDay:        5,
 		InlineButtonMode:        "callback",
 		ChannelUsername:         "",
-		ImportanceTopN:          0, // default to 0 (show importance line for all news)
 		EnableHTTPMonitoring:    false,
 		MonitoringPort:          "8080",
 	}
@@ -254,36 +234,6 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// NEW: AI Rate Limiting configuration
-	if v := os.Getenv("MAX_GROQ_REQUESTS"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
-			cfg.MaxGroqRequests = val
-		}
-	}
-	if v := os.Getenv("MAX_COHERE_REQUESTS"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
-			cfg.MaxCohereRequests = val
-		}
-	}
-	if v := os.Getenv("MAX_MISTRAL_REQUESTS"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
-			cfg.MaxMistralRequests = val
-		}
-	}
-	if v := os.Getenv("MAX_TOTAL_AI_REQUESTS"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
-			cfg.MaxTotalAIRequests = val
-		}
-	}
-	if v := os.Getenv("ENABLE_BATCHING"); v != "" {
-		cfg.EnableBatching = v == "true"
-	}
-	if v := os.Getenv("BATCH_SIZE"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 5 {
-			cfg.BatchSize = val
-		}
-	}
-
 	// NEW: Check if PostgreSQL should be used
 	if usePg := os.Getenv("USE_POSTGRES"); usePg == "true" {
 		cfg.UsePostgres = true
@@ -292,9 +242,6 @@ func Load() (*Config, error) {
 	// NEW: Feature flags
 	if v := os.Getenv("ENABLE_THREAD_MODE"); v == "true" {
 		cfg.EnableThreadMode = true
-	}
-	if v := os.Getenv("ENABLE_IMPORTANCE_LINE"); v != "" {
-		cfg.EnableImportanceLine = v == "true"
 	}
 	if v := os.Getenv("ENABLE_VOCAB_POST"); v != "" {
 		cfg.EnableVocabPost = v == "true"
@@ -313,11 +260,6 @@ func Load() (*Config, error) {
 	if v := os.Getenv("VOCAB_WORDS_PER_DAY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 12 {
 			cfg.VocabWordsPerDay = val
-		}
-	}
-	if v := os.Getenv("IMPORTANCE_TOP_N"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 0 {
-			cfg.ImportanceTopN = val
 		}
 	}
 

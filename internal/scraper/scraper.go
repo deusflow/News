@@ -110,8 +110,8 @@ func extractDRContent(doc *goquery.Document) string {
 	for _, selector := range selectors {
 		paragraphCount := 0
 		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
-			// Останавливаемся после первых 5 параграфов чтобы не захватить другие статьи
-			if paragraphCount >= 5 {
+			// Останавливаемся после первых 8 параграфов чтобы не захватить другие статьи
+			if paragraphCount >= 15 {
 				return
 			}
 
@@ -141,7 +141,7 @@ func extractDRContent(doc *goquery.Document) string {
 	// Если ничего не нашли, пробуем более общий поиск, но с жестким ограничением
 	if !articleFound {
 		doc.Find("p").Each(func(i int, s *goquery.Selection) {
-			if len(paragraphs) >= 3 { // Максимум 3 параграфа для безопасности
+			if len(paragraphs) >= 5 { // Максимум 5 параграфа для безопасности
 				return
 			}
 

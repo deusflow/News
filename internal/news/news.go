@@ -49,17 +49,16 @@ type News struct {
 }
 
 type Options struct {
-	Limit                int
-	MaxAge               time.Duration
-	PerSource            int
-	MaxGeminiRequests    int
-	ScrapeMaxArticles    int
-	ScrapeConcurrency    int
-	EnableImportanceLine bool
-	PerCategory          int
-	Keywords             *config.KeywordsConfig
-	AIClient             *gemini.Client
-	Metrics              *metrics.Metrics
+	Limit             int
+	MaxAge            time.Duration
+	PerSource         int
+	MaxGeminiRequests int
+	ScrapeMaxArticles int
+	ScrapeConcurrency int
+	PerCategory       int
+	Keywords          *config.KeywordsConfig
+	AIClient          *gemini.Client
+	Metrics           *metrics.Metrics
 }
 
 func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, opts Options) ([]News, error) {
@@ -153,7 +152,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		if opts.MaxGeminiRequests > 0 && geminiReqs >= opts.MaxGeminiRequests {
 			// Лимит исчерпан - используем Groq для перевода
 			log.Printf("⚠️ Gemini limit reached, using Groq fallback for: %s", n.Title)
-			n.SummaryDanish = fallbackSummary(n.Content)
+
+			// Используем нормальный SummarizeText вместо простой обрезки
+			if sum, err := translate.SummarizeText(n.Content, "da"); err == nil && sum != "" {
+				n.SummaryDanish = sum
+			} else {
+				n.SummaryDanish = fallbackSummary(n.Content)
+			}
+
 			// Переводим через строгий fallback
 			if ukSummary, err := translate.StrictTranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
 				n.SummaryUkrainian = ukSummary
@@ -174,7 +180,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			aiResp, err := opts.AIClient.TranslateAndSummarizeNews(ctx, n.Title, n.Content)
 			if err != nil {
 				log.Printf("❌ Gemini failed for %s: %v", n.Title, err)
-				n.SummaryDanish = fallbackSummary(n.Content)
+
+				// Используем нормальный SummarizeText вместо простой обрезки (попытка через другие модели)
+				if sum, err := translate.SummarizeText(n.Content, "da"); err == nil && sum != "" {
+					n.SummaryDanish = sum
+				} else {
+					n.SummaryDanish = fallbackSummary(n.Content)
+				}
+
 				// Переводим summary через строгий fallback
 				if ukSummary, err := translate.StrictTranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
 					n.SummaryUkrainian = ukSummary
