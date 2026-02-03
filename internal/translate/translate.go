@@ -1069,7 +1069,6 @@ func importanceWithMistral(prompt, lang string) (string, error) {
 	return trimImportance(content), nil
 }
 
-// StrictTranslateText translates text as close to the source as possible.
 // Use this for fallbacks where we must keep the same meaning/structure and avoid "chatty" rewrites.
 func StrictTranslateText(text, from, to string) (string, error) {
 	// If text is empty, return as is
