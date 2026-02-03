@@ -154,15 +154,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			// Лимит исчерпан - используем Groq для перевода
 			log.Printf("⚠️ Gemini limit reached, using Groq fallback for: %s", n.Title)
 			n.SummaryDanish = fallbackSummary(n.Content)
-			// Переводим через Groq
-			if ukSummary, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
+			// Переводим через строгий fallback
+			if ukSummary, err := translate.StrictTranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
 				n.SummaryUkrainian = ukSummary
-				log.Printf("✅ Groq fallback translation ok for: %s", n.Title)
+				log.Printf("✅ Groq STRICT fallback translation ok for: %s", n.Title)
 			} else {
-				log.Printf("❌ Groq fallback failed for %s: %v", n.Title, err)
+				log.Printf("❌ Groq STRICT fallback failed for %s: %v", n.Title, err)
 				n.SummaryUkrainian = "⚠️ Переклад тимчасово недоступний."
 			}
-			if ukTitle, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && ukTitle != "" {
+			if ukTitle, err := translate.StrictTranslateText(n.Title, "da", "uk"); err == nil && ukTitle != "" {
 				n.TitleUkrainian = ukTitle
 			} else {
 				n.TitleUkrainian = n.Title
@@ -175,15 +175,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			if err != nil {
 				log.Printf("❌ Gemini failed for %s: %v", n.Title, err)
 				n.SummaryDanish = fallbackSummary(n.Content)
-				// Переводим summary через Groq
-				if ukSummary, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
+				// Переводим summary через строгий fallback
+				if ukSummary, err := translate.StrictTranslateText(n.SummaryDanish, "da", "uk"); err == nil && ukSummary != "" {
 					n.SummaryUkrainian = ukSummary
-					log.Printf("✅ Groq fallback translation ok: %s", n.Title)
+					log.Printf("✅ Groq STRICT fallback translation ok: %s", n.Title)
 				} else {
-					log.Printf("❌ Groq fallback failed for %s: %v", n.Title, err)
+					log.Printf("❌ Groq STRICT fallback failed for %s: %v", n.Title, err)
 					n.SummaryUkrainian = "⚠️ Переклад тимчасово недоступний."
 				}
-				trTitle, _ := translate.TranslateText(n.Title, "da", "uk")
+				trTitle, _ := translate.StrictTranslateText(n.Title, "da", "uk")
 				n.TitleUkrainian = trTitle
 				n.Mood = "neutral"
 				n.TLDR = ""
@@ -321,11 +321,11 @@ func FormatNewsWithImage(n News, _, _ int) string {
 
 	ukSum := limitText(n.SummaryUkrainian, 800)
 	if ukSum == "" {
-		// Если украинского перевода нет - пробуем перевести датский summary через Groq
+		// Если украинского перевода нет - пробуем перевести датский summary СТРОГО (без переписывания)
 		if daSum != "" {
-			if translated, err := translate.TranslateText(daSum, "da", "uk"); err == nil && translated != "" {
+			if translated, err := translate.StrictTranslateText(daSum, "da", "uk"); err == nil && translated != "" {
 				ukSum = limitText(translated, 800)
-				log.Printf("✅ FormatNewsWithImage: Groq fallback translation ok")
+				log.Printf("✅ FormatNewsWithImage: STRICT fallback translation ok")
 			} else {
 				log.Printf("⚠️ FormatNewsWithImage: Переклад недоступний для: %s", n.Title)
 				ukSum = "⚠️ Переклад тимчасово недоступний. Див. оригінал вище."
@@ -337,11 +337,11 @@ func FormatNewsWithImage(n News, _, _ int) string {
 
 	ukTitle := n.TitleUkrainian
 	if ukTitle == "" {
-		// Пробуем перевести заголовок
-		if translated, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
+		// Пробуем перевести заголовок (строго)
+		if translated, err := translate.StrictTranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
 			ukTitle = translated
 		} else {
-			ukTitle = n.Title // Fallback на оригинал только если перевод не удался
+			ukTitle = n.Title
 		}
 	}
 
@@ -389,20 +389,20 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 
 	ukTitle := n.TitleUkrainian
 	if ukTitle == "" {
-		// Пробуем перевести заголовок через Groq
-		if translated, err := translate.TranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
+		// Пробуем перевести заголовок строго
+		if translated, err := translate.StrictTranslateText(n.Title, "da", "uk"); err == nil && translated != "" {
 			ukTitle = translated
 		} else {
 			ukTitle = n.Title
 		}
 	}
 
-	// Проверяем есть ли украинский summary, если нет - переводим
+	// Проверяем есть ли украинский summary, если нет - переводим строго
 	ukSummary := n.SummaryUkrainian
 	if ukSummary == "" && n.SummaryDanish != "" {
-		if translated, err := translate.TranslateText(n.SummaryDanish, "da", "uk"); err == nil && translated != "" {
+		if translated, err := translate.StrictTranslateText(n.SummaryDanish, "da", "uk"); err == nil && translated != "" {
 			ukSummary = translated
-			log.Printf("✅ FormatCaptionForPhoto: Groq fallback translation ok")
+			log.Printf("✅ FormatCaptionForPhoto: STRICT fallback translation ok")
 		}
 	}
 	// Сохраняем перевод обратно в структуру для использования ниже
@@ -601,8 +601,8 @@ func isRelevantForRefugees(text string) bool {
 	return false
 }
 
-// isSpecificForUkrainians - проверяет что новость СПЕЦИФИЧНО для украинцев
-// Только законы, статусы и пособия именно для украинских беженцев
+// isSpecificForUkrainians - проверяет что новость СПЕЦИФИЧНО для українців
+// Только закони, статусы и пособия именно для украинских беженцев
 func isSpecificForUkrainians(text string) bool {
 	// Прямые указатели на украинский закон/статус
 	ukrainianSpecificKeywords := []string{

@@ -292,23 +292,31 @@ func translateWithGroq(text, from, to string) (string, error) {
 	// Groq API endpoint
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 
-	// Create translation prompt with STRICT rules (same as Gemini)
+	// Create translation prompt with STRICT rules
 	targetName := languageName(to)
 
-	// System message to set behavior
-	systemPrompt := `You are a professional news translator. Your ONLY job is to translate text.
+	// System message - STRICT translation mode, NO creative rewrites
+	systemPrompt := `You are a strict translation engine for news articles.
 
-ABSOLUTE RULES:
-1. Output ONLY the translated text - nothing else
-2. NEVER add notes, explanations, or comments
-3. NEVER use phrases like "Note:", "Примітка:", "(translation)", etc.
-4. NEVER explain what words mean
-5. NEVER add disclaimers about translation quality
-6. Keep brand names unchanged (LEGO, Carlsberg, Danske Bank, etc.)
-7. Write naturally, as if a native speaker wrote it
-8. If unsure about a term, just translate it naturally - do NOT add explanations`
+YOUR ONLY TASK: Translate the input text to the target language.
 
-	userPrompt := fmt.Sprintf(`Translate from %s to %s. Output ONLY the translation:
+CRITICAL RULES:
+1. Translate sentence by sentence, preserving the SAME structure
+2. Output ONLY the translated text - NOTHING ELSE
+3. NEVER add greetings like "Привіт!", "Hello!", "Hey!"
+4. NEVER add questions like "Ти чув?", "Did you hear?"
+5. NEVER add your opinions or commentary
+6. NEVER add phrases in parentheses explaining terms
+7. NEVER add "Note:", "Примітка:", or any disclaimers
+8. Keep the SAME number of sentences as the original
+9. Keep brand names unchanged (LEGO, Carlsberg, Tinderbox, etc.)
+10. Keep the formal news tone - NO casual/chatty style
+
+If the input is: "Festival X sold out. This is a new record."
+Output should be: "Фестиваль X розпроданий. Це новий рекорд."
+NOT: "Привіт! Чув про фестиваль X? Вони розпродали все!"`
+
+	userPrompt := fmt.Sprintf(`Translate this %s text to %s. Output ONLY the translation, nothing else:
 
 %s`, from, targetName, text)
 
@@ -325,9 +333,9 @@ ABSOLUTE RULES:
 				"content": userPrompt,
 			},
 		},
-		"temperature": 0.3, // Slightly higher for more natural output
+		"temperature": 0.1, // Low temperature for strict translation
 		"max_tokens":  1500,
-		"top_p":       0.9,
+		"top_p":       1.0,
 		"stream":      false,
 	}
 
@@ -806,8 +814,8 @@ func summarizeWithCohere(text, lang string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unexpected cohere chat response")
 	}
-	contentArr, _ := msg["content"].([]interface{})
-	if len(contentArr) == 0 {
+	contentArr, ok := msg["content"].([]interface{})
+	if !ok || len(contentArr) == 0 {
 		return "", fmt.Errorf("no content in cohere message")
 	}
 	first, _ := contentArr[0].(map[string]interface{})
@@ -926,22 +934,25 @@ func importanceWithGroq(prompt, lang string) (string, error) {
 		"temperature": 0.2,
 		"max_tokens":  120,
 	}
-	b, _ := json.Marshal(payload)
+	payloadBytes, _ := json.Marshal(payload)
 	client := &http.Client{Timeout: 20 * time.Second}
-	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		return "", fmt.Errorf("groq importance failed")
+	if err != nil {
+		return "", fmt.Errorf("groq importance failed: %w", err)
 	}
 	defer func() {
-		if resp != nil {
+		if resp != nil && resp.Body != nil {
 			if err := resp.Body.Close(); err != nil {
 				log.Printf("Warning: close Groq importance body: %v", err)
 			}
 		}
 	}()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("groq importance failed (status=%d)", resp.StatusCode)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	var response map[string]interface{}
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -971,22 +982,25 @@ func importanceWithCohere(prompt, lang string) (string, error) {
 		"temperature": 0.2,
 		"max_tokens":  120,
 	}
-	b, _ := json.Marshal(payload)
+	payloadBytes, _ := json.Marshal(payload)
 	client := &http.Client{Timeout: 20 * time.Second}
-	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		return "", fmt.Errorf("cohere importance failed")
+	if err != nil {
+		return "", fmt.Errorf("cohere importance failed: %w", err)
 	}
 	defer func() {
-		if resp != nil {
+		if resp != nil && resp.Body != nil {
 			if err := resp.Body.Close(); err != nil {
 				log.Printf("Warning: close Cohere importance body: %v", err)
 			}
 		}
 	}()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("cohere importance failed (status=%d)", resp.StatusCode)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	var response map[string]interface{}
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -995,7 +1009,7 @@ func importanceWithCohere(prompt, lang string) (string, error) {
 	msg, _ := response["message"].(map[string]interface{})
 	contentArr, _ := msg["content"].([]interface{})
 	if len(contentArr) == 0 {
-		return "", fmt.Errorf("no content cohere")
+		return "", fmt.Errorf("no content in cohere message")
 	}
 	first, _ := contentArr[0].(map[string]interface{})
 	textOut, _ := first["text"].(string)
@@ -1016,22 +1030,25 @@ func importanceWithMistral(prompt, lang string) (string, error) {
 		"temperature": 0.2,
 		"max_tokens":  120,
 	}
-	b, _ := json.Marshal(payload)
+	payloadBytes, _ := json.Marshal(payload)
 	client := &http.Client{Timeout: 20 * time.Second}
-	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(b))
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		return "", fmt.Errorf("mistral importance failed")
+	if err != nil {
+		return "", fmt.Errorf("mistral importance failed: %w", err)
 	}
 	defer func() {
-		if resp != nil {
+		if resp != nil && resp.Body != nil {
 			if err := resp.Body.Close(); err != nil {
 				log.Printf("Warning: close Mistral importance body: %v", err)
 			}
 		}
 	}()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("mistral importance failed (status=%d)", resp.StatusCode)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	var response map[string]interface{}
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -1045,4 +1062,227 @@ func importanceWithMistral(prompt, lang string) (string, error) {
 	message := choice["message"].(map[string]interface{})
 	content := message["content"].(string)
 	return trimImportance(content), nil
+}
+
+// StrictTranslateText translates text as close to the source as possible.
+// Use this for fallbacks where we must keep the same meaning/structure and avoid "chatty" rewrites.
+func StrictTranslateText(text, from, to string) (string, error) {
+	// If text is empty, return as is
+	if text == "" {
+		return text, nil
+	}
+
+	// Normalize target language codes we support
+	target := strings.ToLower(strings.TrimSpace(to))
+	switch target {
+	case "uk", "ukrainian":
+		target = "uk"
+	case "da", "danish":
+		target = "da"
+	default:
+		return text, nil
+	}
+
+	text = cleanTextForTranslation(text)
+	originalText := text
+	if len(text) > 4000 {
+		text = text[:4000] + "..."
+	}
+
+	// Providers order: Groq -> Gemini -> others (same as TranslateText)
+	if result, err := strictTranslateWithGroq(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
+		log.Printf("✅ Groq STRICT %s->%s ok", from, target)
+		return result, nil
+	}
+	if result, err := strictTranslateWithGemini(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
+		log.Printf("✅ Gemini STRICT %s->%s ok", from, target)
+		return result, nil
+	}
+
+	// fall back to existing pipeline (may adapt, but only after strict options fail)
+	if result, err := TranslateText(originalText, from, target); err == nil {
+		return result, nil
+	}
+	return originalText, nil
+}
+
+// strictTranslateWithGroq is a stricter variant of Groq translation.
+// It forbids any rewrites, greetings, hooks, or additional sentences.
+func strictTranslateWithGroq(text, from, to string) (string, error) {
+	apiKey := os.Getenv("GROQ_API_KEY")
+	if apiKey == "" {
+		return "", errors.New("GROQ_API_KEY not set")
+	}
+
+	apiURL := "https://api.groq.com/openai/v1/chat/completions"
+	targetName := languageName(to)
+
+	systemPrompt := `You are a LITERAL translation machine. No creativity allowed.
+
+ABSOLUTE RULES:
+1. Translate each sentence EXACTLY as written - same structure, same meaning
+2. Output ONLY the translated text
+3. FORBIDDEN: "Привіт", "Hello", "Hey", greetings of any kind
+4. FORBIDDEN: "Ти чув?", "Did you hear?", rhetorical questions you add
+5. FORBIDDEN: Parenthetical explanations like "(це означає...)"
+6. FORBIDDEN: "Note:", "Примітка:", any meta-commentary
+7. FORBIDDEN: Adding sentences that don't exist in the original
+8. Keep brand names: Tinderbox, LEGO, Carlsberg, etc.
+9. Same number of sentences in output as in input
+10. Formal news style only`
+
+	userPrompt := fmt.Sprintf("Translate %s to %s. Literal translation only:\n\n%s", from, targetName, text)
+
+	payload := map[string]interface{}{
+		"model": groqModel,
+		"messages": []map[string]interface{}{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+		"temperature": 0.0,
+		"max_tokens":  1500,
+		"top_p":       1,
+		"stream":      false,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP error: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == 429 {
+		return "", fmt.Errorf("quota exceeded (too many requests)")
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("groq API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	choices, ok := response["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return "", errors.New("no choices in response")
+	}
+	choice := choices[0].(map[string]interface{})
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return "", errors.New("no message in choice")
+	}
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", errors.New("no content in message")
+	}
+
+	return strings.TrimSpace(content), nil
+}
+
+// strictTranslateWithGemini uses Gemini but forces strict translation behavior.
+func strictTranslateWithGemini(text, from, to string) (string, error) {
+	apiKey := os.Getenv("GEMINI_API_KEY")
+	if apiKey == "" {
+		return "", errors.New("GEMINI_API_KEY not set")
+	}
+	modelName := os.Getenv("GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "gemini-flash-latest"
+	}
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
+
+	targetName := languageName(to)
+	prompt := fmt.Sprintf(`Strictly translate the following text from %s to %s.
+Rules:
+- Output ONLY the translated text.
+- Do not rewrite, summarize, or add anything.
+- Do not add notes or explanations.
+
+TEXT:
+%s`, from, targetName, text)
+
+	payload := map[string]interface{}{
+		"contents": []map[string]interface{}{{
+			"parts": []map[string]interface{}{{"text": prompt}},
+		}},
+		"generationConfig": map[string]interface{}{
+			"temperature":     0.0,
+			"maxOutputTokens": 1500,
+		},
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(apiURL, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("HTTP error: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == 429 {
+		return "", fmt.Errorf("quota exceeded (too many requests)")
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("gemini API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %v", err)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("error parsing response: %v", err)
+	}
+
+	candidates, ok := response["candidates"].([]interface{})
+	if !ok || len(candidates) == 0 {
+		return "", errors.New("no candidates in response")
+	}
+	candidate := candidates[0].(map[string]interface{})
+	content, ok := candidate["content"].(map[string]interface{})
+	if !ok {
+		return "", errors.New("no content in candidate")
+	}
+	parts, ok := content["parts"].([]interface{})
+	if !ok || len(parts) == 0 {
+		return "", errors.New("no parts in content")
+	}
+	part := parts[0].(map[string]interface{})
+	translatedText, ok := part["text"].(string)
+	if !ok {
+		return "", errors.New("no text in part")
+	}
+
+	return strings.TrimSpace(translatedText), nil
 }
