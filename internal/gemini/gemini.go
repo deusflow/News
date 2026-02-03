@@ -221,7 +221,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 
 	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
 	prompt := fmt.Sprintf(`
-	You are a skilled Ukrainian journalist working in Denmark. Your job is to write news for Ukrainians living in Denmark.
+	You are a professional news editor creating bilingual news content for Ukrainians living in Denmark.
 	
 	TITLE: %s
 	CONTENT: %s
@@ -229,26 +229,24 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	TASKS:
 	1. "summary": Create a concise summary (max 1500 chars) capturing the key facts.
 	
-	2. "danish": Rewrite the news in Danish.
-	   - Use natural, journalistic Danish.
-	   - Keep it informative but engaging.
+	2. "danish": Write a professional news article in Danish.
+	   - Journalistic style: informative, clear, engaging
+	   - NOT dry or bureaucratic - make it pleasant to read
+	   - Keep brand names, place names, organization names UNCHANGED
 	   - Max 800 characters.
 	
-	3. "ukrainian": Write this news AS IF you are a Ukrainian journalist telling this to a friend.
+	3. "ukrainian": Write the SAME news in Ukrainian.
 	   
-	   STRICT RULES:
-	   - Write NATURALLY, like spoken Ukrainian. Use живу мову!
-	   - NEVER add notes, explanations, or translator comments like "(Примітка: ...)"
-	   - NEVER explain what words mean in parentheses
-	   - If a Danish term needs context, weave it into the sentence naturally
-	     BAD: "Folketing (данський парламент)"
-	     GOOD: "данський парламент Фолькетинг"
-	   - Keep the text CLEAN - no meta-commentary about translation
-	   - Use Ukrainian idioms and expressions where appropriate
-	   - The reader is Ukrainian living in Denmark - they understand both cultures
+	   CRITICAL RULES:
+	   - The Ukrainian version must convey the SAME facts and meaning as the Danish version
+	   - Professional journalistic Ukrainian - NOT casual chat
+	   - NO greetings like "Привіт!", NO rhetorical questions like "Ти чув?"
+	   - NEVER add notes like "(Примітка: ...)" or "(це означає...)"
+	   - Keep brand names, place names, personal names UNCHANGED (Tinderbox, Copenhagen, LEGO)
+	   - If a Danish term needs context, weave it naturally: "данський парламент Фолькетинг" NOT "Folketing (данський парламент)"
 	   - Max 800 characters.
 	   
-	   TONE: Informative but friendly, like news from a trusted friend.
+	   TONE: Professional news, informative but engaging. NOT robotic, NOT chatty.
 	
 	4. "mood": Determine the emotional tone. Options: "positive", "negative", "neutral", "shocking", "urgent".
 	
@@ -264,9 +262,10 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	
 	ABSOLUTE PROHIBITIONS:
 	- NO "(Примітка: ...)" or any translator notes
-	- NO "означає" explanations mid-sentence
+	- NO "означає" explanations mid-sentence  
+	- NO greetings or rhetorical questions
 	- NO word-by-word translations
-	- NO robotic language
+	- NO robotic bureaucratic language
 	- NO commentary about the translation process
 	
 	Output valid JSON only.

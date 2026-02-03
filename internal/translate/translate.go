@@ -115,23 +115,23 @@ func TranslateText(text, from, to string) (string, error) {
 		text = text[:4000] + "..."
 	}
 
-	// Try providers in order (fast/free first or as configured)
-	// СНАЧАЛА Groq (быстрый и бесплатный "запасной аэродром")
-	if result, err := translateWithGroq(text, from, target); err == nil && result != "" && result != text {
-		result = SanitizeAIText(result)
-		log.Printf("✅ Groq API %s->%s ok", from, target)
-		return result, nil
-	} else {
-		log.Printf("⚠️ Groq API not work for %s->%s: %v", from, target, err)
-	}
-
-	// ПОТОМ Gemini (если Groq не смог)
+	// Try providers in order: Gemini first (quality), then Groq (fast fallback)
+	// СНАЧАЛА Gemini (качественный перевод)
 	if result, err := translateWithGemini(text, from, target); err == nil && result != "" && result != text {
 		result = SanitizeAIText(result)
 		log.Printf("✅ Gemini API %s->%s ok", from, target)
 		return result, nil
 	} else {
 		log.Printf("⚠️ Gemini API not work for %s->%s: %v", from, target, err)
+	}
+
+	// ПОТОМ Groq (быстрый fallback)
+	if result, err := translateWithGroq(text, from, target); err == nil && result != "" && result != text {
+		result = SanitizeAIText(result)
+		log.Printf("✅ Groq API %s->%s ok", from, target)
+		return result, nil
+	} else {
+		log.Printf("⚠️ Groq API not work for %s->%s: %v", from, target, err)
 	}
 
 	if result, err := translateWithCohere(text, from, target); err == nil && result != "" && result != text {
@@ -188,18 +188,23 @@ func translateWithGemini(text, from, to string) (string, error) {
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 
-	// Create translation prompt with emphasis on natural adaptation
+	// Create translation prompt for journalistic style
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate the following news text from %s to %s.
+	prompt := fmt.Sprintf(`Translate this news text from %s to %s in a journalistic style.
 
-IMPORTANT RULES:
-- Do NOT translate word-by-word. Adapt the text naturally for %s readers.
-- Use natural %s expressions and sentence structures.
-- Keep brand names unchanged (LEGO, Carlsberg, etc.).
-- Return ONLY the translation, no explanations.
+STYLE RULES:
+- Write like a professional journalist, not a translator
+- Keep it informative but engaging - not dry or bureaucratic
+- Preserve the same facts, meaning, and tone as the original
+- Use natural %s expressions and sentence flow
+- Keep brand names, organization names, place names UNCHANGED (LEGO, Carlsberg, Tinderbox, Copenhagen, etc.)
+- Keep personal names in original form
+- NO greetings, NO "Привіт!", NO rhetorical questions
+- NO notes, NO explanations, NO meta-commentary
+- Output ONLY the translated text
 
 TEXT:
-%s`, from, targetName, targetName, targetName, text)
+%s`, from, targetName, targetName, text)
 
 	// Request payload
 	payload := map[string]interface{}{
