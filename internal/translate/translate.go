@@ -19,9 +19,9 @@ import (
 // Centralized model identifiers (free-tier friendly / GA as of late 2025)
 const (
 	// geminiModel is now configured via GEMINI_MODEL env variable
-	groqModel    = "llama-3.1-8b-instant" // very fast free-tier on Groq
-	cohereModel  = "command-r-mini"       // Cohere Chat API (free-tier friendly)
-	mistralModel = "open-mistral-7b"      // Mistral free/open model
+	groqModel    = "llama-3.3-70b-versatile" // best quality free-tier on Groq
+	cohereModel  = "command-r-mini"          // Cohere Chat API (free-tier friendly)
+	mistralModel = "open-mistral-7b"         // Mistral free/open model
 )
 
 // SanitizeAIText removes common AI disclaimer lines (e.g., "Note: This translation is a machine translation ...")
@@ -292,31 +292,42 @@ func translateWithGroq(text, from, to string) (string, error) {
 	// Groq API endpoint
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 
-	// Create translation prompt with natural adaptation emphasis
+	// Create translation prompt with STRICT rules (same as Gemini)
 	targetName := languageName(to)
-	prompt := fmt.Sprintf(`Translate this news text from %s to %s.
 
-Rules:
-- Adapt naturally for %s readers, not word-by-word.
-- Use idiomatic %s expressions.
-- Keep brand names unchanged.
-- Return ONLY the translation.
+	// System message to set behavior
+	systemPrompt := `You are a professional news translator. Your ONLY job is to translate text.
 
-Text:
-%s`, from, targetName, targetName, targetName, text)
+ABSOLUTE RULES:
+1. Output ONLY the translated text - nothing else
+2. NEVER add notes, explanations, or comments
+3. NEVER use phrases like "Note:", "Примітка:", "(translation)", etc.
+4. NEVER explain what words mean
+5. NEVER add disclaimers about translation quality
+6. Keep brand names unchanged (LEGO, Carlsberg, Danske Bank, etc.)
+7. Write naturally, as if a native speaker wrote it
+8. If unsure about a term, just translate it naturally - do NOT add explanations`
 
-	// Request payload - ОБНОВЛЕНА МОДЕЛЬ!
+	userPrompt := fmt.Sprintf(`Translate from %s to %s. Output ONLY the translation:
+
+%s`, from, targetName, text)
+
+	// Request payload with system message
 	payload := map[string]interface{}{
 		"model": groqModel,
 		"messages": []map[string]interface{}{
 			{
+				"role":    "system",
+				"content": systemPrompt,
+			},
+			{
 				"role":    "user",
-				"content": prompt,
+				"content": userPrompt,
 			},
 		},
-		"temperature": 0.1,
-		"max_tokens":  1000,
-		"top_p":       1,
+		"temperature": 0.3, // Slightly higher for more natural output
+		"max_tokens":  1500,
+		"top_p":       0.9,
 		"stream":      false,
 	}
 
