@@ -34,6 +34,8 @@ func ExtractFullArticle(ctx context.Context, url string) (*ArticleContent, error
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
+	// В scraper.go перед resp, err := client.Do(req)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	// Get HTML page
 	resp, err := client.Do(req)
 	if err != nil {
@@ -549,7 +551,15 @@ func ExtractImageURL(pageURL string) (string, error) {
 	}
 
 	client := &http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Get(pageURL)
+
+	req, err := http.NewRequest("GET", pageURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := client.Do(req)
+
 	if err != nil {
 		return "", fmt.Errorf("error loading page: %v", err)
 	}
