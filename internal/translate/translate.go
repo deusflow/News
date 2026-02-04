@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // Centralized model identifiers (free-tier friendly / GA as of late 2025)
