@@ -60,10 +60,10 @@ func NewClient(apiKey, modelName string, m *metrics.Metrics) (*Client, error) {
 	}
 
 	if modelName == "" {
-		modelName = "gemini-2.5-flash" // always points to latest flash version
+		modelName = "gemini-2.5-flash" // latest stable flash model
 	}
 
-	fallbackModel := "gemini-2.0-flash" // fallback if primary model fails
+	fallbackModel := "gemini-2.0-flash" // fallback to older stable model if primary fails
 
 	// Rate limiter: 1 request per 40 seconds
 	rateInterval := 40 * time.Second
@@ -100,8 +100,9 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 	}
 
 	// Increase timeout to handle potential rate limit waits
-	// Use the passed context as parent
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	// Rate limiter = 40s per request, need time for: primary (2 attempts) + fallback (2 attempts)
+	// Minimum: 4 × 40s = 160s, plus API response time → 300s is safe
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
 	var result *NewsTranslation
@@ -245,13 +246,15 @@ CRITICAL CONSISTENCY RULE:
 TASKS (return valid JSON only):
 1) "summary": internal working summary (max 1500 chars)
 
-2) "danish": Write a compact news text in Danish (max 800 chars)
-   - Start with the Danish title as the FIRST sentence (same as input title, unchanged)
-   - Then 2–5 sentences with key facts
+2) "danish": Write a compact news BODY text in Danish (max 800 chars)
+   - DO NOT include the title! The title is handled separately.
+   - Write 2–5 sentences with key facts ONLY
+   - Start directly with the main fact/event
 
-3) "ukrainian": Write the SAME news text in Ukrainian (max 800 chars)
-   - Start with a Ukrainian title sentence (natural Ukrainian, but proper nouns unchanged)
-   - Then 2–5 sentences with the SAME facts as the Danish version
+3) "ukrainian": Write the SAME news BODY text in Ukrainian (max 800 chars)
+   - DO NOT include the title! The title is handled separately.
+   - Write 2–5 sentences with the SAME facts as the Danish version
+   - Start directly with the main fact/event
    - No greetings, no rhetorical questions, no notes
 
 4) "title_ukrainian": Ukrainian translation of the TITLE only
@@ -268,11 +271,13 @@ TASKS (return valid JSON only):
 8) "fun_fact": ONE interesting fact about Denmark or the Danish Kingdom (Королівство Данія)
    - Ukrainian, max 140 chars, start with ONE emoji
    - Neutral and factual (no реклами)
+   - MUST be different from the news topic! General interesting fact about Denmark.
 
 ABSOLUTE PROHIBITIONS:
 - No "(Примітка: ...)" or any translator commentary
 - No explanations like "це означає"
 - No hashtags in danish/ukrainian texts (tags are separate)
+- DO NOT repeat the title in danish/ukrainian fields!
 
 Output valid JSON only.
 	`, title, content)

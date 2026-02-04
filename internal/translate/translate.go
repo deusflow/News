@@ -194,7 +194,7 @@ func translateWithGemini(text, from, to string) (string, error) {
 	// Gemini API endpoint - читаем модель из env или используем дефолт
 	modelName := os.Getenv("GEMINI_MODEL")
 	if modelName == "" {
-		modelName = "gemini-flash-latest"
+		modelName = "gemini-2.5-flash"
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 
@@ -302,11 +302,11 @@ func summarizeWithGemini(text, lang string) (string, error) {
 	}
 	modelName := os.Getenv("GEMINI_MODEL")
 	if modelName == "" {
-		modelName = "gemini-flash-latest"
+		modelName = "gemini-2.5-flash"
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 
-	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text. Journalistic style. Output ONLY the summary.\n\nTEXT:\n%s", languageName(lang), text)
+	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text. Journalistic style. DO NOT start with a title or headline - start directly with the main fact. Output ONLY the summary.\n\nTEXT:\n%s", languageName(lang), text)
 
 	payload := map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -818,9 +818,9 @@ func summarizeWithGroq(text, lang string) (string, error) {
 		return "", errors.New("GROQ_API_KEY not set")
 	}
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
-	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text.\n\nTEXT:\n%s", languageName(lang), text)
+	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No preface, no lists, plain text. Journalistic style. DO NOT start with a title or headline - start directly with the main fact.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
-		"model": groqModel, // ОБНОВЛЕНА МОДЕЛЬ!
+		"model": groqModel,
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": prompt},
 		},
@@ -865,7 +865,7 @@ func summarizeWithCohere(text, lang string) (string, error) {
 		return "", errors.New("COHERE_API_KEY not set")
 	}
 	apiURL := "https://api.cohere.ai/v1/chat"
-	prompt := fmt.Sprintf("Summarize the following text in %s in 3-4 concise sentences. No lists, no meta text.\n\nTEXT:\n%s", languageName(lang), text)
+	prompt := fmt.Sprintf("Summarize the following text in %s in 3-4 concise sentences. No lists, no meta text. DO NOT start with a title or headline - start directly with the main fact.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
 		"model": cohereModel,
 		"messages": []map[string]interface{}{
@@ -915,7 +915,7 @@ func summarizeWithMistral(text, lang string) (string, error) {
 		return "", errors.New("MISTRALAI_API_KEY not set")
 	}
 	apiURL := "https://api.mistral.ai/v1/chat/completions"
-	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No bullet points.\n\nTEXT:\n%s", languageName(lang), text)
+	prompt := fmt.Sprintf("Summarize the text in %s in 3-4 concise sentences. No bullet points. DO NOT start with a title or headline - start directly with the main fact.\n\nTEXT:\n%s", languageName(lang), text)
 	payload := map[string]interface{}{
 		"model":       mistralModel,
 		"messages":    []map[string]interface{}{{"role": "user", "content": prompt}},
@@ -1291,7 +1291,7 @@ func strictTranslateWithGemini(text, from, to string) (string, error) {
 	}
 	modelName := os.Getenv("GEMINI_MODEL")
 	if modelName == "" {
-		modelName = "gemini-flash-latest"
+		modelName = "gemini-2.5-flash"
 	}
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 

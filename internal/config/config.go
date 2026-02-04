@@ -28,7 +28,7 @@ type Config struct {
 
 	// Gemini settings
 	GeminiAPIKey      string
-	GeminiModel       string // model name, e.g. "gemini-flash-latest"
+	GeminiModel       string // model name, e.g. "gemini-2.5-flash"
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 
 	// RSS settings
@@ -154,7 +154,7 @@ func Load() (*Config, error) {
 	cfg.TelegramToken = os.Getenv("TELEGRAM_TOKEN")
 	cfg.TelegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
-	cfg.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-flash-latest")
+	cfg.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
 
 	// Cache settings
