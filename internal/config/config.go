@@ -24,7 +24,6 @@ type Config struct {
 	TextSentencesPerLangMin int    // 2 by default
 	TextSentencesPerLangMax int    // 4 by default
 	MinSummaryTotalRunes    int    // minimal informativeness threshold to consider content "full"
-	LanguagePriority        string // "uk" | "da" | "auto" (future use)
 
 	// Gemini settings
 	GeminiAPIKey      string
@@ -58,11 +57,7 @@ type Config struct {
 	DatabaseTTL int  // hours to keep records in database
 
 	// Feature flags
-	EnableThreadMode    bool
-	EnableVocabPost     bool
 	EnableInlineButtons bool
-	VocabWordsPerDay    int
-	InlineButtonMode    string // "callback" or "url"
 	ChannelUsername     string // for building URL buttons (e.g. deusflow_news)
 
 	// Monitoring settings
@@ -136,15 +131,10 @@ func Load() (*Config, error) {
 		TextSentencesPerLangMin: 2,
 		TextSentencesPerLangMax: 4,
 		MinSummaryTotalRunes:    180,
-		LanguagePriority:        "auto",
 		ScrapeConcurrency:       8,
 		ScrapeMaxArticles:       10,
 		DatabaseTTL:             48, // default TTL for database records
-		EnableThreadMode:        false,
-		EnableVocabPost:         true,
 		EnableInlineButtons:     true,
-		VocabWordsPerDay:        5,
-		InlineButtonMode:        "callback",
 		ChannelUsername:         "",
 		EnableHTTPMonitoring:    false,
 		MonitoringPort:          "8080",
@@ -202,9 +192,6 @@ func Load() (*Config, error) {
 			cfg.MinSummaryTotalRunes = val
 		}
 	}
-	if v := os.Getenv("LANGUAGE_PRIORITY"); v != "" {
-		cfg.LanguagePriority = v
-	}
 
 	if v := os.Getenv("SCRAPE_CONCURRENCY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
@@ -227,40 +214,24 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// NEW: Read MAX_GEMINI_REQUESTS from env
+	// Read MAX_GEMINI_REQUESTS from env
 	if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
 		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
 			cfg.MaxGeminiRequests = val
 		}
 	}
 
-	// NEW: Check if PostgreSQL should be used
+	// Check if PostgreSQL should be used
 	if usePg := os.Getenv("USE_POSTGRES"); usePg == "true" {
 		cfg.UsePostgres = true
 	}
 
-	// NEW: Feature flags
-	if v := os.Getenv("ENABLE_THREAD_MODE"); v == "true" {
-		cfg.EnableThreadMode = true
-	}
-	if v := os.Getenv("ENABLE_VOCAB_POST"); v != "" {
-		cfg.EnableVocabPost = v == "true"
-	}
+	// Feature flags
 	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
 		cfg.EnableInlineButtons = v == "true"
 	}
-	if v := os.Getenv("INLINE_BUTTON_MODE"); v != "" {
-		if v == "url" || v == "callback" {
-			cfg.InlineButtonMode = v
-		}
-	}
 	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
 		cfg.ChannelUsername = v
-	}
-	if v := os.Getenv("VOCAB_WORDS_PER_DAY"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val > 0 && val <= 12 {
-			cfg.VocabWordsPerDay = val
-		}
 	}
 
 	if v := os.Getenv("ENABLE_HTTP_MONITORING"); v == "true" {

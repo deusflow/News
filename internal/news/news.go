@@ -314,7 +314,7 @@ func formatHeader(n News) string {
 }
 
 // removeTitleFromSummary removes the title if it appears at the beginning of the summary
-// This prevents duplication like: "🇩🇰 <b>Title.</b> Title. Rest of text..."
+// This prevents duplication like: "Title. Title. Rest of text..." or "Title: Title. Text..."
 func removeTitleFromSummary(summary, title string) string {
 	if summary == "" || title == "" {
 		return summary
@@ -324,25 +324,81 @@ func removeTitleFromSummary(summary, title string) string {
 	title = strings.TrimSpace(title)
 
 	// Normalize title (remove trailing punctuation for comparison)
-	normalizedTitle := strings.TrimRight(title, ".!?:;,")
+	normalizedTitle := strings.TrimRight(title, ".!?:;,-–—")
 	normalizedTitle = strings.ToLower(normalizedTitle)
 
-	// Check if summary starts with title (case-insensitive)
+	// Also try shorter version (first 40 chars) for partial matches
+	shortTitle := normalizedTitle
+	if len(shortTitle) > 40 {
+		shortTitle = shortTitle[:40]
+	}
+
 	summaryLower := strings.ToLower(summary)
+
+	// Strategy 1: Summary starts with full title
 	if strings.HasPrefix(summaryLower, normalizedTitle) {
-		// Find where title ends in the original summary
 		titleLen := len(normalizedTitle)
 		if titleLen < len(summary) {
 			rest := summary[titleLen:]
-			// Skip punctuation and whitespace after title
-			rest = strings.TrimLeft(rest, ".!?:;, \n\t")
+			rest = strings.TrimLeft(rest, ".!?:;,:-–— \n\t")
 			if rest != "" {
-				return rest
+				// Check if rest ALSO starts with title (double duplication)
+				return removeTitleFromSummary(rest, title)
+			}
+		}
+	}
+
+	// Strategy 2: Summary starts with short title (partial match)
+	if len(shortTitle) >= 20 && strings.HasPrefix(summaryLower, shortTitle) {
+		// Find the end of the duplicated part (look for sentence end)
+		for i := len(shortTitle); i < len(summary) && i < len(shortTitle)+50; i++ {
+			if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
+				rest := strings.TrimLeft(summary[i+1:], " \n\t")
+				if rest != "" {
+					return removeTitleFromSummary(rest, title)
+				}
+				break
+			}
+		}
+	}
+
+	// Strategy 3: Look for "Title. Title." pattern anywhere in first 200 chars
+	// This catches cases where AI writes "Title. Title. Rest..."
+	if len(summary) > 50 {
+		checkPart := summaryLower
+		if len(checkPart) > 200 {
+			checkPart = checkPart[:200]
+		}
+
+		// Find if title appears twice
+		firstIdx := strings.Index(checkPart, shortTitle[:min(20, len(shortTitle))])
+		if firstIdx >= 0 && firstIdx < 5 { // Title at the start
+			secondIdx := strings.Index(checkPart[firstIdx+10:], shortTitle[:min(20, len(shortTitle))])
+			if secondIdx >= 0 && secondIdx < 100 {
+				// Found double title, cut from second occurrence
+				cutPoint := firstIdx + 10 + secondIdx
+				for i := cutPoint; i < len(summary) && i < cutPoint+50; i++ {
+					if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
+						rest := strings.TrimLeft(summary[i+1:], " \n\t")
+						if rest != "" {
+							return rest
+						}
+						break
+					}
+				}
 			}
 		}
 	}
 
 	return summary
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func formatSmartBlock(flag, title, importance, summary string) string {
