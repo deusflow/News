@@ -287,9 +287,9 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 				saveToSupabase(supabase, n)
 			}
 
-			// Generate website post (non-blocking, errors logged but don't stop flow)
+			// Generate website post (SYNC - must complete before workflow exits)
 			if websiteGen != nil && websiteGen.IsEnabled() {
-				go generateWebsitePost(websiteGen, n)
+				generateWebsitePost(websiteGen, n)
 			}
 		}
 
@@ -360,9 +360,9 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 				saveToSupabase(supabase, n)
 			}
 
-			// Generate website post (non-blocking, errors logged but don't stop flow)
+			// Generate website post (SYNC - must complete before workflow exits)
 			if websiteGen != nil && websiteGen.IsEnabled() {
-				go generateWebsitePost(websiteGen, n)
+				generateWebsitePost(websiteGen, n)
 			}
 		}
 	}
