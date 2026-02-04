@@ -14,11 +14,3 @@ feeds:
     priority: 40
     active: true
     categories: [denmark, main, ukraine, visas, technology]
-  # Google News с жестким фильтром (Добивка объема)
-  # Обрати внимание на "-site:no" в URL — это отсекает норвежцев
-  - url: "https://news.google.com/rss/search?q=Danmark+-site:vg.no+-site:nrk.no+-site:dagbladet.no+-site:tv2.no&hl=da&gl=DK&ceid=DK:da"
-    name: Google News DK
-    lang: da
-    priority: 50
-    active: true
-    categories: [main, denmark]

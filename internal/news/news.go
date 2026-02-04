@@ -459,18 +459,26 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 		}
 	}
 
-	// Считаем бюджет
+	// Prepare FunFact
+	fact := strings.TrimSpace(n.FunFact)
+	if fact == "" {
+		fact = GetRandomFact()
+	}
+	funFactSection := "\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
+
+	// Считаем бюджет (including FunFact)
 	dummyDanish := formatSmartBlock("🇩🇰", n.Title, n.ImportanceDanish, "")
 	dummyUkr := formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, "")
 
 	skeletonLen := utf8.RuneCountInString(header) +
 		utf8.RuneCountInString(dummyDanish) +
 		utf8.RuneCountInString(dummyUkr) +
-		utf8.RuneCountInString(footer) + 4
+		utf8.RuneCountInString(footer) +
+		utf8.RuneCountInString(funFactSection) + 4
 
 	availableForContent := maxLen - skeletonLen
 	if availableForContent < 50 {
-		return trimToRuneCount(header+dummyDanish+"\n\n"+dummyUkr+footer, maxLen)
+		return trimToRuneCount(header+dummyDanish+"\n\n"+dummyUkr+footer+funFactSection, maxLen)
 	}
 
 	budgetPerLang := availableForContent / 2
@@ -483,6 +491,7 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 	sb.WriteString("\n\n")
 	sb.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, uCut))
 	sb.WriteString(footer)
+	sb.WriteString(funFactSection)
 
 	result := sb.String()
 	if utf8.RuneCountInString(result) > maxLen {
