@@ -28,6 +28,44 @@ type Client struct {
 	rateInterval  time.Duration    // Interval between requests
 }
 
+// ContentBudget defines character limits for AI-generated content
+type ContentBudget struct {
+	DanishChars    int // Max chars for Danish news body
+	UkrainianChars int // Max chars for Ukrainian news body
+	TLDRChars      int // Max chars for TLDR
+	FunFactChars   int // Max chars for FunFact
+}
+
+// Predefined budgets for different output modes
+var (
+	// BudgetPhotoCaption - for Telegram photo caption (1024 total limit)
+	// Header ~80, titles ~100, tags ~60, funfact ~160, separators ~40 = ~440 overhead
+	// Remaining ~580 for content = ~290 per language
+	BudgetPhotoCaption = ContentBudget{
+		DanishChars:    280,
+		UkrainianChars: 280,
+		TLDRChars:      80,
+		FunFactChars:   120,
+	}
+
+	// BudgetTextMessage - for regular Telegram message (4096 limit)
+	// Much more space available
+	BudgetTextMessage = ContentBudget{
+		DanishChars:    600,
+		UkrainianChars: 600,
+		TLDRChars:      100,
+		FunFactChars:   140,
+	}
+
+	// BudgetDefault - balanced default
+	BudgetDefault = ContentBudget{
+		DanishChars:    400,
+		UkrainianChars: 400,
+		TLDRChars:      90,
+		FunFactChars:   130,
+	}
+)
+
 // NewsTranslation - это основная структура, которую мы отдаем наружу (в news.go)
 type NewsTranslation struct {
 	Summary        string
@@ -89,7 +127,15 @@ func (c *Client) Close() {
 	}
 }
 
+// TranslateAndSummarizeNews - backward compatible wrapper using photo caption budget (strictest)
 func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content string) (*NewsTranslation, error) {
+	// Use BudgetPhotoCaption as default - it's the strictest limit (1024 chars total)
+	// This ensures content fits in any output mode (photo or text)
+	return c.TranslateAndSummarizeNewsWithBudget(ctx, title, content, BudgetPhotoCaption)
+}
+
+// TranslateAndSummarizeNewsWithBudget - generates news with specific character budget
+func (c *Client) TranslateAndSummarizeNewsWithBudget(ctx context.Context, title, content string, budget ContentBudget) (*NewsTranslation, error) {
 	// 1. Проверяем кэш
 	cacheKey := c.cache.GenerateKey(title, content)
 	if cached, found := c.cache.Get(cacheKey); found {
@@ -116,7 +162,7 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 	}
 
 	err = retry.WithRetry(ctx, retryConfig, func() error {
-		result, err = c.translateWithModel(ctx, c.modelName, title, content)
+		result, err = c.translateWithModel(ctx, c.modelName, title, content, budget)
 
 		// Handle Rate Limit (429) specifically
 		if err != nil {
@@ -139,7 +185,7 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 		}
 
 		fallbackErr := retry.WithRetry(ctx, fallbackRetryConfig, func() error {
-			result, err = c.translateWithModel(ctx, c.fallbackModel, title, content)
+			result, err = c.translateWithModel(ctx, c.fallbackModel, title, content, budget)
 			return err
 		})
 
@@ -169,7 +215,7 @@ func (c *Client) TranslateAndSummarizeNews(ctx context.Context, title, content s
 	return result, nil
 }
 
-func (c *Client) translateWithModel(ctx context.Context, modelName, title, content string) (*NewsTranslation, error) {
+func (c *Client) translateWithModel(ctx context.Context, modelName, title, content string, budget ContentBudget) (*NewsTranslation, error) {
 	// Wait for rate limiter before making request
 	if c.rateLimiter != nil {
 		select {
@@ -223,7 +269,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 		content = trimmed + "\n[TRUNCATED]"
 	}
 
-	// === ОБНОВЛЕННЫЙ ПРОМПТ ===
+	// === ПРОМПТ С ДИНАМИЧЕСКИМ БЮДЖЕТОМ ===
 	prompt := fmt.Sprintf(`
 You are an editor in a bilingual newsroom. Create ONE news item in two languages: Danish and Ukrainian.
 
@@ -243,44 +289,47 @@ CRITICAL CONSISTENCY RULE:
 - They must NOT contradict each other.
 - They should NOT be word-for-word identical; wording should be natural in each language.
 
+⚠️ CHARACTER LIMITS ARE STRICT - content will be used in Telegram with hard limits!
+
 TASKS (return valid JSON only):
-1) "summary": internal working summary (max 1500 chars)
+1) "summary": internal working summary (max 500 chars)
 
-2) "danish": Write a compact news BODY text in Danish (max 800 chars)
-   - DO NOT include the title! The title is handled separately.
-   - Write 2–5 sentences with key facts ONLY
+2) "danish": News BODY text in Danish (STRICT MAX %d characters!)
+   - DO NOT include the title! Title is shown separately above this text.
+   - Write 2-4 sentences with key facts
    - Start directly with the main fact/event
+   - Be concise but informative
 
-3) "ukrainian": Write the SAME news BODY text in Ukrainian (max 800 chars)
-   - DO NOT include the title! The title is handled separately.
-   - Write 2–5 sentences with the SAME facts as the Danish version
+3) "ukrainian": News BODY text in Ukrainian (STRICT MAX %d characters!)
+   - DO NOT include the title! Title is shown separately above this text.
+   - Write 2-4 sentences with the SAME facts as Danish version
    - Start directly with the main fact/event
-   - No greetings, no rhetorical questions, no notes
+   - No greetings, no rhetorical questions
 
-4) "title_ukrainian": Ukrainian translation of the TITLE only
+4) "title_ukrainian": Ukrainian translation of the TITLE only (max 100 chars)
    - Proper nouns unchanged
    - Neutral newsroom headline style
 
 5) "mood": One of: "positive", "negative", "neutral", "shocking", "urgent"
 
-6) "tags": 2–4 Ukrainian tags (short nouns)
+6) "tags": 2-4 Ukrainian tags (short nouns, NO # symbol)
 
-7) "tldr": ONE short Ukrainian TL;DR sentence (max 100 chars) starting with ONE emoji
-   - Must reflect the same key point as danish/ukrainian texts
+7) "tldr": ONE Ukrainian TL;DR sentence (STRICT MAX %d chars) starting with ONE emoji
+   - Captures the essence of the news
 
-8) "fun_fact": ONE interesting fact about Denmark or the Danish Kingdom (Королівство Данія)
-   - Ukrainian, max 140 chars, start with ONE emoji
-   - Neutral and factual (no реклами)
-   - MUST be different from the news topic! General interesting fact about Denmark.
+8) "fun_fact": ONE interesting fact about Denmark (STRICT MAX %d chars)
+   - Ukrainian, start with ONE emoji
+   - MUST be unrelated to this specific news topic
+   - General interesting fact about Danish Kingdom
 
 ABSOLUTE PROHIBITIONS:
-- No "(Примітка: ...)" or any translator commentary
+- No "(Примітка: ...)" or translator commentary
 - No explanations like "це означає"
-- No hashtags in danish/ukrainian texts (tags are separate)
-- DO NOT repeat the title in danish/ukrainian fields!
+- No hashtags in danish/ukrainian (tags field is separate)
+- DO NOT repeat or paraphrase the title in danish/ukrainian fields!
 
 Output valid JSON only.
-	`, title, content)
+	`, title, content, budget.DanishChars, budget.UkrainianChars, budget.TLDRChars, budget.FunFactChars)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {

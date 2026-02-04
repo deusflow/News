@@ -313,6 +313,38 @@ func formatHeader(n News) string {
 	return fmt.Sprintf("%s <b>%s</b>", moodEmoji, cat)
 }
 
+// removeTitleFromSummary removes the title if it appears at the beginning of the summary
+// This prevents duplication like: "🇩🇰 <b>Title.</b> Title. Rest of text..."
+func removeTitleFromSummary(summary, title string) string {
+	if summary == "" || title == "" {
+		return summary
+	}
+
+	summary = strings.TrimSpace(summary)
+	title = strings.TrimSpace(title)
+
+	// Normalize title (remove trailing punctuation for comparison)
+	normalizedTitle := strings.TrimRight(title, ".!?:;,")
+	normalizedTitle = strings.ToLower(normalizedTitle)
+
+	// Check if summary starts with title (case-insensitive)
+	summaryLower := strings.ToLower(summary)
+	if strings.HasPrefix(summaryLower, normalizedTitle) {
+		// Find where title ends in the original summary
+		titleLen := len(normalizedTitle)
+		if titleLen < len(summary) {
+			rest := summary[titleLen:]
+			// Skip punctuation and whitespace after title
+			rest = strings.TrimLeft(rest, ".!?:;, \n\t")
+			if rest != "" {
+				return rest
+			}
+		}
+	}
+
+	return summary
+}
+
 func formatSmartBlock(flag, title, importance, summary string) string {
 	var sb strings.Builder
 	t := strings.TrimSpace(title)
@@ -326,7 +358,11 @@ func formatSmartBlock(flag, title, importance, summary string) string {
 		sb.WriteString(fmt.Sprintf(" 🔥 <i>%s</i>", strings.TrimSpace(importance)))
 	}
 	if summary != "" {
-		sb.WriteString(" " + strings.TrimSpace(summary))
+		// Remove title from summary if it's duplicated at the beginning
+		cleanSummary := removeTitleFromSummary(summary, title)
+		if cleanSummary != "" {
+			sb.WriteString(" " + strings.TrimSpace(cleanSummary))
+		}
 	}
 	return sb.String()
 }
@@ -437,6 +473,10 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 		n.SummaryUkrainian = ukSummary
 	}
 
+	// Clean summaries from title duplication (AI should not include title, but just in case)
+	cleanDanishSummary := removeTitleFromSummary(n.SummaryDanish, n.Title)
+	cleanUkrainianSummary := removeTitleFromSummary(n.SummaryUkrainian, ukTitle)
+
 	header := formatHeader(n) + "\n"
 
 	// TL;DR для швидкого читання
@@ -466,35 +506,21 @@ func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
 	}
 	funFactSection := "\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
 
-	// Считаем бюджет (including FunFact)
-	dummyDanish := formatSmartBlock("🇩🇰", n.Title, n.ImportanceDanish, "")
-	dummyUkr := formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, "")
-
-	skeletonLen := utf8.RuneCountInString(header) +
-		utf8.RuneCountInString(dummyDanish) +
-		utf8.RuneCountInString(dummyUkr) +
-		utf8.RuneCountInString(footer) +
-		utf8.RuneCountInString(funFactSection) + 4
-
-	availableForContent := maxLen - skeletonLen
-	if availableForContent < 50 {
-		return trimToRuneCount(header+dummyDanish+"\n\n"+dummyUkr+footer+funFactSection, maxLen)
-	}
-
-	budgetPerLang := availableForContent / 2
-	dCut := trimToNearestSentenceOrWord(n.SummaryDanish, budgetPerLang)
-	uCut := trimToNearestSentenceOrWord(n.SummaryUkrainian, budgetPerLang)
-
+	// Build the message - AI already outputs correctly sized content
+	// Trimming is just a safety fallback
 	var sb strings.Builder
 	sb.WriteString(header)
-	sb.WriteString(formatSmartBlock("🇩🇰", n.Title, n.ImportanceDanish, dCut))
+	sb.WriteString(formatSmartBlock("🇩🇰", n.Title, n.ImportanceDanish, cleanDanishSummary))
 	sb.WriteString("\n\n")
-	sb.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, uCut))
+	sb.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.ImportanceUkrainian, cleanUkrainianSummary))
 	sb.WriteString(footer)
 	sb.WriteString(funFactSection)
 
 	result := sb.String()
+
+	// Safety fallback: trim if AI exceeded limits (shouldn't happen often)
 	if utf8.RuneCountInString(result) > maxLen {
+		log.Printf("⚠️ FormatCaptionForPhoto: content exceeded %d chars, trimming", maxLen)
 		return trimToRuneCount(result, maxLen-1) + "…"
 	}
 	return result
