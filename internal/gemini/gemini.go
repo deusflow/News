@@ -284,15 +284,43 @@ Output valid JSON only.
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
+		// 1) Detailed API error diagnostics
+		if gErr, ok := err.(*googleapi.Error); ok {
+			log.Printf("🛑 Gemini API Error Details:\n\tHTTP Code: %d\n\tMessage: %s\n\tRaw Body: %s", gErr.Code, gErr.Message, string(gErr.Body))
+		}
 		return nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("empty response from Gemini")
+	// 2) Prompt safety blocking diagnostics
+	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != 0 {
+		log.Printf("🛑 Gemini blocked the PROMPT. Reason: %s", resp.PromptFeedback.BlockReason.String())
+		return nil, fmt.Errorf("prompt blocked by safety filters: %s", resp.PromptFeedback.BlockReason.String())
+	}
+
+	// 3) Candidate finish reason diagnostics
+	if len(resp.Candidates) == 0 {
+		return nil, fmt.Errorf("empty response from Gemini (no candidates)")
+	}
+
+	candidate := resp.Candidates[0]
+	if candidate.FinishReason != genai.FinishReasonStop {
+		log.Printf("⚠️ Gemini candidate finished unusually. Reason: %s", candidate.FinishReason.String())
+		switch candidate.FinishReason {
+		case genai.FinishReasonSafety:
+			log.Printf("🛑 Content blocked due to SAFETY settings in response")
+			return nil, fmt.Errorf("content generation blocked (Safety)")
+		case genai.FinishReasonRecitation:
+			log.Printf("🛑 Content blocked due to RECITATION (Copyright/Memorization)")
+			return nil, fmt.Errorf("content generation blocked (Recitation)")
+		}
+	}
+
+	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
+		return nil, fmt.Errorf("gemini returned candidates but no content parts")
 	}
 
 	var parsedResp NewsTranslationResponse
-	for _, part := range resp.Candidates[0].Content.Parts {
+	for _, part := range candidate.Content.Parts {
 		if txt, ok := part.(genai.Text); ok {
 			if err := json.Unmarshal([]byte(txt), &parsedResp); err != nil {
 				log.Printf("Failed to unmarshal Gemini JSON response. Raw: %s", string(txt))
