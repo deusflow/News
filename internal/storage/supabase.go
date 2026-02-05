@@ -358,14 +358,93 @@ func isSimilarTitle(title1, title2 string) bool {
 		return false
 	}
 
-	// Count common words
+	// Extract numbers/statistics - these are key indicators of same news
+	numbers1 := extractNumbers(title1)
+	numbers2 := extractNumbers(title2)
+
+	// If both have significant numbers and they match, likely same news
+	if len(numbers1) > 0 && len(numbers2) > 0 {
+		commonNumbers := 0
+		hasLargeNumber := false
+		for _, n1 := range numbers1 {
+			for _, n2 := range numbers2 {
+				if n1 == n2 {
+					commonNumbers++
+					// Large numbers (4+ digits) are very specific identifiers
+					if len(n1) >= 4 {
+						hasLargeNumber = true
+					}
+				}
+			}
+		}
+		// If they share a specific large number (like "55000"), it's almost certainly the same news
+		if commonNumbers > 0 {
+			wordSimilarity := calculateWordSimilarity(words1, words2)
+			// Very large numbers (4+ digits) are strong indicators - lower threshold significantly
+			if hasLargeNumber && wordSimilarity >= 0.3 {
+				return true
+			}
+			// Regular numbers (3 digits) still need some word overlap
+			if wordSimilarity >= 0.4 {
+				return true
+			}
+		}
+	}
+
+	// Check for common key entities (names, places, organizations)
+	// Words longer than 5 chars are more likely to be significant
+	significantWords1 := filterSignificantWords(words1)
+	significantWords2 := filterSignificantWords(words2)
+
+	if len(significantWords1) > 0 && len(significantWords2) > 0 {
+		significantSimilarity := calculateWordSimilarity(significantWords1, significantWords2)
+		if significantSimilarity >= 0.6 {
+			return true
+		}
+	}
+
+	// Standard word overlap check (70% threshold)
+	similarity := calculateWordSimilarity(words1, words2)
+	return similarity >= 0.7
+}
+
+// filterSignificantWords returns words that are likely meaningful identifiers (proper nouns, key terms)
+func filterSignificantWords(words []string) []string {
+	var result []string
+	for _, w := range words {
+		// Words with 6+ characters are more likely to be significant
+		if len(w) >= 6 {
+			result = append(result, w)
+		}
+	}
+	return result
+}
+
+// extractNumbers extracts all significant numeric values from text
+func extractNumbers(text string) []string {
+	re := regexp.MustCompile(`\d+`)
+	matches := re.FindAllString(text, -1)
+	// Filter out very small numbers (like "1", "2") that are less meaningful
+	var result []string
+	for _, m := range matches {
+		if len(m) >= 3 { // At least 3 digits (like "100", "55000")
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// calculateWordSimilarity calculates word overlap ratio between two word lists
+func calculateWordSimilarity(words1, words2 []string) float64 {
+	// Build word set from first title (only words > 2 chars)
 	wordSet := make(map[string]bool)
 	for _, w := range words1 {
-		if len(w) > 2 { // Skip very short words
+		if len(w) > 2 {
 			wordSet[w] = true
 		}
 	}
 
+	// Count common words
 	commonWords := 0
 	for _, w := range words2 {
 		if len(w) > 2 && wordSet[w] {
@@ -373,15 +452,17 @@ func isSimilarTitle(title1, title2 string) bool {
 		}
 	}
 
-	// Calculate similarity ratio
+	// Calculate similarity ratio using smaller word count as denominator
 	minLen := len(words1)
 	if len(words2) < minLen {
 		minLen = len(words2)
 	}
 
-	// If more than 70% of words match, consider it a duplicate
-	similarity := float64(commonWords) / float64(minLen)
-	return similarity >= 0.7
+	if minLen == 0 {
+		return 0
+	}
+
+	return float64(commonWords) / float64(minLen)
 }
 
 // GetActiveNews retrieves non-archived news from the last 10 days

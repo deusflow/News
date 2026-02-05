@@ -9,7 +9,9 @@ type CacheAdapter interface {
 	GenerateNewsHash(title, link string) string
 	IsAlreadySent(hash string) bool
 	IsLinkAlreadySent(link string) bool
+	IsContentDuplicate(content string) (bool, string) // Returns (isDuplicate, existingTitle)
 	MarkAsSent(hash, title, link, category, source string) error
+	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 }
 
 // FileCacheAdapter wraps FileCache to implement CacheAdapter
@@ -26,12 +28,22 @@ func (f *FileCacheAdapter) IsAlreadySent(hash string) bool {
 }
 
 func (f *FileCacheAdapter) IsLinkAlreadySent(link string) bool {
-	// File cache doesn't have direct link check, so generate hash from link
-	// This is a simplified check - in practice, file cache checks by hash only
+	// File cache doesn't have direct link check
 	return false
 }
 
+func (f *FileCacheAdapter) IsContentDuplicate(content string) (bool, string) {
+	// File cache doesn't support content duplicate detection
+	return false, ""
+}
+
 func (f *FileCacheAdapter) MarkAsSent(hash, title, link, category, source string) error {
+	f.cache.MarkAsSent(hash, title, link, category, source)
+	return nil
+}
+
+func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+	// File cache doesn't support content hash, fall back to regular MarkAsSent
 	f.cache.MarkAsSent(hash, title, link, category, source)
 	return nil
 }
@@ -53,6 +65,14 @@ func (p *PostgresCacheAdapter) IsLinkAlreadySent(link string) bool {
 	return p.cache.IsLinkAlreadySent(link)
 }
 
+func (p *PostgresCacheAdapter) IsContentDuplicate(content string) (bool, string) {
+	return p.cache.IsContentDuplicate(content)
+}
+
 func (p *PostgresCacheAdapter) MarkAsSent(hash, title, link, category, source string) error {
 	return p.cache.MarkAsSent(hash, title, link, category, source)
+}
+
+func (p *PostgresCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+	return p.cache.MarkAsSentWithContent(hash, title, link, content, category, source)
 }

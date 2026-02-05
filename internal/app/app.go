@@ -239,75 +239,12 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 			continue
 		}
 
-		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
-		var outText string
-		var err error
-
-		// Prepare buttons if enabled (только ссылка на оригінал)
-		var buttons [][]telegram.InlineButton
-		if cfg.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
-			}
-		} else {
-			outText = news.FormatNewsWithImage(n, 0, 0)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
-			}
-		}
-
-		if err != nil {
-			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-			// Save to DLQ if using Postgres
-			if pgAdapter, ok := cacheAdapter.(*PostgresCacheAdapter); ok {
-				if saveErr := pgAdapter.cache.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-					logger.Error("Failed to save to DLQ", "error", saveErr)
-				} else {
-					logger.Info("Saved failed message to DLQ", "title", n.Title)
-				}
-			}
-		} else {
-			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
-			m.IncrementTelegramMessagesSent()
-
-			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
-			if supabase != nil {
-				saveToSupabase(supabase, n)
-			}
-
-			// Generate website post (SYNC - must complete before workflow exits)
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
-		}
-
-		// В режиме single шлем только одну и выходим
-		break
-	}
-}
-
-// sendMultipleNews отправляет список новостей
-func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	sent := 0
-	for _, n := range newsList {
-		if sent >= max {
-			break
-		}
-
-		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		if cacheAdapter.IsAlreadySent(hash) {
+		// Check for content duplicate (same news from different sources)
+		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
+			logger.Info("⏭️ Skipping duplicate news (same content found)",
+				"new_title", n.Title,
+				"existing_title", existingTitle)
+			m.IncrementDuplicatesFiltered()
 			continue
 		}
 
@@ -351,7 +288,90 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 				}
 			}
 		} else {
-			_ = cacheAdapter.MarkAsSent(hash, n.Title, n.Link, n.Category, n.SourceName)
+			// Use MarkAsSentWithContent to store content hash for future duplicate detection
+			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+			m.IncrementTelegramMessagesSent()
+
+			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
+			if supabase != nil {
+				saveToSupabase(supabase, n)
+			}
+
+			// Generate website post (SYNC - must complete before workflow exits)
+			if websiteGen != nil && websiteGen.IsEnabled() {
+				generateWebsitePost(websiteGen, n)
+			}
+		}
+
+		// В режиме single шлем только одну и выходим
+		break
+	}
+}
+
+// sendMultipleNews отправляет список новостей
+func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	sent := 0
+	for _, n := range newsList {
+		if sent >= max {
+			break
+		}
+
+		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+		if cacheAdapter.IsAlreadySent(hash) {
+			continue
+		}
+
+		// Check for content duplicate (same news from different sources)
+		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
+			logger.Info("⏭️ Skipping duplicate news (same content found)",
+				"new_title", n.Title,
+				"existing_title", existingTitle)
+			m.IncrementDuplicatesFiltered()
+			continue
+		}
+
+		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
+		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
+		var outText string
+		var err error
+
+		// Prepare buttons if enabled (только ссылка на оригінал)
+		var buttons [][]telegram.InlineButton
+		if cfg.EnableInlineButtons && n.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+			})
+		}
+
+		if canPhoto {
+			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
+			if len(buttons) > 0 {
+				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
+			} else {
+				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+			}
+		} else {
+			outText = news.FormatNewsWithImage(n, 0, 0)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+			}
+		}
+
+		if err != nil {
+			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
+			// Save to DLQ if using Postgres
+			if pgAdapter, ok := cacheAdapter.(*PostgresCacheAdapter); ok {
+				if saveErr := pgAdapter.cache.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
+					logger.Error("Failed to save to DLQ", "error", saveErr)
+				} else {
+					logger.Info("Saved failed message to DLQ", "title", n.Title)
+				}
+			}
+		} else {
+			// Use MarkAsSentWithContent to store content hash for future duplicate detection
+			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
 			m.IncrementTelegramMessagesSent()
 			sent++
 

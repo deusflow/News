@@ -3,7 +3,9 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -79,6 +81,7 @@ func (pc *PostgresCache) initSchema() error {
 		hash VARCHAR(64) UNIQUE NOT NULL,
 		title TEXT NOT NULL,
 		link TEXT NOT NULL,
+		content_hash VARCHAR(64),
 		category VARCHAR(50),
 		source VARCHAR(100),
 		sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -88,6 +91,17 @@ func (pc *PostgresCache) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_sent_news_hash ON sent_news(hash);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_sent_at ON sent_news(sent_at);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_link ON sent_news(link);
+	CREATE INDEX IF NOT EXISTS idx_sent_news_content_hash ON sent_news(content_hash);
+
+	-- Add content_hash column if it doesn't exist (migration for existing DBs)
+	DO $$ 
+	BEGIN 
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'sent_news' AND column_name = 'content_hash') THEN
+			ALTER TABLE sent_news ADD COLUMN content_hash VARCHAR(64);
+			CREATE INDEX IF NOT EXISTS idx_sent_news_content_hash ON sent_news(content_hash);
+		END IF;
+	END $$;
 
 	-- Table for caching AI translations (saves tokens!)
 	CREATE TABLE IF NOT EXISTS translation_cache (
@@ -165,6 +179,104 @@ func (pc *PostgresCache) IsLinkAlreadySent(link string) bool {
 	return count > 0
 }
 
+// IsContentDuplicate checks if content with similar hash already exists
+// Uses SimHash-like approach: generates hash from normalized content words
+// Two articles about the same event will have very similar content regardless of title
+func (pc *PostgresCache) IsContentDuplicate(content string) (bool, string) {
+	if len(content) < 100 {
+		return false, "" // Too short to be meaningful
+	}
+
+	contentHash := generateContentHash(content)
+	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
+
+	// Check exact content hash match
+	var existingTitle string
+	query := `SELECT title FROM sent_news WHERE content_hash = $1 AND sent_at > $2 LIMIT 1`
+	err := pc.db.QueryRow(query, contentHash, cutoffTime).Scan(&existingTitle)
+
+	if err == nil {
+		log.Printf("🔍 Found duplicate content (exact hash match): %s", existingTitle)
+		return true, existingTitle
+	}
+
+	return false, ""
+}
+
+// generateContentHash creates a signature based on significant numbers in the content
+// News about the same event typically contains the same key statistics/numbers
+// This catches cases like "55000 soldiers killed" from different sources
+func generateContentHash(content string) string {
+	// Extract all numbers from content, removing separators (dots, commas, spaces)
+	normalized := strings.ToLower(content)
+
+	var numbers []string
+	var currentNum strings.Builder
+
+	for _, r := range normalized {
+		if r >= '0' && r <= '9' {
+			currentNum.WriteRune(r)
+		} else if r == '.' || r == ',' || r == ' ' {
+			// Check if this is a number separator (next char is also digit)
+			// For now, just continue accumulating
+			continue
+		} else {
+			if currentNum.Len() > 0 {
+				num := currentNum.String()
+				// Only keep significant numbers (4+ digits like 1000, 55000)
+				if len(num) >= 4 {
+					numbers = append(numbers, num)
+				}
+				currentNum.Reset()
+			}
+		}
+	}
+	// Don't forget last number
+	if currentNum.Len() >= 4 {
+		numbers = append(numbers, currentNum.String())
+	}
+
+	// If no significant numbers found, use first 200 chars of normalized content
+	if len(numbers) == 0 {
+		// Fallback: use simple text hash
+		var textOnly strings.Builder
+		for _, r := range normalized {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				textOnly.WriteRune(r)
+			}
+		}
+		text := textOnly.String()
+		if len(text) > 200 {
+			text = text[:200]
+		}
+		h := fnv.New64a()
+		h.Write([]byte(text))
+		return fmt.Sprintf("%016x", h.Sum64())
+	}
+
+	// Sort numbers for consistency
+	sortStrings(numbers)
+
+	// Create signature from significant numbers
+	signature := strings.Join(numbers, ",")
+
+	// Generate hash
+	h := fnv.New64a()
+	h.Write([]byte(signature))
+	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+// sortStrings sorts a slice of strings in place
+func sortStrings(s []string) {
+	for i := 0; i < len(s)-1; i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[i] > s[j] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
+}
+
 // MarkAsSent marks news as sent with transaction to prevent race conditions
 func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) error {
 	// Use INSERT ON CONFLICT to handle race conditions
@@ -175,6 +287,27 @@ func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) 
 	`
 
 	_, err := pc.db.Exec(query, hash, title, link, category, source)
+	if err != nil {
+		return fmt.Errorf("failed to mark as sent: %v", err)
+	}
+
+	return nil
+}
+
+// MarkAsSentWithContent marks news as sent and stores content hash for cross-source duplicate detection
+func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+	contentHash := ""
+	if len(content) >= 100 {
+		contentHash = generateContentHash(content)
+	}
+
+	query := `
+		INSERT INTO sent_news (hash, title, link, content_hash, category, source, sent_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (hash) DO UPDATE SET sent_at = NOW(), content_hash = EXCLUDED.content_hash
+	`
+
+	_, err := pc.db.Exec(query, hash, title, link, contentHash, category, source)
 	if err != nil {
 		return fmt.Errorf("failed to mark as sent: %v", err)
 	}
