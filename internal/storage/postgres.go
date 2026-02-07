@@ -75,13 +75,13 @@ func (pc *PostgresCache) Ping() error {
 
 // initSchema creates the necessary tables if they don't exist
 func (pc *PostgresCache) initSchema() error {
-	schema := `
+	// Step 1: Create base table without content_hash (for compatibility with existing DBs)
+	baseSchema := `
 	CREATE TABLE IF NOT EXISTS sent_news (
 		id SERIAL PRIMARY KEY,
 		hash VARCHAR(64) UNIQUE NOT NULL,
 		title TEXT NOT NULL,
 		link TEXT NOT NULL,
-		content_hash VARCHAR(64),
 		category VARCHAR(50),
 		source VARCHAR(100),
 		sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -91,18 +91,41 @@ func (pc *PostgresCache) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_sent_news_hash ON sent_news(hash);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_sent_at ON sent_news(sent_at);
 	CREATE INDEX IF NOT EXISTS idx_sent_news_link ON sent_news(link);
-	CREATE INDEX IF NOT EXISTS idx_sent_news_content_hash ON sent_news(content_hash);
+	`
 
-	-- Add content_hash column if it doesn't exist (migration for existing DBs)
+	_, err := pc.db.Exec(baseSchema)
+	if err != nil {
+		return fmt.Errorf("failed to create base schema: %v", err)
+	}
+
+	// Step 2: Migration - Add content_hash column if it doesn't exist
+	migration := `
 	DO $$ 
 	BEGIN 
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
 			WHERE table_name = 'sent_news' AND column_name = 'content_hash') THEN
 			ALTER TABLE sent_news ADD COLUMN content_hash VARCHAR(64);
-			CREATE INDEX IF NOT EXISTS idx_sent_news_content_hash ON sent_news(content_hash);
 		END IF;
 	END $$;
+	`
 
+	_, err = pc.db.Exec(migration)
+	if err != nil {
+		return fmt.Errorf("failed to run migration: %v", err)
+	}
+
+	// Step 3: Create index on content_hash (column now definitely exists)
+	indexSchema := `
+	CREATE INDEX IF NOT EXISTS idx_sent_news_content_hash ON sent_news(content_hash);
+	`
+
+	_, err = pc.db.Exec(indexSchema)
+	if err != nil {
+		return fmt.Errorf("failed to create content_hash index: %v", err)
+	}
+
+	// Step 4: Create additional tables
+	additionalSchema := `
 	-- Table for caching AI translations (saves tokens!)
 	CREATE TABLE IF NOT EXISTS translation_cache (
 		id SERIAL PRIMARY KEY,
@@ -138,9 +161,9 @@ func (pc *PostgresCache) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_failed_news_created_at ON failed_news(created_at);
 	`
 
-	_, err := pc.db.Exec(schema)
+	_, err = pc.db.Exec(additionalSchema)
 	if err != nil {
-		return fmt.Errorf("failed to create schema: %v", err)
+		return fmt.Errorf("failed to create additional tables: %v", err)
 	}
 
 	log.Println("✅ Database schema initialized")

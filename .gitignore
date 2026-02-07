@@ -39,14 +39,11 @@ Thumbs.db
 docs/BUGFIX_AND_FEATURES_PLAN.md
 docs/CONFIG_CHEATSHEET.md
 
-# build artifacts
+# Build artifacts and binaries
 /dknews
-
-
-# build artifacts
-/dknews
-
-
+bin/
+*.log
+output.log
 # build artifacts
 /dknews
 
