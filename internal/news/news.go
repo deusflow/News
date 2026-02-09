@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/net/html"
 
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/gemini"
@@ -699,27 +700,83 @@ func limitText(s string, max int) string {
 }
 
 func cleanContent(s string) string {
-	// Remove HTML tags
-	re := regexp.MustCompile(`<[^>]*>`)
-	s = re.ReplaceAllString(s, " ")
-
-	// Preserve paragraph breaks (\n\n) while cleaning up extra whitespace
-	// Split by paragraph breaks
-	paragraphs := strings.Split(s, "\n\n")
-	var cleanedParagraphs []string
-
-	for _, p := range paragraphs {
-		// For each paragraph, normalize spaces but keep the text
-		p = strings.TrimSpace(p)
-		// Replace multiple spaces/tabs with single space
-		p = strings.Join(strings.Fields(p), " ")
-		if p != "" {
-			cleanedParagraphs = append(cleanedParagraphs, p)
-		}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
 	}
 
-	// Join paragraphs back with double newline
-	return strings.Join(cleanedParagraphs, "\n\n")
+	// Parse HTML fragments and extract text content safely.
+	root := &html.Node{Type: html.ElementNode, Data: "div"}
+	nodes, err := html.ParseFragment(strings.NewReader(s), root)
+	if err != nil {
+		log.Printf("❌ HTML parsing error: %v", err)
+		return s
+	}
+
+	var sb strings.Builder
+	for _, n := range nodes {
+		appendTextContent(&sb, n)
+	}
+
+	return normalizeWhitespace(sb.String())
+}
+
+func appendTextContent(sb *strings.Builder, n *html.Node) {
+	switch n.Type {
+	case html.TextNode:
+		sb.WriteString(n.Data)
+	case html.ElementNode:
+		tag := strings.ToLower(n.Data)
+		if tag == "script" || tag == "style" {
+			return
+		}
+		if tag == "br" {
+			sb.WriteString("\n")
+			return
+		}
+		if isBlockTag(tag) {
+			sb.WriteString("\n")
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			appendTextContent(sb, c)
+		}
+		if isBlockTag(tag) {
+			sb.WriteString("\n")
+		}
+	default:
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			appendTextContent(sb, c)
+		}
+	}
+}
+
+func isBlockTag(tag string) bool {
+	switch tag {
+	case "p", "div", "section", "article", "header", "footer", "nav", "aside":
+		return true
+	case "ul", "ol", "li":
+		return true
+	case "h1", "h2", "h3", "h4", "h5", "h6":
+		return true
+	case "blockquote", "pre", "table", "tr", "td", "th":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeWhitespace(s string) string {
+	lines := strings.Split(s, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.Join(strings.Fields(line), " ")
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n\n")
 }
 
 func fallbackSummary(content string) string {
