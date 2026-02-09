@@ -203,7 +203,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				// Don't force "neutral" on fallback: try a simple heuristic first.
 				n.Mood = detectMoodFallback(n.Title, n.Content)
 				n.TLDR = ""
-				n.FunFact = GetRandomFact() // Fallback на статический факт
+				n.FunFact = GetRandomFact() // Fallback на статичний факт
 			} else {
 				n.SummaryDanish = aiResp.Danish
 				n.SummaryUkrainian = aiResp.Ukrainian
@@ -341,10 +341,16 @@ func removeTitleFromSummary(summary, title string) string {
 
 	summary = strings.TrimSpace(summary)
 	title = strings.TrimSpace(title)
+	if summary == "" || title == "" {
+		return summary
+	}
 
 	// Normalize title (remove trailing punctuation for comparison)
 	normalizedTitle := strings.TrimRight(title, ".!?:;,-–—")
 	normalizedTitle = strings.ToLower(normalizedTitle)
+	if normalizedTitle == "" {
+		return summary
+	}
 
 	// Also try shorter version (first 40 chars) for partial matches
 	shortTitle := normalizedTitle
@@ -352,37 +358,52 @@ func removeTitleFromSummary(summary, title string) string {
 		shortTitle = shortTitle[:40]
 	}
 
-	summaryLower := strings.ToLower(summary)
+	// Bounded "unroll" of the previous recursion. We only ever want to remove
+	// duplicated title from the start a few times (AI glitches like "Title. Title.").
+	const maxPasses = 5
+	for pass := 0; pass < maxPasses; pass++ {
+		summaryLower := strings.ToLower(summary)
+		changed := false
 
-	// Strategy 1: Summary starts with full title
-	if strings.HasPrefix(summaryLower, normalizedTitle) {
-		titleLen := len(normalizedTitle)
-		if titleLen < len(summary) {
-			rest := summary[titleLen:]
-			rest = strings.TrimLeft(rest, ".!?:;,:-–— \n\t")
-			if rest != "" {
-				// Check if rest ALSO starts with title (double duplication)
-				return removeTitleFromSummary(rest, title)
+		// Strategy 1: Summary starts with full title
+		if strings.HasPrefix(summaryLower, normalizedTitle) {
+			titleLen := len(normalizedTitle)
+			if titleLen < len(summary) {
+				rest := summary[titleLen:]
+				rest = strings.TrimLeft(rest, ".!?:;,:-–— \n\t")
+				if rest != "" && rest != summary {
+					summary = strings.TrimSpace(rest)
+					changed = true
+				}
 			}
 		}
-	}
 
-	// Strategy 2: Summary starts with short title (partial match)
-	if len(shortTitle) >= 20 && strings.HasPrefix(summaryLower, shortTitle) {
-		// Find the end of the duplicated part (look for sentence end)
-		for i := len(shortTitle); i < len(summary) && i < len(shortTitle)+50; i++ {
-			if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
-				rest := strings.TrimLeft(summary[i+1:], " \n\t")
-				if rest != "" {
-					return removeTitleFromSummary(rest, title)
+		// Strategy 2: Summary starts with short title (partial match)
+		if !changed && len(shortTitle) >= 20 && strings.HasPrefix(summaryLower, shortTitle) {
+			// Find the end of the duplicated part (look for sentence end)
+			for i := len(shortTitle); i < len(summary) && i < len(shortTitle)+50; i++ {
+				if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
+					rest := strings.TrimLeft(summary[i+1:], " \n\t")
+					if rest != "" && rest != summary {
+						summary = strings.TrimSpace(rest)
+						changed = true
+					}
+					break
 				}
-				break
 			}
+		}
+
+		if !changed {
+			break
+		}
+		if summary == "" {
+			break
 		}
 	}
 
 	// Strategy 3: Look for "Title. Title." pattern anywhere in first 200 chars
-	// This catches cases where AI writes "Title. Title. Rest..."
+	// This catches cases where AI writes "Title. Title. Rest..." not strictly as prefix.
+	summaryLower := strings.ToLower(summary)
 	if len(summary) > 50 {
 		checkPart := summaryLower
 		if len(checkPart) > 200 {
@@ -390,19 +411,22 @@ func removeTitleFromSummary(summary, title string) string {
 		}
 
 		// Find if title appears twice
-		firstIdx := strings.Index(checkPart, shortTitle[:minInt(20, len(shortTitle))])
-		if firstIdx >= 0 && firstIdx < 5 { // Title at the start
-			secondIdx := strings.Index(checkPart[firstIdx+10:], shortTitle[:minInt(20, len(shortTitle))])
-			if secondIdx >= 0 && secondIdx < 100 {
-				// Found double title, cut from second occurrence
-				cutPoint := firstIdx + 10 + secondIdx
-				for i := cutPoint; i < len(summary) && i < cutPoint+50; i++ {
-					if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
-						rest := strings.TrimLeft(summary[i+1:], " \n\t")
-						if rest != "" {
-							return rest
+		needleLen := minInt(20, len(shortTitle))
+		if needleLen > 0 {
+			firstIdx := strings.Index(checkPart, shortTitle[:needleLen])
+			if firstIdx >= 0 && firstIdx < 5 { // Title at the start
+				secondIdx := strings.Index(checkPart[firstIdx+10:], shortTitle[:needleLen])
+				if secondIdx >= 0 && secondIdx < 100 {
+					// Found double title, cut from second occurrence
+					cutPoint := firstIdx + 10 + secondIdx
+					for i := cutPoint; i < len(summary) && i < cutPoint+50; i++ {
+						if summary[i] == '.' || summary[i] == '!' || summary[i] == '?' {
+							rest := strings.TrimLeft(summary[i+1:], " \n\t")
+							if rest != "" {
+								return rest
+							}
+							break
 						}
-						break
 					}
 				}
 			}
