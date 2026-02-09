@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -215,6 +216,24 @@ func (c *Client) TranslateAndSummarizeNewsWithBudget(ctx context.Context, title,
 	return result, nil
 }
 
+// sanitizeAIResponse removes Markdown code block wrappers from AI responses
+// Models often return JSON wrapped in ```json ... ``` which breaks json.Unmarshal
+func sanitizeAIResponse(response string) string {
+	response = strings.TrimSpace(response)
+
+	// Remove opening markdown code block (case-insensitive)
+	// Matches: ```json, ```JSON, ```Json, or just ```
+	re := regexp.MustCompile(`(?i)^\s*` + "```" + `(?:json)?\s*\n?`)
+	response = re.ReplaceAllString(response, "")
+
+	// Remove closing markdown code block
+	// Matches: ``` at the end (with optional whitespace)
+	re = regexp.MustCompile(`\n?\s*` + "```" + `\s*$`)
+	response = re.ReplaceAllString(response, "")
+
+	return strings.TrimSpace(response)
+}
+
 func (c *Client) translateWithModel(ctx context.Context, modelName, title, content string, budget ContentBudget) (*NewsTranslation, error) {
 	// Wait for rate limiter before making request
 	if c.rateLimiter != nil {
@@ -371,8 +390,11 @@ Output valid JSON only.
 	var parsedResp NewsTranslationResponse
 	for _, part := range candidate.Content.Parts {
 		if txt, ok := part.(genai.Text); ok {
-			if err := json.Unmarshal([]byte(txt), &parsedResp); err != nil {
-				log.Printf("Failed to unmarshal Gemini JSON response. Raw: %s", string(txt))
+			// Sanitize response to remove Markdown code blocks if present
+			sanitized := sanitizeAIResponse(string(txt))
+
+			if err := json.Unmarshal([]byte(sanitized), &parsedResp); err != nil {
+				log.Printf("❌ Failed to unmarshal Gemini JSON response.\n\tRaw: %s\n\tSanitized: %s\n\tError: %v", string(txt), sanitized, err)
 				return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 			}
 			break

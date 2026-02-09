@@ -327,26 +327,11 @@ func cleanContent(content string) string {
 		return ""
 	}
 
-	// Remove HTML tags
-	content = strings.ReplaceAll(content, "<br>", " ")
-	content = strings.ReplaceAll(content, "<br/>", " ")
-	content = strings.ReplaceAll(content, "<p>", "\n\n")
-	content = strings.ReplaceAll(content, "</p>", "")
+	// Note: goquery.Selection.Text() already strips all HTML tags,
+	// so no need to process <br>, <p>, etc. - they don't exist here.
+	// The paragraph structure (\n\n) is already added by extract functions.
 
-	// Remove other HTML tags
-	inTag := false
-	var result strings.Builder
-	for _, char := range content {
-		if char == '<' {
-			inTag = true
-		} else if char == '>' {
-			inTag = false
-		} else if !inTag {
-			result.WriteRune(char)
-		}
-	}
-
-	content = strings.TrimSpace(result.String())
+	content = strings.TrimSpace(content)
 
 	// Remove junk phrases from all sources
 	junkPhrases := []string{

@@ -371,9 +371,9 @@ func removeTitleFromSummary(summary, title string) string {
 		}
 
 		// Find if title appears twice
-		firstIdx := strings.Index(checkPart, shortTitle[:min(20, len(shortTitle))])
+		firstIdx := strings.Index(checkPart, shortTitle[:minInt(20, len(shortTitle))])
 		if firstIdx >= 0 && firstIdx < 5 { // Title at the start
-			secondIdx := strings.Index(checkPart[firstIdx+10:], shortTitle[:min(20, len(shortTitle))])
+			secondIdx := strings.Index(checkPart[firstIdx+10:], shortTitle[:minInt(20, len(shortTitle))])
 			if secondIdx >= 0 && secondIdx < 100 {
 				// Found double title, cut from second occurrence
 				cutPoint := firstIdx + 10 + secondIdx
@@ -393,8 +393,8 @@ func removeTitleFromSummary(summary, title string) string {
 	return summary
 }
 
-// min returns the smaller of two integers
-func min(a, b int) int {
+// minInt returns the smaller of two integers
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
@@ -592,167 +592,49 @@ func ShouldUsePhoto(n News, maxLen int, sentencesPerLang int, minPerLang int, _ 
 // ====================================================================================
 
 func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, string) {
-	text := strings.ToLower(item.Title + " " + item.Description)
+	text := item.Title + " " + item.Description
 
 	if kw == nil {
 		// Fallback if no keywords provided (should not happen)
 		return 40, "denmark"
 	}
 
-	// Виключаємо непотрібні новини
-	if containsAny(text, kw.Exclude) {
+	// Use dynamic score calculation from config
+	score, category := kw.CalculateScore(text)
+
+	// Map category to legacy category names for compatibility
+	categoryMap := map[string]string{
+		"visas":     "refugee_ukraine",
+		"work":      "refugee_ukraine",
+		"money":     "refugee_ukraine",
+		"education": "denmark",
+		"family":    "denmark",
+		"local":     "viborg",
+		"tech":      "denmark",
+		"society":   "refugee",
+		"economy":   "denmark",
+		"lifestyle": "denmark",
+		"sport":     "denmark",
+		"war":       "ukraine",
+		"spam":      "",
+	}
+
+	// If total score is negative or zero (spam keywords dominated), exclude
+	if score <= 0 {
 		return 0, ""
 	}
 
-	// ========================================
-	// НАЙВИЩИЙ ПРІОРИТЕТ: Українці в Данії (віза SL1, робота, інтеграція)
-	// ========================================
-	if containsAny(text, kw.UkrainiansInDenmark) {
-		return 250, "refugee_ukraine" // Максимальний пріоритет!
+	// Map category if exists
+	if mapped, ok := categoryMap[category]; ok {
+		category = mapped
 	}
 
-	// Новини про біженців з ПРЯМИМ зв'язком з Україною
-	if isRelevantForRefugees(text) {
-		if isSpecificForUkrainians(text) {
-			return 200, "refugee_ukraine"
-		}
-		return 150, "refugee"
+	// Default category if empty
+	if category == "" {
+		category = "denmark"
 	}
 
-	// ========================================
-	// ВИСОКИЙ ПРІОРИТЕТ: Життя в Данії (діти, сім'я, освіта)
-	// ========================================
-	if containsAny(text, kw.FamilyLife) {
-		return 140, "denmark" // Високий пріоритет для сімейних новин
-	}
-
-	// ========================================
-	// ВИСОКИЙ ПРІОРИТЕТ: Позитивні новини про Данію
-	// ========================================
-	if containsAny(text, kw.PositiveDenmark) {
-		return 120, "denmark" // Культура, спорт, свята
-	}
-
-	// Віборг та регіон (для локальних новин)
-	if containsAny(text, kw.Viborg) {
-		return 100, "viborg"
-	}
-
-	// Економіка та робота
-	if containsAny(text, kw.Economy) {
-		return 90, "denmark"
-	}
-
-	// Будівництво та інфраструктура
-	if containsAny(text, kw.Construction) {
-		return 80, "denmark"
-	}
-
-	// Дозвілля (нижчий пріоритет, ніж раніше)
-	if containsAny(text, kw.Leisure) {
-		return 70, "denmark"
-	}
-
-	// ========================================
-	// ЗНИЖЕНИЙ ПРІОРИТЕТ: Війна в Україні (загальні новини)
-	// ========================================
-	// Якщо новина тільки про війну, але НЕ про українців в Данії - нижчий пріоритет
-	if containsAny(text, kw.UkraineWar) {
-		return 60, "ukraine" // Знижено з 100 до 60
-	}
-
-	return 40, "denmark"
-}
-
-func containsAny(text string, keywords []string) bool {
-	for _, k := range keywords {
-		if strings.Contains(text, k) {
-			return true
-		}
-	}
-	return false
-}
-
-// isRelevantForRefugees - СТРОГАЯ проверка релевантности для беженцев
-// Новость должна содержать ПРЯМЫЕ указатели на беженцев/мигрантов в Дании
-// или комбинацию контекстных слов (тема + Дания)
-func isRelevantForRefugees(text string) bool {
-	// Прямые индикаторы - одного слова достаточно
-	directKeywords := []string{
-		"flygtning", "asyl", "opholdstilladelse", "hjemsendelse",
-		"udlænding", "udlændinge", "indvandrer",
-		"midlertidig beskyttelse", "særlov", "ukrainerloven",
-		"familiesammenføring", "asylcenter", "flygtningecenter",
-		"integrationsydelse", "hjemrejseydelse", "selvforsørgelses",
-		"statsborgerskab", "opholdslov",
-	}
-
-	for _, k := range directKeywords {
-		if strings.Contains(text, k) {
-			return true
-		}
-	}
-
-	// Контекстные слова требуют связи с Данией или беженцами
-	contextKeywords := []string{
-		"ydelse", "kontanthjælp", "boligstøtte", "boligsikring",
-		"opholdskort", "visum", "cpr", "nemid", "mitid",
-	}
-
-	danishContext := []string{
-		"danmark", "dansk", "kommune", "styrelse", "ministeriet",
-	}
-
-	refugeeContext := []string{
-		"flygtning", "asyl", "udlænding", "migrant",
-	}
-
-	for _, k := range contextKeywords {
-		if strings.Contains(text, k) {
-			// Проверяем есть ли датский контекст ИЛИ контекст беженцев
-			if containsAny(text, danishContext) || containsAny(text, refugeeContext) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// isSpecificForUkrainians - проверяет что новость СПЕЦИФИЧНО для українців
-// Только закони, статусы и пособия именно для украинских беженцев
-func isSpecificForUkrainians(text string) bool {
-	// Прямые указатели на украинский закон/статус
-	ukrainianSpecificKeywords := []string{
-		"ukrainerloven",        // закон об украинцах
-		"ukraine-loven",        // альтернативное написание
-		"ukrainske flygtninge", // украинские беженцы
-		"ukrainere i danmark",  // украинцы в Дании
-		"ukrainsk flygtning",   // украинский беженец
-	}
-
-	for _, k := range ukrainianSpecificKeywords {
-		if strings.Contains(text, k) {
-			return true
-		}
-	}
-
-	// Комбинация: специфичные термины + упоминание Украины
-	ukraineIndicators := []string{"ukrain", "україн"}
-	refugeeStatusTerms := []string{
-		"midlertidig beskyttelse", // временная защита
-		"særlov",                  // специальный закон
-		"opholdstilladelse",       // разрешение на проживание
-		"forlængelse",             // продление
-		"permanent ophold",        // постоянное проживание
-		"ydelse",                  // пособие
-		"integrationsydelse",      // пособие по интеграции
-	}
-
-	hasUkraine := containsAny(text, ukraineIndicators)
-	hasRefugeeStatus := containsAny(text, refugeeStatusTerms)
-
-	return hasUkraine && hasRefugeeStatus
+	return score, category
 }
 
 func trimToRuneCount(s string, limit int) string {
@@ -769,7 +651,7 @@ func trimToNearestSentenceOrWord(s string, limit int) string {
 		return ""
 	}
 
-	// Convert to runes for proper Unicode handling (æ, ø, å, emojis)
+	// Convert to runes for proper Unicode handling (Danish, Ukrainian, emojis)
 	runes := []rune(s)
 	runeLen := len(runes)
 
@@ -828,9 +710,27 @@ func limitText(s string, max int) string {
 }
 
 func cleanContent(s string) string {
+	// Remove HTML tags
 	re := regexp.MustCompile(`<[^>]*>`)
 	s = re.ReplaceAllString(s, " ")
-	return strings.Join(strings.Fields(s), " ")
+
+	// Preserve paragraph breaks (\n\n) while cleaning up extra whitespace
+	// Split by paragraph breaks
+	paragraphs := strings.Split(s, "\n\n")
+	var cleanedParagraphs []string
+
+	for _, p := range paragraphs {
+		// For each paragraph, normalize spaces but keep the text
+		p = strings.TrimSpace(p)
+		// Replace multiple spaces/tabs with single space
+		p = strings.Join(strings.Fields(p), " ")
+		if p != "" {
+			cleanedParagraphs = append(cleanedParagraphs, p)
+		}
+	}
+
+	// Join paragraphs back with double newline
+	return strings.Join(cleanedParagraphs, "\n\n")
 }
 
 func fallbackSummary(content string) string {

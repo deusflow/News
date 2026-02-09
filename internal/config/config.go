@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -74,11 +75,21 @@ type Config struct {
 	EnableSupabase     bool   // if true, save news to Supabase archive
 }
 
+// Keyword represents a single keyword with its weight and category
+type Keyword struct {
+	Word     string `yaml:"word"`
+	Category string `yaml:"category"`
+	Weight   int    `yaml:"weight"`
+}
+
 // KeywordsConfig holds the keywords for filtering
 type KeywordsConfig struct {
-	UkrainiansInDenmark []string `yaml:"ukrainians_in_denmark"` // Найвищий пріоритет
-	FamilyLife          []string `yaml:"family_life"`           // Діти, підлітки, сім'я
-	PositiveDenmark     []string `yaml:"positive_denmark"`      // Позитивні новини
+	Keywords []Keyword `yaml:"keywords"`
+
+	// Legacy fields for backward compatibility (deprecated)
+	UkrainiansInDenmark []string `yaml:"ukrainians_in_denmark"`
+	FamilyLife          []string `yaml:"family_life"`
+	PositiveDenmark     []string `yaml:"positive_denmark"`
 	RefugeeBoost        []string `yaml:"refugee_boost"`
 	UkraineWar          []string `yaml:"ukraine_war"`
 	Viborg              []string `yaml:"viborg"`
@@ -88,6 +99,32 @@ type KeywordsConfig struct {
 	Exclude             []string `yaml:"exclude"`
 }
 
+// CalculateScore calculates the total score for a given text based on keywords.
+// Returns the total score (sum of all matching keyword weights) and the category with highest weight.
+func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
+	if kc == nil || len(kc.Keywords) == 0 {
+		return 0, ""
+	}
+
+	lowerText := strings.ToLower(text)
+	totalScore := 0
+	maxWeight := 0
+	topCategory := ""
+
+	for _, kw := range kc.Keywords {
+		if strings.Contains(lowerText, strings.ToLower(kw.Word)) {
+			totalScore += kw.Weight
+			// Track the category with highest weight for primary classification
+			if kw.Weight > maxWeight {
+				maxWeight = kw.Weight
+				topCategory = kw.Category
+			}
+		}
+	}
+
+	return totalScore, topCategory
+}
+
 func LoadKeywords(path string) (*KeywordsConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -95,21 +132,23 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 	}
 	defer f.Close()
 
-	var cfg map[string]KeywordsConfig
-	dec := yaml.NewDecoder(f)
-	if err := dec.Decode(&cfg); err != nil {
-		return nil, err
+	// New format: keywords is an array of objects with word/category/weight
+	var cfg struct {
+		Keywords []Keyword `yaml:"keywords"`
 	}
 
-	// The yaml structure is:
-	// keywords:
-	//   refugee_boost: ...
-	// So we need to extract "keywords" key
-	kw, ok := cfg["keywords"]
-	if !ok {
-		return nil, fmt.Errorf("keywords key not found in config")
+	dec := yaml.NewDecoder(f)
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse keywords config: %w", err)
 	}
-	return &kw, nil
+
+	if len(cfg.Keywords) == 0 {
+		return nil, fmt.Errorf("keywords array is empty in config")
+	}
+
+	return &KeywordsConfig{
+		Keywords: cfg.Keywords,
+	}, nil
 }
 
 func Load() (*Config, error) {
