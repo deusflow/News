@@ -280,9 +280,6 @@ keywords:
   - word: "ex on the beach"
     category: "spam"
     weight: -10
-  - word: "mord"
-    category: "spam"
-    weight: -5 # Криминал нам не нужен
   - word: "voldtægt"
     category: "spam"
     weight: -5
