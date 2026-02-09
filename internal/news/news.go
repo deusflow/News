@@ -174,7 +174,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			} else {
 				n.TitleUkrainian = n.Title
 			}
-			n.Mood = "neutral"
+			// Don't force "neutral" on fallback: try a simple heuristic first.
+			n.Mood = detectMoodFallback(n.Title, n.Content)
 			n.FunFact = GetRandomFact()
 		} else {
 			// AI
@@ -199,7 +200,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				}
 				trTitle, _ := translate.StrictTranslateText(n.Title, "da", "uk")
 				n.TitleUkrainian = trTitle
-				n.Mood = "neutral"
+				// Don't force "neutral" on fallback: try a simple heuristic first.
+				n.Mood = detectMoodFallback(n.Title, n.Content)
 				n.TLDR = ""
 				n.FunFact = GetRandomFact() // Fallback на статический факт
 			} else {
@@ -276,6 +278,11 @@ func getMoodScore(mood string) int {
 // ====================================================================================
 
 func GetMoodEmoji(mood string) string {
+	// If mood isn't set, show neutral dot but keep it distinct from a real "neutral" classification.
+	if strings.TrimSpace(mood) == "" {
+		return "🔵"
+	}
+
 	switch strings.ToLower(mood) {
 	case "positive":
 		return "🟢"
@@ -827,6 +834,62 @@ func extractImageURL(item *rss.FeedItem) string {
 	if item.Link != "" {
 		if imgURL, err := scraper.ExtractImageURL(item.Link); err == nil && imgURL != "" {
 			return imgURL
+		}
+	}
+
+	return ""
+}
+
+// detectMoodFallback tries to infer a mood from the title/content when AI isn't available.
+// Rules (very rough):
+// - urgent: disasters, deaths, attacks, explosions, major accidents
+// - negative: war/crime/violence terms
+// - positive: celebration, wins, improvements
+// - empty string means "unknown" (prefer this over forcing neutral)
+func detectMoodFallback(title, content string) string {
+	text := strings.ToLower(strings.TrimSpace(title + " " + content))
+	if text == "" {
+		return ""
+	}
+
+	// Urgent / tragic triggers
+	urgent := []string{
+		"dræbt", "dræbte", "drab", "mord", "død", "døde", "dødsfald",
+		"kollaps", "katastrofe", "ulykke", "brand", "eksplosion", "angreb",
+		"terror", "massakre", "skud", "skyderi",
+		"bomb", "missil", "raket",
+		"killed", "dead", "death", "attack", "explosion",
+		"загин", "загиб", "вбит", "вбив", "смерт", "обстріл", "ракет",
+		"вибух", "атака", "терор",
+	}
+	for _, w := range urgent {
+		if strings.Contains(text, w) {
+			return "urgent"
+		}
+	}
+
+	// Negative triggers (war/crime/conflict) – less strong than urgent.
+	negative := []string{
+		"krig", "front", "invasion", "beskydning", "sanktion",
+		"voldtægt", "overfald", "vold", "fængsel", "kidnap", "kniv",
+		"war", "invasion",
+		"війна", "військ", "окупа", "полон", "поран",
+	}
+	for _, w := range negative {
+		if strings.Contains(text, w) {
+			return "negative"
+		}
+	}
+
+	positive := []string{
+		"sejr", "vinder", "rekord", "sukces", "forbedring", "stigning",
+		"festival", "fejring", "åbner", "gratis",
+		"win", "wins", "record", "success",
+		"перемог", "успіх", "свято", "відкрит",
+	}
+	for _, w := range positive {
+		if strings.Contains(text, w) {
+			return "positive"
 		}
 	}
 
