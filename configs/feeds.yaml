@@ -1,16 +1,32 @@
-# Проверенные рабочие RSS-источники датских медиа (расширённая версия)
 feeds:
-
+  # ГЛАВНЫЕ НОВОСТИ ДАНИИ
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
     lang: da
     priority: 100
     active: true
-    categories: [denmark, main, ukraine, visas, technology, integration]
+    categories: [denmark, main, politics, ukraine]
 
-  - url: https://ekstrabladet.dk/rssfeed/nyheder/
-    name: Ekstra Bladet - Nyheder
-    lang: da
-    priority: 40
+  # ЕВРОПАРЛАМЕНТ (Законы ЕС)
+  - url: https://www.europarl.europa.eu/rss/doc/top-stories/en.xml
+    name: European Parliament
+    lang: en
+    priority: 80
     active: true
-    categories: [denmark, main, ukraine, visas, technology]
+    categories: [eu, politics, ukraine, visas]
+
+  # ТВОЙ РЕГИОН (ВИБОРГ) - Это бесплатно и стабильно
+  - url: https://www.tvmidtvest.dk/rss
+    name: TV Midtvest
+    lang: da
+    priority: 90
+    active: true
+    categories: [local, viborg, lifestyle]
+
+  # ОРХУС (Для тусовок и событий рядом)
+  - url: https://www.tv2ostjylland.dk/rss
+    name: TV2 Østjylland
+    lang: da
+    priority: 50
+    active: true
+    categories: [local, aarhus, lifestyle]

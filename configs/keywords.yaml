@@ -1,234 +1,300 @@
 keywords:
-  # ========================================
-  # НАЙВИЩИЙ ПРІОРИТЕТ: Українці в Данії
-  # ========================================
-  ukrainians_in_denmark:
-    # Візи та статус
-    - ukrainer
-    - ukrainsk
-    - særlov
-    - ukrainerloven
-    - midlertidig beskyttelse
-    - opholdstilladelse
-    - forlængelse
-    - ophold
-    # Робота для українців
-    - arbejdstilladelse
-    - job til ukrainer
-    - ansættelse
-    # Пособия та підтримка
-    - selvforsørgelses
-    - integrationsydelse
-    - ydelse
-    # Навчання
-    - sprogskole
-    - danskuddannelse
-    - integrationskursus
+  # =======================================================
+  # НАИВЫСШИЙ ПРИОРИТЕТ: УКРАИНЦЫ, ВИЗЫ И СТАТУС (Weight 25)
+  # =======================================================
+  - word: "særlov"
+    category: "visas"
+    weight: 25
+  - word: "ukrainerloven"
+    category: "visas"
+    weight: 25
+  - word: "midlertidig beskyttelse"
+    category: "visas"
+    weight: 25
+  - word: "paragraf 24" # Германия/ЕС
+    category: "visas"
+    weight: 25
+  - word: "mercantec" # ТВОЯ ШКОЛА (СУПЕР ВАЖНО)
+    category: "education"
+    weight: 30
 
-  # ========================================
-  # ВИСОКИЙ ПРІОРИТЕТ: Життя в Данії (сім'я, діти)
-  # ========================================
-  family_life:
-    # Діти та підлітки
-    - barn
-    - børn
-    - ung
-    - unge
-    - teenager
-    - skoleelev
-    - studerende
-    # Школа та освіта
-    - folkeskole
-    - gymnasium
-    - skole
-    - uddannelse
-    - eksamen
-    - læring
-    - undervisning
-    # Дитячі садки
-    - børnehave
-    - vuggestue
-    - daginstitution
-    - dagpleje
-    - pasning
-    # Сім'я
-    - familie
-    - forældre
-    - mor
-    - far
-    - familieliv
-    # Дитячі виплати
-    - børnepenge
-    - børnecheck
-    - barsel
-    - barselsorlov
-    - forældreorlov
+  # Визы и документы (Weight 20)
+  - word: "opholdstilladelse"
+    category: "visas"
+    weight: 20
+  - word: "forlængelse"
+    category: "visas"
+    weight: 20
+  - word: "ophold"
+    category: "visas"
+    weight: 15
+  - word: "ukrainer"
+    category: "visas"
+    weight: 15
+  - word: "ukrainsk"
+    category: "visas"
+    weight: 15
+  - word: "hjemsendelse"
+    category: "visas"
+    weight: 20
+  - word: "statsborgerskab"
+    category: "visas"
+    weight: 15
+  - word: "familiesammenføring"
+    category: "visas"
+    weight: 15
 
-  # ========================================
-  # ПОЗИТИВНІ НОВИНИ ПРО ДАНІЮ
-  # ========================================
-  positive_denmark:
-    # Культура та дозвілля
-    - festival
-    - koncert
-    - musik
-    - kultur
-    - teater
-    - museum
-    - udstilling
-    - kunst
-    # Спорт та здоров'я
-    - sport
-    - løb
-    - royal run
-    - fodbold
-    - håndbold
-    - cykling
-    - motion
-    # Події та свята
-    - jul
-    - påske
-    - pinse
-    - sankthans
-    - fastelavn
-    - arrangement
-    - marked
-    - event
-    # Туризм
-    - ferie
-    - rejse
-    - turist
-    - seværdighed
-    - oplevelse
+  # Работа для украинцев (Weight 15-20)
+  - word: "arbejdstilladelse"
+    category: "work"
+    weight: 20
+  - word: "job til ukrainer"
+    category: "work"
+    weight: 20
+  - word: "ansættelse"
+    category: "work"
+    weight: 15
 
-  refugee_boost:
-    # ПРЯМІ терміни про біженців (одного достатньо)
-    - flygtning
-    - asyl
-    - opholdstilladelse
-    - hjemsendelse
-    - integrat
-    - udlænding
-    - udlændinge
-    - indvandrer
-    # Допомоги специфічні для біженців
-    - selvforsørgelses
-    - hjemrejseydelse
-    - integrationsydelse
-    # Статус і документи (специфічні)
-    - midlertidig beskyttelse
-    - særlov
-    - ukrainerloven
-    - statsborgerskab
-    - familiesammenføring
-    # Спеціальні центри
-    - asylcenter
-    - flygtningecenter
-    - indkvartering
+  # Пособия и поддержка (Weight 15)
+  - word: "selvforsørgelses"
+    category: "money"
+    weight: 15
+  - word: "integrationsydelse"
+    category: "money"
+    weight: 15
+  - word: "hjemrejseydelse"
+    category: "money"
+    weight: 15
+  - word: "ydelse"
+    category: "money"
+    weight: 10
 
-  ukraine_war:
-    # Тільки КЛЮЧОВІ військові терміни (знижуємо пріоритет)
-    - krig i ukraine
-    - ruslands invasion
-    - zelensky
-    - våbenhjælp til ukraine
-    - dansk støtte til ukraine
+  # Язык и курсы (Weight 12)
+  - word: "sprogskole"
+    category: "education"
+    weight: 12
+  - word: "danskuddannelse"
+    category: "education"
+    weight: 12
+  - word: "integrationskursus"
+    category: "education"
+    weight: 12
 
-  viborg:
-    - viborg
-    - midtjylland
-    - skive
-    - bjerringbro
-    - karup
-    - stoholm
-    - sunds
-    - kjellerup
-    - silkeborg
-    - mercantec
-    - 8800
+  # =======================================================
+  # ТВОЙ РЕГИОН: ВИБОРГ (Weight 20)
+  # =======================================================
+  - word: "viborg"
+    category: "local"
+    weight: 20
+  - word: "8800"
+    category: "local"
+    weight: 20
+  - word: "midtjylland"
+    category: "local"
+    weight: 15
+  - word: "skive"
+    category: "local"
+    weight: 10
+  - word: "bjerringbro"
+    category: "local"
+    weight: 10
+  - word: "karup"
+    category: "local"
+    weight: 10
+  - word: "stoholm"
+    category: "local"
+    weight: 10
+  - word: "sunds"
+    category: "local"
+    weight: 10
+  - word: "kjellerup"
+    category: "local"
+    weight: 10
+  - word: "silkeborg"
+    category: "local"
+    weight: 10
 
-  economy:
-    - løn
-    - lønforhøjelse
-    - overenskomst
-    - skat
-    - fradrag
-    - årsopgørelse
-    - skattekort
-    - økonomi
-    - inflation
-    - pris
-    - priser
-    - elpris
-    - varmepris
-    - budget
-    - finanslov
-    - spare
-    - dagpenge
-    - kontanthjælp
-    - su
-    - børnepenge
-    - arbejde
-    - job
-    - ansættelse
-    - mangel på arbejdskraft
-  construction:
-    - byggeri
-    - nybyg
-    - renovering
-    - byggeprojekt
-    - lokalplan
-    - byplan
-    - høring
-    - fremtid
-    - vej
-    - trafik
-    - infrastruktur
-    - bro
-    - tunnel
-    - tog
-    - bane
-    - bolig
-    - lejlighed
-    - ejendom
-    - husleje
-    - hospital
-    - sygehus
-    - skole
-    - daginstitution
-  leisure:
-    # Залишаємо тільки важливі дозвіллєві події
-    - koncert
-    - musik
-    - teater
-    - museum
-    - udstilling
-    - arrangement
-    - marked
+  # =======================================================
+  # ВЫСОКИЙ ПРИОРИТЕТ: СЕМЬЯ И ДЕТИ (Weight 15)
+  # =======================================================
 
-  exclude:
-    # Погода та гороскопи
-    - vejr
-    - vejrudsigt
-    - horoskop
-    - stjernetegn
-    # Рецепти та їжа
-    - madopskrift
-    - opskrift
-    - krydsord
-    # Кримінал (занадто негативно)
-    - mord
-    - voldtægt
-    - drab
-    - skyderi
-    - knivstik
-    # Жовта преса
-    - reality
-    - kendis
-    - paradise
-    - ex on the beach
-    # Реклама
-    - tilbud
-    - rabat
-    - annonce
+  # Деньги на детей
+  - word: "børnepenge"
+    category: "family"
+    weight: 15
+  - word: "børnecheck"
+    category: "family"
+    weight: 15
+  - word: "barsel"
+    category: "family"
+    weight: 12
 
+  # Образование детей и молодежи
+  - word: "erhvervsskole" # Техникум
+    category: "education"
+    weight: 15
+  - word: "gymnasium"
+    category: "education"
+    weight: 12
+  - word: "folkeskole"
+    category: "education"
+    weight: 12
+  - word: "skole"
+    category: "education"
+    weight: 10
+  - word: "uddannelse"
+    category: "education"
+    weight: 10
+  - word: "studerende"
+    category: "education"
+    weight: 10
+  - word: "eksamen"
+    category: "education"
+    weight: 8
+
+  # Садики и уход
+  - word: "børnehave"
+    category: "family"
+    weight: 10
+  - word: "vuggestue"
+    category: "family"
+    weight: 10
+  - word: "daginstitution"
+    category: "family"
+    weight: 10
+
+  # Семья и подростки
+  - word: "unge"
+    category: "family"
+    weight: 10
+  - word: "teenager"
+    category: "family"
+    weight: 10
+  - word: "familie"
+    category: "family"
+    weight: 8
+
+  # =======================================================
+  # ПОЗИТИВ, КУЛЬТУРА И СПОРТ (Weight 5-8)
+  # =======================================================
+  - word: "festival"
+    category: "lifestyle"
+    weight: 8
+  - word: "koncert"
+    category: "lifestyle"
+    weight: 8
+  - word: "royal run"
+    category: "sport"
+    weight: 8
+  - word: "jul"
+    category: "lifestyle"
+    weight: 5
+  - word: "påske"
+    category: "lifestyle"
+    weight: 5
+  - word: "ferie"
+    category: "lifestyle"
+    weight: 5
+  - word: "oplevelse"
+    category: "lifestyle"
+    weight: 5
+  - word: "seværdighed"
+    category: "lifestyle"
+    weight: 5
+
+  # =======================================================
+  # БЕЖЕНЦЫ (ОБЩИЕ ТЕРМИНЫ) (Weight 10-15)
+  # =======================================================
+  - word: "flygtning"
+    category: "society"
+    weight: 15
+  - word: "asyl"
+    category: "society"
+    weight: 12
+  - word: "asylcenter"
+    category: "society"
+    weight: 10
+  - word: "udlændingestyrelsen"
+    category: "visas"
+    weight: 12
+
+  # =======================================================
+  # ЭКОНОМИКА (Weight 5)
+  # =======================================================
+  - word: "løn"
+    category: "economy"
+    weight: 5
+  - word: "skat"
+    category: "economy"
+    weight: 5
+  - word: "fradrag"
+    category: "economy"
+    weight: 5
+  - word: "årsopgørelse"
+    category: "economy"
+    weight: 8 # Важно раз в год
+  - word: "su"
+    category: "money"
+    weight: 8
+  - word: "inflation"
+    category: "economy"
+    weight: 3
+
+  # =======================================================
+  # ВОЙНА (НИЗКИЙ ПРИОРИТЕТ, КАК ПРОСИЛ) (Weight 3-5)
+  # =======================================================
+  - word: "krig i ukraine"
+    category: "war"
+    weight: 5
+  - word: "våbenhjælp"
+    category: "war"
+    weight: 3
+  - word: "zelensky"
+    category: "war"
+    weight: 3
+
+  # =======================================================
+  # ИСКЛЮЧЕНИЯ (МУСОР) (Weight -10)
+  # =======================================================
+  - word: "vejr"
+    category: "spam"
+    weight: -10
+  - word: "vejrudsigt"
+    category: "spam"
+    weight: -10
+  - word: "horoskop"
+    category: "spam"
+    weight: -10
+  - word: "stjernetegn"
+    category: "spam"
+    weight: -10
+  - word: "kendis"
+    category: "spam"
+    weight: -10
+  - word: "reality"
+    category: "spam"
+    weight: -10
+  - word: "paradise"
+    category: "spam"
+    weight: -10
+  - word: "ex on the beach"
+    category: "spam"
+    weight: -10
+  - word: "mord"
+    category: "spam"
+    weight: -5 # Криминал нам не нужен
+  - word: "voldtægt"
+    category: "spam"
+    weight: -5
+  - word: "knivstik"
+    category: "spam"
+    weight: -5
+  - word: "skyderi"
+    category: "spam"
+    weight: -5
+  - word: "opskrift"
+    category: "spam"
+    weight: -5
+  - word: "madopskrift"
+    category: "spam"
+    weight: -5
