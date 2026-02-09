@@ -247,9 +247,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	return result, nil
 }
 
-// isRefugeeCategory проверяет относится ли категория к беженцам
+// isRefugeeCategory проверяет относится ли категория к беженцам/украинцам
 func isRefugeeCategory(cat string) bool {
-	return cat == "refugee" || cat == "refugee_ukraine"
+	// Categories related to Ukrainian refugees (visas, work permits, benefits)
+	return cat == "visas" || cat == "work" || cat == "money" || cat == "society"
 }
 
 func getMoodScore(mood string) int {
@@ -292,18 +293,28 @@ func formatHeader(n News) string {
 	moodEmoji := GetMoodEmoji(n.Mood)
 	cat := strings.ToUpper(n.Category)
 
-	// Специальные заголовки для категорий
+	// Special headers for categories
 	switch n.Category {
-	case "refugee_ukraine":
+	case "visas", "work", "money":
 		return "🇺🇦 <b>ВАЖЛИВО ДЛЯ УКРАЇНЦІВ</b>"
-	case "refugee":
-		return "📋 <b>ДЛЯ БІЖЕНЦІВ</b>"
-	case "ukraine":
-		cat = "UKRAINE"
-	case "viborg":
-		cat = "VIBORG"
-	case "denmark":
-		cat = "DANMARK"
+	case "society":
+		return "📋 <b>ДЛЯ СОЦІАЛЬНОГО ЖИТТЯ</b>"
+	case "war":
+		return "⚔️ <b>ВІЙНА</b>"
+	case "local":
+		return "🏙️ <b>VIBORG</b>"
+	case "education":
+		return "🎓 <b>ОСВІТА</b>"
+	case "family":
+		return "👨‍👩‍👧 <b>СІМ'Я</b>"
+	case "tech":
+		return "💻 <b>ТЕХНОЛОГІЇ</b>"
+	case "economy":
+		return "💰 <b>ЕКОНОМІКА</b>"
+	case "lifestyle":
+		return "🎉 <b>ДОЗВІЛЛЯ</b>"
+	case "sport":
+		return "⚽ <b>СПОРТ</b>"
 	default:
 		if cat == "" {
 			cat = "NYHED"
@@ -596,42 +607,20 @@ func calculateNewsScore(item *rss.FeedItem, kw *config.KeywordsConfig) (int, str
 
 	if kw == nil {
 		// Fallback if no keywords provided (should not happen)
-		return 40, "denmark"
+		return 40, "general"
 	}
 
 	// Use dynamic score calculation from config
 	score, category := kw.CalculateScore(text)
-
-	// Map category to legacy category names for compatibility
-	categoryMap := map[string]string{
-		"visas":     "refugee_ukraine",
-		"work":      "refugee_ukraine",
-		"money":     "refugee_ukraine",
-		"education": "denmark",
-		"family":    "denmark",
-		"local":     "viborg",
-		"tech":      "denmark",
-		"society":   "refugee",
-		"economy":   "denmark",
-		"lifestyle": "denmark",
-		"sport":     "denmark",
-		"war":       "ukraine",
-		"spam":      "",
-	}
 
 	// If total score is negative or zero (spam keywords dominated), exclude
 	if score <= 0 {
 		return 0, ""
 	}
 
-	// Map category if exists
-	if mapped, ok := categoryMap[category]; ok {
-		category = mapped
-	}
-
-	// Default category if empty
+	// Default category if empty (no keywords matched)
 	if category == "" {
-		category = "denmark"
+		category = "general"
 	}
 
 	return score, category
