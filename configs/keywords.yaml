@@ -115,6 +115,43 @@ keywords:
     weight: 10
 
   # =======================================================
+  # IT И НОВЫЕ ТЕХНОЛОГИИ (Weight 15)
+  # =======================================================
+  - word: "kunstig intelligens" # Искусственный интеллект (AI)
+    category: "tech"
+    weight: 15
+  - word: "ai" # AI (часто пишут по-английски)
+    category: "tech"
+    weight: 15
+  - word: "chatgpt"
+    category: "tech"
+    weight: 15
+  - word: "cybersikkerhed" # Кибербезопасность (очень важно в Дании)
+    category: "tech"
+    weight: 15
+  - word: "it-sikkerhed" # IT-безопасность
+    category: "tech"
+    weight: 15
+  - word: "hacker" # Хакеры (новости про взломы)
+    category: "tech"
+    weight: 12
+  - word: "digitalisering" # Цифровизация (госуслуги, MitID)
+    category: "tech"
+    weight: 10
+  - word: "robot" # Роботы
+    category: "tech"
+    weight: 10
+  - word: "software"
+    category: "tech"
+    weight: 10
+  - word: "programmering"
+    category: "tech"
+    weight: 10
+  - word: "teknologi"
+    category: "tech"
+    weight: 8
+
+  # =======================================================
   # ВЫСОКИЙ ПРИОРИТЕТ: СЕМЬЯ И ДЕТИ (Weight 15)
   # =======================================================
 
