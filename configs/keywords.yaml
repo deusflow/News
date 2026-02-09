@@ -14,9 +14,9 @@ keywords:
   - word: "paragraf 24" # Германия/ЕС
     category: "visas"
     weight: 25
-  - word: "mercantec" # ТВОЯ ШКОЛА (СУПЕР ВАЖНО)
+  - word: "mercantec" # ТВОЯ ШКОЛА (СУПЕР ВАЖНО - УВЕЛИЧИЛ ДО 35)
     category: "education"
-    weight: 30
+    weight: 35
 
   # Визы и документы (Weight 20)
   - word: "opholdstilladelse"
@@ -85,10 +85,10 @@ keywords:
   # =======================================================
   - word: "viborg"
     category: "local"
-    weight: 20
+    weight: 25 # Поднял важность города
   - word: "8800"
     category: "local"
-    weight: 20
+    weight: 25
   - word: "midtjylland"
     category: "local"
     weight: 15
@@ -132,7 +132,7 @@ keywords:
   # Образование детей и молодежи
   - word: "erhvervsskole" # Техникум
     category: "education"
-    weight: 15
+    weight: 30
   - word: "gymnasium"
     category: "education"
     weight: 12
@@ -147,7 +147,7 @@ keywords:
     weight: 10
   - word: "studerende"
     category: "education"
-    weight: 10
+    weight: 20
   - word: "eksamen"
     category: "education"
     weight: 8
@@ -155,10 +155,10 @@ keywords:
   # Садики и уход
   - word: "børnehave"
     category: "family"
-    weight: 10
+    weight: 20
   - word: "vuggestue"
     category: "family"
-    weight: 10
+    weight: 30
   - word: "daginstitution"
     category: "family"
     weight: 10
@@ -166,13 +166,13 @@ keywords:
   # Семья и подростки
   - word: "unge"
     category: "family"
-    weight: 10
+    weight: 20
   - word: "teenager"
     category: "family"
-    weight: 10
+    weight: 15
   - word: "familie"
     category: "family"
-    weight: 8
+    weight: 25
 
   # =======================================================
   # ПОЗИТИВ, КУЛЬТУРА И СПОРТ (Weight 5-8)
@@ -182,7 +182,7 @@ keywords:
     weight: 8
   - word: "koncert"
     category: "lifestyle"
-    weight: 8
+    weight: 5
   - word: "royal run"
     category: "sport"
     weight: 8
@@ -191,7 +191,7 @@ keywords:
     weight: 5
   - word: "påske"
     category: "lifestyle"
-    weight: 5
+    weight: 15
   - word: "ferie"
     category: "lifestyle"
     weight: 5
@@ -207,55 +207,64 @@ keywords:
   # =======================================================
   - word: "flygtning"
     category: "society"
-    weight: 15
+    weight: 25
   - word: "asyl"
     category: "society"
     weight: 12
   - word: "asylcenter"
     category: "society"
-    weight: 10
+    weight: 25
   - word: "udlændingestyrelsen"
     category: "visas"
-    weight: 12
+    weight: 25
 
   # =======================================================
   # ЭКОНОМИКА (Weight 5)
   # =======================================================
   - word: "løn"
     category: "economy"
-    weight: 5
+    weight: 20
   - word: "skat"
     category: "economy"
     weight: 5
   - word: "fradrag"
     category: "economy"
-    weight: 5
+    weight: 20
   - word: "årsopgørelse"
     category: "economy"
-    weight: 8 # Важно раз в год
+    weight: 8
   - word: "su"
     category: "money"
     weight: 8
   - word: "inflation"
     category: "economy"
-    weight: 3
+    weight: 10
 
   # =======================================================
   # ВОЙНА (НИЗКИЙ ПРИОРИТЕТ, КАК ПРОСИЛ) (Weight 3-5)
   # =======================================================
   - word: "krig i ukraine"
     category: "war"
-    weight: 5
+    weight: 15
   - word: "våbenhjælp"
     category: "war"
-    weight: 3
+    weight: 15
   - word: "zelensky"
     category: "war"
-    weight: 3
+    weight: 15
 
   # =======================================================
-  # ИСКЛЮЧЕНИЯ (МУСОР) (Weight -10)
+  # ИСКЛЮЧЕНИЯ (МУСОР И ДАЛЕКИЙ НЕГАТИВ) (Weight -10)
   # =======================================================
+  # Геополитика (чтобы не читать про Трампа и КНДР)
+  - word: "nordkorea"
+    category: "spam"
+    weight: -15
+  - word: "mellemøsten" # Ближний Восток
+    category: "spam"
+    weight: -10
+
+  # Бытовой шум
   - word: "vejr"
     category: "spam"
     weight: -10
@@ -280,6 +289,9 @@ keywords:
   - word: "ex on the beach"
     category: "spam"
     weight: -10
+
+  # Криминал (Мягкий фильтр: -5)
+  # Это позволит показать криминал, если он связан с Виборгом (+25 - 5 = +20)
   - word: "voldtægt"
     category: "spam"
     weight: -5
@@ -289,6 +301,14 @@ keywords:
   - word: "skyderi"
     category: "spam"
     weight: -5
+  - word: "mord"
+    category: "spam"
+    weight: -5
+  - word: "fængsel"
+    category: "spam"
+    weight: -5
+
+  # Рецепты
   - word: "opskrift"
     category: "spam"
     weight: -5
