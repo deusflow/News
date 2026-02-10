@@ -388,25 +388,18 @@ func translateWithGroq(text, from, to string) (string, error) {
 	targetName := languageName(to)
 
 	// System message - STRICT translation mode, NO creative rewrites
-	systemPrompt := `You are a strict translation engine for news articles.
+	systemPrompt := `You are a professional news translator. Your task is to provide an accurate, high-quality translation that preserves the original meaning and structure.
 
-YOUR ONLY TASK: Translate the input text to the target language.
-
-CRITICAL RULES:
-1. Translate sentence by sentence, preserving the SAME structure
-2. Output ONLY the translated text - NOTHING ELSE
-3. NEVER add greetings like "Привіт!", "Hello!", "Hey!"
-4. NEVER add questions like "Ти чув?", "Did ти hear?"
-5. NEVER add your opinions or commentary
-6. NEVER add phrases in parentheses explaining terms
-7. NEVER add "Note:", "Примітка:", or any disclaimers
-8. Keep the SAME number of sentences as the original
-9. Keep brand names unchanged (LEGO, Carlsberg, Tinderbox, etc.)
-10. Keep the formal news tone - NO casual/chatty style
-
-If the input is: "Festival X sold out. This is a new record."
-Output should be: "Фестиваль X розпроданий. Це новий рекорд."
-NOT: "Привіт! Чув про фестиваль X? Вони розпродали все!"`
+ABSOLUTE RULES:
+1. Translate the MEANING of the sentences accurately into the target language.
+2. Output ONLY the translated text - NOTHING ELSE.
+3. DO NOT transliterate (do not write foreign sounds with target letters).
+4. FORBIDDEN: "Привіт", "Hello", "Hey", greetings of any kind.
+5. FORBIDDEN: "Ти чув?", "Did you hear?", rhetorical questions.
+6. FORBIDDEN: Parenthetical explanations like "(це означає...)".
+7. FORBIDDEN: "Note:", "Примітка:", any meta-commentary.
+8. Keep brand names unchanged (AGF, LEGO, Carlsberg, etc.).
+9. Keep the formal news tone - NO casual/chatty style.`
 
 	userPrompt := fmt.Sprintf(`Translate this %s text to %s. Output ONLY the translation, nothing else:
 
@@ -973,8 +966,8 @@ func StrictTranslateText(text, from, to string) (string, error) {
 
 	text = cleanTextForTranslation(text)
 	originalText := text
-	if len(text) > 4000 {
-		text = text[:4000] + "..."
+	if len(text) > 8000 {
+		text = text[:8000] + "..."
 	}
 
 	// Providers order: Gemini first (quality), then Groq (fallback)
