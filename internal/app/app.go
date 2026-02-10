@@ -419,6 +419,7 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 // saveToSupabase saves news to Supabase for website archive
 func saveToSupabase(client *storage.SupabaseClient, n news.News) {
 	archive := storage.NewsArchive{
+		Slug:             storage.GenerateSlugWithDate(n.Title, n.Published),
 		Title:            n.Title,
 		TitleUkrainian:   n.TitleUkrainian,
 		SummaryUkrainian: n.SummaryUkrainian,
