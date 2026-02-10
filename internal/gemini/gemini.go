@@ -149,7 +149,7 @@ func (c *Client) TranslateAndSummarizeNewsWithBudget(ctx context.Context, title,
 	// Increase timeout to handle potential rate limit waits
 	// Rate limiter = 40s per request, need time for: primary (2 attempts) + fallback (2 attempts)
 	// Minimum: 4 × 40s = 160s, plus API response time → 300s is safe
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 900*time.Second)
 	defer cancel()
 
 	var result *NewsTranslation

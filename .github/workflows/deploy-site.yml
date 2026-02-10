@@ -44,32 +44,44 @@ jobs:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
     steps:
-      # 1. Checkout репозиторію
+      # 1. Checkout репозиторію (latest code, no cached markdown)
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main  # Always use latest main branch
 
-      # 2. Встановлення Hugo
+      # 2. Clean any existing generated posts (ensure fresh build)
+      - name: Clean generated posts
+        run: |
+          echo "🧹 Cleaning existing markdown files..."
+          rm -f website/content/posts/*.md 2>/dev/null || true
+          echo "✅ Ready for fresh content generation"
+
+      # 3. Встановлення Hugo
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3
         with:
           hugo-version: 'latest'
           extended: true
 
-      # 3. Налаштування GitHub Pages
+      # 4. Налаштування GitHub Pages
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v4
 
-      # 4. Fetch news from Supabase and generate markdown
+      # 5. Generate markdown files from Supabase (fresh data every build)
       - name: Generate pages from Supabase
         run: |
+          echo "📥 Fetching latest news from Supabase and generating markdown..."
           chmod +x scripts/generate-pages.sh
           ./scripts/generate-pages.sh
-        continue-on-error: true
+          
+          echo "✅ Generated posts:"
+          ls -lh website/content/posts/ || echo "No posts directory yet"
+        continue-on-error: false  # Fail if Supabase fetch fails
 
-      # 5. Build сайту
+      # 6. Build сайту
       - name: Build with Hugo
         working-directory: website
         env:
@@ -82,7 +94,7 @@ jobs:
           echo "📁 Files in public/:"
           ls -la public/
 
-      # 6. Upload artifact для деплою
+      # 7. Upload artifact для деплою
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

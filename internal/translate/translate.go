@@ -120,8 +120,8 @@ func TranslateText(text, from, to string) (string, error) {
 
 	// Limit text length for API
 	originalText := text
-	if len(text) > 4000 {
-		text = text[:4000] + "..."
+	if len(text) > 8000 {
+		text = text[:8000] + "..."
 	}
 
 	// Try providers in order: Gemini first (quality), then Groq (fast fallback)

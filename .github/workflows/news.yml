@@ -14,7 +14,7 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Потрібно для коміту нових постів сайту
+      contents: read  # Read-only mode - bot only writes to database
 
     env:
       # PostgreSQL Database - КРИТИЧЕСКИ ВАЖНО для предотвращения дубликатов!
@@ -39,8 +39,8 @@ jobs:
       ENABLE_VOCAB_POST: 'false'
       VOCAB_WORDS_PER_DAY: 5
 
-      # Website generation (NEW)
-      ENABLE_WEBSITE: 'true'
+      # Website generation (DISABLED - site builds from Supabase)
+      ENABLE_WEBSITE: 'false'
       WEBSITE_CONTENT_DIR: 'website/content'
 
       # API Keys and Tokens
@@ -51,7 +51,8 @@ jobs:
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       MISTRALAI_API_KEY: ${{ secrets.MISTRALAI_API_KEY }}
 
-      # Supabase (for website archive)
+      # Supabase (for website archive) - AUTO-ENABLED when credentials present
+      # Bot saves all news here, website pulls from this database
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
@@ -119,23 +120,8 @@ jobs:
           ./bin/dknews | tee run.log
         working-directory: ${{ github.workspace }}
 
-      # Commit new website posts (if any were generated)
-      - name: Commit website posts
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          
-          # Check if there are new posts
-          if [ -n "$(git status website/content/posts --porcelain)" ]; then
-            echo "📝 New website posts detected!"
-            git add website/content/posts/
-            git commit -m "🌐 Auto-generate website posts [skip ci]"
-            git push
-            echo "✅ Website posts committed and pushed"
-          else
-            echo "ℹ️ No new website posts to commit"
-          fi
-        working-directory: ${{ github.workspace }}
+      # Website posts are now generated on-the-fly during site deployment
+      # No git commits needed - bot only saves to Supabase database
 
       - name: Show resulting cache file
         run: |
