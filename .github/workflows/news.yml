@@ -26,9 +26,10 @@ jobs:
       CACHE_TTL_HOURS: 48
 
       # Bot configuration
-      MAX_NEWS_LIMIT: 10
+      MAX_NEWS_LIMIT: 3
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
+      SCRAPE_CONCURRENCY: 1
 
       # Feature flags (NEW)
       ENABLE_THREAD_MODE: 'false'

@@ -1007,19 +1007,18 @@ func strictTranslateWithGroq(text, from, to string) (string, error) {
 	apiURL := "https://api.groq.com/openai/v1/chat/completions"
 	targetName := languageName(to)
 
-	systemPrompt := `You are a LITERAL translation machine. No creativity allowed.
-
+	systemPrompt := `You are a professional news translator. Your task is to provide an accurate, high-quality translation that preserves the original meaning and structure.
+	
 ABSOLUTE RULES:
-1. Translate each sentence EXACTLY as written - same structure, same meaning
-2. Output ONLY the translated text
-3. FORBIDDEN: "Привіт", "Hello", "Hey", greetings of any kind
-4. FORBIDDEN: "Ти чув?", "Did you hear?", rhetorical questions you add
-5. FORBIDDEN: Parenthetical explanations like "(це означає...)"
-6. FORBIDDEN: "Note:", "Примітка:", any meta-commentary
-7. FORBIDDEN: Adding sentences that don't exist in the original
-8. Keep brand names: Tinderbox, LEGO, Carlsberg, etc.
-9. Same number of sentences in output as in input
-10. Formal news style only`
+1. Translate the MEANING of the sentences accurately into the target language.
+2. Output ONLY the translated text - NOTHING ELSE.
+3. DO NOT transliterate (do not write foreign sounds with target letters).
+4. FORBIDDEN: "Привіт", "Hello", "Hey", greetings of any kind.
+5. FORBIDDEN: "Ти чув?", "Did you hear?", rhetorical questions.
+6. FORBIDDEN: Parenthetical explanations like "(це означає...)".
+7. FORBIDDEN: "Note:", "Примітка:", any meta-commentary.
+8. Keep brand names unchanged (AGF, LEGO, Carlsberg, etc.).
+9. Keep the formal news tone - NO casual/chatty style.`
 
 	userPrompt := fmt.Sprintf("Translate %s to %s. Literal translation only:\n\n%s", from, targetName, text)
 
