@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Centralized model identifiers (free-tier friendly / GA as of late 2025)
@@ -118,10 +119,11 @@ func TranslateText(text, from, to string) (string, error) {
 	// Clean text for translation
 	text = cleanTextForTranslation(text)
 
-	// Limit text length for API
+	// Limit text length for API (use rune count, not byte count, to avoid cutting UTF-8 chars)
 	originalText := text
-	if len(text) > 8000 {
-		text = text[:8000] + "..."
+	if utf8.RuneCountInString(text) > 8000 {
+		runes := []rune(text)
+		text = string(runes[:8000]) + "..."
 	}
 
 	// Try providers in order: Gemini first (quality), then Groq (fast fallback)
@@ -966,8 +968,9 @@ func StrictTranslateText(text, from, to string) (string, error) {
 
 	text = cleanTextForTranslation(text)
 	originalText := text
-	if len(text) > 8000 {
-		text = text[:8000] + "..."
+	if utf8.RuneCountInString(text) > 8000 {
+		runes := []rune(text)
+		text = string(runes[:8000]) + "..."
 	}
 
 	// Providers order: Gemini first (quality), then Groq (fallback)
@@ -1013,7 +1016,7 @@ ABSOLUTE RULES:
 8. Keep brand names unchanged (AGF, LEGO, Carlsberg, etc.).
 9. Keep the formal news tone - NO casual/chatty style.`
 
-	userPrompt := fmt.Sprintf("Translate %s to %s. Literal translation only:\n\n%s", from, targetName, text)
+	userPrompt := fmt.Sprintf("Translate %s to %s. Accurate translation:\n\n%s", from, targetName, text)
 
 	payload := map[string]interface{}{
 		"model": groqModel,

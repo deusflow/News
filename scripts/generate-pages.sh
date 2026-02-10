@@ -72,6 +72,15 @@ echo "$RESPONSE" | jq -c '.[]' | while read -r item; do
     MOOD=$(echo "$item" | jq -r '.mood // "neutral"')
     PUBLISHED_AT=$(echo "$item" | jq -r '.published_at')
 
+    # Parse tags array into Hugo-compatible format: ["tag1", "tag2"]
+    # If tags is null or empty, use empty array
+    TAGS_JSON=$(echo "$item" | jq -c '.tags // []')
+    if [ "$TAGS_JSON" = "null" ] || [ "$TAGS_JSON" = "[]" ]; then
+        TAGS_LINE=""
+    else
+        TAGS_LINE="tags: ${TAGS_JSON}"
+    fi
+
     # Use placeholder if no image
     if [ -z "$IMAGE_URL" ] || [ "$IMAGE_URL" = "null" ]; then
         # Generate category-based placeholder
@@ -119,30 +128,35 @@ echo "$RESPONSE" | jq -c '.[]' | while read -r item; do
 
     echo -e "  📄 Generating: ${FILENAME}"
 
-    # Create markdown file
-    cat > "$FILEPATH" << EOF
----
-title: "${TITLE//\"/\\\"}"
-date: ${PUBLISHED_AT}
-draft: false
-categories: ["${CATEGORY}"]
-image: "${IMAGE_URL}"
-source_url: "${SOURCE_URL}"
-source_name: "${SOURCE_NAME}"
-tldr: "${TLDR//\"/\\\"}"
-mood: "${MOOD}"
-slug: "${SLUG}"
----
-
-## 🇺🇦 Українською
-
-${SUMMARY_UK:-"*Переклад очікується*"}
-
-## 🇩🇰 På dansk
-
-${SUMMARY_DA:-"*Oversættelse kommer snart*"}
-
-EOF
+    # Create markdown file with front matter
+    # Build front matter dynamically to handle optional tags
+    {
+        echo "---"
+        echo "title: \"${TITLE//\"/\\\"}\""
+        echo "date: ${PUBLISHED_AT}"
+        echo "draft: false"
+        echo "categories: [\"${CATEGORY}\"]"
+        # Add tags only if they exist
+        if [ -n "$TAGS_LINE" ]; then
+            echo "$TAGS_LINE"
+        fi
+        echo "image: \"${IMAGE_URL}\""
+        echo "source_url: \"${SOURCE_URL}\""
+        echo "source_name: \"${SOURCE_NAME}\""
+        echo "tldr: \"${TLDR//\"/\\\"}\""
+        echo "mood: \"${MOOD}\""
+        echo "slug: \"${SLUG}\""
+        echo "---"
+        echo ""
+        echo "## 🇺🇦 Українською"
+        echo ""
+        echo "${SUMMARY_UK:-"*Переклад очікується*"}"
+        echo ""
+        echo "## 🇩🇰 På dansk"
+        echo ""
+        echo "${SUMMARY_DA:-"*Oversættelse kommer snart*"}"
+        echo ""
+    } > "$FILEPATH"
 
     # Add fun fact if exists
     if [ -n "$FUN_FACT" ] && [ "$FUN_FACT" != "null" ]; then
