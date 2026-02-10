@@ -38,6 +38,9 @@ Thumbs.db
 # Local documentation (not for GitHub)
 docs/BUGFIX_AND_FEATURES_PLAN.md
 docs/CONFIG_CHEATSHEET.md
+docs/MIGRATION_GUIDE.md
+docs/READ_ONLY_ARCHITECTURE.md
+docs/
 
 # Build artifacts and binaries
 /dknews
