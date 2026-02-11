@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -270,6 +271,60 @@ func extractBTContent(doc *goquery.Document) string {
 // extractGenericContent is universal parser for any site
 func extractGenericContent(doc *goquery.Document) string {
 	var paragraphs []string
+	seen := make(map[string]struct{})
+
+	// Limits chosen to feed LLM enough context but avoid capturing whole page/footer.
+	const (
+		minParagraphLen = 40
+		maxParagraphs   = 25
+		maxChars        = 3500
+	)
+
+	currentChars := 0
+
+	addParagraph := func(text string) bool {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return false
+		}
+		// Skip very short fragments (often captions, ads, UI labels)
+		if len(text) < minParagraphLen {
+			return false
+		}
+		// Skip navigation/ads/other-article fragments
+		if isNavigationOrOtherArticle(text) {
+			return false
+		}
+
+		// Heuristic: skip lines that are mostly punctuation/symbols
+		letters := 0
+		for _, r := range text {
+			if unicode.IsLetter(r) {
+				letters++
+			}
+		}
+		if letters < 20 {
+			return false
+		}
+
+		key := strings.ToLower(text)
+		if _, ok := seen[key]; ok {
+			return false
+		}
+		seen[key] = struct{}{}
+
+		// Respect global limits
+		if len(paragraphs) >= maxParagraphs {
+			return true
+		}
+		if currentChars+len(text) > maxChars {
+			return true
+		}
+
+		paragraphs = append(paragraphs, text)
+		currentChars += len(text) + 2
+		return false
+	}
 
 	// Try most popular selectors
 	selectors := []string{
@@ -285,13 +340,18 @@ func extractGenericContent(doc *goquery.Document) string {
 	}
 
 	for _, selector := range selectors {
-		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
+		stop := false
+		doc.Find(selector).EachWithBreak(func(i int, s *goquery.Selection) bool {
 			text := strings.TrimSpace(s.Text())
-			if text != "" && len(text) > 20 {
-				paragraphs = append(paragraphs, text)
+			if shouldStop := addParagraph(text); shouldStop {
+				stop = true
+				return false
 			}
+			return true
 		})
-		if len(paragraphs) >= 3 { // If we find 3 paragraphs, it's enough
+
+		// If we collected enough meaningful content, stop early.
+		if stop || currentChars >= 900 || len(paragraphs) >= 6 {
 			break
 		}
 	}
