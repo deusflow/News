@@ -1,0 +1,61 @@
+name: 🧪 TEST Run (Safe Mode)
+
+on:
+  workflow_dispatch: # Запуск только вручную по кнопке!
+
+jobs:
+  run-test-bot:
+    runs-on: ubuntu-latest
+
+    env:
+      # === БЕЗОПАСНЫЙ РЕЖИМ ===
+      # Отключаем базу данных, чтобы не пометить новости как "отправленные" в проде
+      USE_POSTGRES: 'false'
+      DATABASE_URL: '' # Пусто, чтобы случайно не подключился
+
+      # Отключаем архив сайта, чтобы не мусорить в Supabase
+      SUPABASE_URL: ''
+      ENABLE_WEBSITE: 'false'
+
+      # Используем ТЕСТОВЫЕ ключи Telegram
+      TELEGRAM_TOKEN: ${{ secrets.TEST_TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
+
+      # Твои API ключи для AI (можно использовать те же, это не страшно)
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      # Настройки для теста
+      MAX_NEWS_LIMIT: 5          # Сколько новостей прислать за тест
+      BOT_MODE: multiple         # Или single, как хочешь потестить
+      SCRAPE_CONCURRENCY: 2
+
+      # Флаги, которые ты хочешь проверить
+      ENABLE_INLINE_BUTTONS: 'true'
+      INLINE_BUTTON_MODE: 'url'
+
+      # Go settings
+      GO111MODULE: 'on'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Prepare deps
+        run: |
+          go mod download
+          mkdir -p bin
+
+      - name: Build
+        run: go build -o bin/dknews ./cmd/dknews
+
+      - name: 🚀 Run TEST Bot
+        run: |
+          echo "🧪 Running in SAFE TEST MODE..."
+          echo "Database is DISABLED (File Cache only)"
+          ./bin/dknews
