@@ -414,3 +414,57 @@ keywords:
   - word: "repatriation"  # Репатриация (возвращение домой за деньги)
     category: "visas"
     weight: 15
+  # =======================================================
+  # ТВОЕ БУДУЩЕЕ: РАБОЧИЙ ВНЖ И ПОЗИТИВНЫЙ СПИСОК (CRITICAL)
+  # =======================================================
+  # Это твой план Б, чтобы остаться, если закон о беженцах отменят
+  - word: "positivlisten"      # Позитивный список (IT там всегда есть)
+    category: "work"
+    weight: 35
+  - word: "positive list"
+    category: "work"
+    weight: 35
+  - word: "beløbsordningen"    # Pay Limit Scheme (ВНЖ по зарплате)
+    category: "work"
+    weight: 30
+  - word: "pay limit scheme"
+    category: "work"
+    weight: 30
+  - word: "sporskifte"         # "Смена колеи" (переход с Særlov на рабочий ВНЖ)
+    category: "visas"
+    weight: 25
+  - word: "arbejdsmarkedet"    # Рынок труда (в контексте ВНЖ)
+    category: "work"
+    weight: 15
+
+  # =======================================================
+  # ПРОДЛЕНИЕ ЗАЩИТЫ ДО 2027 И ДАЛЬШЕ
+  # =======================================================
+  - word: "marts 2027"         # Новая дата окончания защиты
+    category: "visas"
+    weight: 25
+  - word: "march 2027"
+    category: "visas"
+    weight: 25
+  - word: "long-term resident" # Статус долговременного резидента ЕС (обсуждается)
+    category: "visas"
+    weight: 20
+  - word: "permanent ophold"   # ПМЖ
+    category: "visas"
+    weight: 20
+  - word: "udlændingeloven"    # Закон об иностранцах (общий)
+    category: "visas"
+    weight: 10
+
+  # =======================================================
+  # ВОЗВРАЩЕНИЕ (ЕСЛИ БУДУТ ПЛАТИТЬ ЗА ОТЪЕЗД)
+  # =======================================================
+  - word: "repatriering"       # Репатриация (официальный термин)
+    category: "money"
+    weight: 15
+  - word: "støtte til hjemrejse" # Деньги на возвращение домой
+    category: "money"
+    weight: 15
+  - word: "frivillig hjemrejse"  # Добровольное возвращение
+    category: "visas"
+    weight: 15
