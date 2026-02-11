@@ -352,3 +352,35 @@ keywords:
   - word: "madopskrift"
     category: "spam"
     weight: -5
+
+  - word: "praktik"          # Практика/Стажировка
+    category: "education"
+    weight: 25
+  - word: "læreplads"        # Место ученика (официальный термин)
+    category: "education"
+    weight: 25
+  - word: "elevplads"        # То же самое, часто используется
+    category: "education"
+    weight: 25
+  - word: "studiejob"        # Студенческая работа
+    category: "work"
+    weight: 20
+  - word: "dimittend"        # Выпускник (правила для выпускников)
+    category: "education"
+    weight: 15
+
+  - word: "udvikler"         # Developer (Разработчик)
+    category: "tech"
+    weight: 15
+  - word: "softwareudvikler" # Software developer
+    category: "tech"
+    weight: 15
+  - word: "data"             # Часто новости про "Data center" (в Виборге есть Apple Data Center)
+    category: "tech"
+    weight: 12
+  - word: "apple"            # Из-за дата-центра под Виборгом
+    category: "local"
+    weight: 10
+  - word: "start-up"         # Стартапы
+    category: "tech"
+    weight: 10
