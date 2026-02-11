@@ -259,15 +259,15 @@ func isRefugeeCategory(cat string) bool {
 func getMoodScore(mood string) int {
 	switch strings.ToLower(mood) {
 	case "positive":
-		return 10
+		return 9
 	case "urgent":
-		return 8 // Важные тоже высоко
+		return 12 // Важные тоже высоко
 	case "shocking":
-		return 6
+		return 11
 	case "neutral":
-		return 4
+		return 5
 	case "negative":
-		return 1
+		return 4
 	default:
 		return 0
 	}
