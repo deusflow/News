@@ -121,9 +121,9 @@ func TranslateText(text, from, to string) (string, error) {
 
 	// Limit text length for API (use rune count, not byte count, to avoid cutting UTF-8 chars)
 	originalText := text
-	if utf8.RuneCountInString(text) > 8000 {
+	if utf8.RuneCountInString(text) > 10000 {
 		runes := []rune(text)
-		text = string(runes[:8000]) + "..."
+		text = string(runes[:10000]) + "..."
 	}
 
 	// Try providers in order: Gemini first (quality), then Groq (fast fallback)
@@ -968,9 +968,9 @@ func StrictTranslateText(text, from, to string) (string, error) {
 
 	text = cleanTextForTranslation(text)
 	originalText := text
-	if utf8.RuneCountInString(text) > 8000 {
+	if utf8.RuneCountInString(text) > 10000 {
 		runes := []rune(text)
-		text = string(runes[:8000]) + "..."
+		text = string(runes[:10000]) + "..."
 	}
 
 	// Providers order: Gemini first (quality), then Groq (fallback)

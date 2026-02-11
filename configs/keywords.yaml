@@ -85,13 +85,13 @@ keywords:
   # =======================================================
   - word: "viborg"
     category: "local"
-    weight: 25 # Поднял важность города
+    weight: 15 # Поднял важность города
   - word: "8800"
     category: "local"
-    weight: 25
+    weight: 15
   - word: "midtjylland"
     category: "local"
-    weight: 15
+    weight: 20
   - word: "skive"
     category: "local"
     weight: 10
@@ -149,7 +149,7 @@ keywords:
     weight: 10
   - word: "teknologi"
     category: "tech"
-    weight: 8
+    weight: 12
 
   # =======================================================
   # ВЫСОКИЙ ПРИОРИТЕТ: СЕМЬЯ И ДЕТИ (Weight 15)
@@ -169,25 +169,25 @@ keywords:
   # Образование детей и молодежи
   - word: "erhvervsskole" # Техникум
     category: "education"
-    weight: 30
+    weight: 20
   - word: "gymnasium"
     category: "education"
-    weight: 12
+    weight: 10
   - word: "folkeskole"
     category: "education"
-    weight: 12
+    weight: 15
   - word: "skole"
     category: "education"
-    weight: 10
+    weight: 15
   - word: "uddannelse"
     category: "education"
     weight: 10
   - word: "studerende"
     category: "education"
-    weight: 20
+    weight: 10
   - word: "eksamen"
     category: "education"
-    weight: 8
+    weight: 5
 
   # Садики и уход
   - word: "børnehave"
@@ -195,21 +195,21 @@ keywords:
     weight: 20
   - word: "vuggestue"
     category: "family"
-    weight: 30
+    weight: 20
   - word: "daginstitution"
     category: "family"
-    weight: 10
+    weight: 5
 
   # Семья и подростки
   - word: "unge"
     category: "family"
-    weight: 20
+    weight: 10
   - word: "teenager"
     category: "family"
     weight: 15
   - word: "familie"
     category: "family"
-    weight: 25
+    weight: 20
 
   # =======================================================
   # ПОЗИТИВ, КУЛЬТУРА И СПОРТ (Weight 5-8)
@@ -310,16 +310,16 @@ keywords:
     weight: -10
   - word: "horoskop"
     category: "spam"
-    weight: -10
+    weight: -20
   - word: "stjernetegn"
     category: "spam"
-    weight: -10
+    weight: -20
   - word: "kendis"
     category: "spam"
     weight: -10
   - word: "reality"
     category: "spam"
-    weight: -10
+    weight: -5
   - word: "paradise"
     category: "spam"
     weight: -10
@@ -331,13 +331,13 @@ keywords:
   # Это позволит показать криминал, если он связан с Виборгом (+25 - 5 = +20)
   - word: "voldtægt"
     category: "spam"
-    weight: -5
+    weight: 0
   - word: "knivstik"
     category: "spam"
     weight: -5
   - word: "skyderi"
     category: "spam"
-    weight: -5
+    weight: 5
   - word: "mord"
     category: "spam"
     weight: -5
