@@ -19,7 +19,7 @@ feeds:
   - url: https://www.tvmidtvest.dk/rss
     name: TV Midtvest
     lang: da
-    priority: 90
+    priority: 60
     active: true
     categories: [local, viborg, lifestyle]
 
