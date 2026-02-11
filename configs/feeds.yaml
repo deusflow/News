@@ -3,7 +3,7 @@ feeds:
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
     lang: da
-    priority: 100
+    priority: 95
     active: true
     categories: [denmark, main, politics, ukraine]
 
@@ -15,7 +15,7 @@ feeds:
     active: true
     categories: [eu, politics, ukraine, visas]
 
-  # ТВОЙ РЕГИОН (ВИБОРГ) - Это бесплатно и стабильно
+  # viborg
   - url: https://www.tvmidtvest.dk/rss
     name: TV Midtvest
     lang: da
