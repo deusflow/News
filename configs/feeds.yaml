@@ -30,3 +30,34 @@ feeds:
     priority: 50
     active: true
     categories: [local, aarhus, lifestyle]
+
+  # ==========================================
+  # ПЕРВОИСТОЧНИКИ ПО СТАТУСУ УКРАИНЦЕВ (ЕС)
+  # ==========================================
+
+  # Euractiv (Брюссель) — Главный источник инсайдов о решениях Еврокомиссии.
+  # Пишут про продление защиты, новые правила и споры стран ЕС.
+  - url: https://www.euractiv.com/feed/
+    name: Euractiv EU
+    lang: en
+    priority: 90
+    active: true
+    categories: [eu, politics, visas, ukraine]
+
+  # ECRE (Council on Refugees) — Юридические разборы и отчеты.
+  # Пишут, что РЕАЛЬНО ждет беженцев (права, депортации, условия).
+  - url: https://ecre.org/feed/
+    name: ECRE NGO
+    lang: en
+    priority: 80
+    active: true
+    categories: [eu, society, rights, ukraine]
+
+  # EU Observer — Еще один независимый взгляд на брюссельскую кухню.
+  # Часто пишут про кулуарные договоренности по мигрантам.
+  - url: https://euobserver.com/rss
+    name: EU Observer
+    lang: en
+    priority: 90
+    active: true
+    categories: [eu, politics, visas]

@@ -384,3 +384,33 @@ keywords:
   - word: "start-up"         # Стартапы
     category: "tech"
     weight: 10
+
+  - word: "netherlands"
+    category: "visas"
+    weight: 25
+  - word: "holland"
+    category: "visas"
+    weight: 25
+  - word: "norge"
+    category: "visas"
+    weight: 30
+  - word: "sl1"
+    category: "visas"
+    weight: 20
+
+  # Термины законов и статусов (Ищем SL1, SL2, Paragraph 24 в новостях)
+  - word: "temporary protection"
+    category: "visas"
+    weight: 25
+  - word: "midlertidig beskyttelse"
+    category: "visas"
+    weight: 25
+  - word: "residence permit"
+    category: "visas"
+    weight: 20
+  - word: "work permit"
+    category: "work"
+    weight: 20
+  - word: "repatriation"  # Репатриация (возвращение домой за деньги)
+    category: "visas"
+    weight: 15
