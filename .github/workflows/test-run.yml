@@ -7,32 +7,40 @@ jobs:
   run-test-bot:
     runs-on: ubuntu-latest
 
-env:
-      USE_POSTGRES: false
+    env:
+      # === БЕЗОПАСНЫЙ РЕЖИМ ===
+      # Отключаем базу данных (false в кавычках!)
+      USE_POSTGRES: 'false'
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      ENABLE_WEBSITE: false
+      ENABLE_WEBSITE: 'false'
+
+      # Используем основной токен (или TEST_TELEGRAM_TOKEN, если есть)
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      
+
       # === НАСТРОЙКИ ДЛЯ ТЕСТА (OPENROUTER) ===
-      # Мы "обманываем" программу: подсовываем ей ключ OpenRouter вместо Groq
+      # Ключ OpenRouter (убедись, что добавил его в Secrets)
       GROQ_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       
-      # Переключаем адрес на OpenRouter
+      # Адрес OpenRouter
       AI_BASE_URL: "https://openrouter.ai/api/v1"
       
-      # Модель: Gemini 2.0 Flash Lite (бесплатная и умная)
-      GROQ_MODEL: "google/gemini-2.0-flash-lite-preview-02-05:free"
-      
+      # Модель: GPT-OSS-120B (бесплатная и мощная)
+      # Если захочешь Gemini, раскомментируй строку ниже
+      GROQ_MODEL: "openai/gpt-oss-120b:free"
+      # GROQ_MODEL: "google/gemini-2.0-flash-lite-preview-02-05:free"
+
       MAX_NEWS_LIMIT: 5
       BOT_MODE: multiple
       SCRAPE_CONCURRENCY: 2
-      ENABLE_INLINE_BUTTONS: true
+      ENABLE_INLINE_BUTTONS: 'true'
       INLINE_BUTTON_MODE: url
+      
+      # Исправлено: on в кавычках
       GO111MODULE: 'on'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
