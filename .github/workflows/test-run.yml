@@ -1,39 +1,40 @@
-name: 🧪 TEST Run (Safe Mode)
+name: 🧪 TEST Channel Launch
 
 on:
-  workflow_dispatch: # Запуск только вручную по кнопке!
+  workflow_dispatch: # Запуск только вручную по кнопке
 
 jobs:
-  run-test-bot:
+  test-run:
     runs-on: ubuntu-latest
 
     env:
-      # === БЕЗОПАСНЫЙ РЕЖИМ ===
+      # === КЛЮЧИ ТЕСТОВОГО КАНАЛА ===
+      # Тут мы подставляем твои специальные секреты для тестов
+      TELEGRAM_TOKEN: ${{ secrets.TEST_TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
+
+      # === НАСТРОЙКИ AI (Тестируем новый Fallback) ===
+      # Используем ту же логику, что и в основном боте
+      AI_PROVIDERS: "gemini,groq"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      # === БЕЗОПАСНЫЙ РЕЖИМ (SAFE MODE) ===
+      # Отключаем PostgreSQL и Supabase, чтобы тесты не попадали в основной архив/базу
       USE_POSTGRES: 'false'
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      ENABLE_SUPABASE: 'false'
       ENABLE_WEBSITE: 'false'
 
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      
-      # 🔥 ВАЖНО: Отключаем прямой Google ключ, чтобы не ловить ошибку 429
-      # Бот сразу пойдет через OpenRouter
-      GEMINI_API_KEY: ""
+      # Используем файловый кэш (он создастся временно в контейнере)
+      CACHE_FILE_PATH: "test_cache.json"
 
-      # === НАСТРОЙКИ OPENROUTER ===
-      GROQ_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      AI_BASE_URL: "https://openrouter.ai/api/v1"
-      
-      # МОДЕЛЬ: DeepSeek R1 (Самая умная из бесплатных)
-      GROQ_MODEL: "deepseek/deepseek-r1:free"
-
-      MAX_NEWS_LIMIT: 5
+      # === ОСТАЛЬНЫЕ НАСТРОЙКИ ===
+      MAX_NEWS_LIMIT: 3             # Берем мало новостей для теста
       BOT_MODE: multiple
       SCRAPE_CONCURRENCY: 2
       ENABLE_INLINE_BUTTONS: 'true'
-      INLINE_BUTTON_MODE: url
-      
+
+      # Технические переменные
       GO111MODULE: 'on'
 
     steps:
@@ -43,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.24.x' # Используем свежую версию, как в go.mod
 
       - name: Prepare deps
         run: |
@@ -53,8 +54,9 @@ jobs:
       - name: Build
         run: go build -o bin/dknews ./cmd/dknews
 
-      - name: 🚀 Run TEST Bot
+      - name: 🚀 Run on TEST Channel
         run: |
-          echo "🧪 Running in SAFE TEST MODE..."
-          echo "Database is DISABLED (File Cache only)"
+          echo "🧪 Running on TEST CHANNEL..."
+          echo "Database: DISABLED (Temporary File Cache)"
+          echo "AI Providers: $AI_PROVIDERS"
           ./bin/dknews
