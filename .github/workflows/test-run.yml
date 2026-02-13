@@ -31,8 +31,8 @@ env:
       SCRAPE_CONCURRENCY: 2
       ENABLE_INLINE_BUTTONS: true
       INLINE_BUTTON_MODE: url
-      GO111MODULE: on
-
+      GO111MODULE: 'on'
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
