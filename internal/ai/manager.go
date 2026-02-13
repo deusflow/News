@@ -8,15 +8,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/deusflow/News/internal/metrics"
 )
 
 type Manager struct {
 	providers []Provider
+	metrics   *metrics.Metrics
 }
 
-func NewManager(providers ...Provider) *Manager {
+func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
 	return &Manager{
 		providers: providers,
+		metrics:   m,
 	}
 }
 
@@ -77,6 +81,10 @@ func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (
 			// Cap wait to 180s (3 minutes)
 			if secs > 0 && secs <= 180 {
 				log.Printf("⚠️ Provider %s requested retry after %ds — waiting then retrying once", provider.Name(), secs)
+				// Record metric
+				if m.metrics != nil {
+					m.metrics.IncrementAIRetry()
+				}
 				select {
 				case <-time.After(time.Duration(secs+2) * time.Second): // small buffer
 					// proceed to retry

@@ -93,7 +93,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
 	}
 
-	aiManager := ai.NewManager(aiProviders...)
+	aiManager := ai.NewManager(m, aiProviders...)
 	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов
