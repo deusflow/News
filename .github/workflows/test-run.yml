@@ -7,35 +7,31 @@ jobs:
   run-test-bot:
     runs-on: ubuntu-latest
 
-    env:
-      # === БЕЗОПАСНЫЙ РЕЖИМ ===
-      # Отключаем базу данных, чтобы не пометить новости как "отправленные" в проде
-      USE_POSTGRES: 'false'
-      DATABASE_URL: '' # Пусто, чтобы случайно не подключился
-
-      # Отключаем архив сайта, чтобы не мусорить в Supabase
-      SUPABASE_URL: ''
-      ENABLE_WEBSITE: 'false'
-
-      # Используем ТЕСТОВЫЕ ключи Telegram
-      TELEGRAM_TOKEN: ${{ secrets.TEST_TELEGRAM_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TEST_TELEGRAM_CHAT_ID }}
-
-      # Твои API ключи для AI (можно использовать те же, это не страшно)
+env:
+      USE_POSTGRES: false
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      ENABLE_WEBSITE: false
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-
-      # Настройки для теста
-      MAX_NEWS_LIMIT: 5          # Сколько новостей прислать за тест
-      BOT_MODE: multiple         # Или single, как хочешь потестить
+      
+      # === НАСТРОЙКИ ДЛЯ ТЕСТА (OPENROUTER) ===
+      # Мы "обманываем" программу: подсовываем ей ключ OpenRouter вместо Groq
+      GROQ_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      
+      # Переключаем адрес на OpenRouter
+      AI_BASE_URL: "https://openrouter.ai/api/v1"
+      
+      # Модель: Gemini 2.0 Flash Lite (бесплатная и умная)
+      GROQ_MODEL: "google/gemini-2.0-flash-lite-preview-02-05:free"
+      
+      MAX_NEWS_LIMIT: 5
+      BOT_MODE: multiple
       SCRAPE_CONCURRENCY: 2
-
-      # Флаги, которые ты хочешь проверить
-      ENABLE_INLINE_BUTTONS: 'true'
-      INLINE_BUTTON_MODE: 'url'
-
-      # Go settings
-      GO111MODULE: 'on'
+      ENABLE_INLINE_BUTTONS: true
+      INLINE_BUTTON_MODE: url
+      GO111MODULE: on
 
     steps:
       - name: Checkout code
