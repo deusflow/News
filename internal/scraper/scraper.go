@@ -17,9 +17,10 @@ import (
 
 // ArticleContent is full article content
 type ArticleContent struct {
-	Title   string
-	Content string
-	URL     string
+	Title    string
+	Content  string
+	URL      string
+	ImageURL string
 }
 
 // ExtractFullArticle gets full text of article by URL
@@ -62,10 +63,18 @@ func ExtractFullArticle(ctx context.Context, url string) (*ArticleContent, error
 		return nil, fmt.Errorf("can't get content")
 	}
 
+	// Try to extract representative image from the page (non-fatal)
+	imgURL, imgErr := ExtractImageURL(url)
+	if imgErr != nil {
+		// log but continue
+		log.Printf("Warning: failed to extract image from %s: %v", url, imgErr)
+	}
+
 	return &ArticleContent{
-		Title:   title,
-		Content: content,
-		URL:     url,
+		Title:    title,
+		Content:  content,
+		URL:      url,
+		ImageURL: imgURL,
 	}, nil
 }
 

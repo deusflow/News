@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/ai/gemini"
+	"github.com/deusflow/News/internal/ai/groq"
 	"github.com/deusflow/News/internal/config"
-	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/news"
@@ -20,7 +23,7 @@ type App struct {
 	cfg              *config.Config
 	metrics          *metrics.Metrics
 	cacheAdapter     CacheAdapter
-	geminiClient     *gemini.Client
+	aiManager        *ai.Manager
 	feeds            []rss.FeedSource
 	keywords         *config.KeywordsConfig
 	websiteGenerator *website.Generator
@@ -59,12 +62,39 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		logger.Info("Using File cache")
 	}
 
-	// 2. Инициализация Gemini
-	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel, m)
-	if err != nil {
-		return nil, fmt.Errorf("gemini error: %v", err)
+	// 2. Инициализация AI (НОВАЯ ЛОГИКА)
+	var aiProviders []ai.Provider
+
+	for _, pName := range cfg.AIProviders {
+		switch strings.TrimSpace(strings.ToLower(pName)) {
+		case "gemini":
+			client, err := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+			if err != nil {
+				logger.Error("Failed to init Gemini", "error", err)
+				continue // Не падаем, пробуем следующего
+			}
+			aiProviders = append(aiProviders, client)
+			logger.Info("AI Provider added", "name", "gemini")
+
+		case "groq":
+			if cfg.GroqAPIKey != "" {
+				client := groq.NewClient(cfg.GroqAPIKey)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "groq")
+			} else {
+				logger.Warn("Groq API Key is missing, skipping")
+			}
+		default:
+			logger.Warn("Unknown AI provider in config, skipping", "provider", pName)
+		}
 	}
-	logger.Info("Using Gemini model", "model", cfg.GeminiModel)
+
+	if len(aiProviders) == 0 {
+		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
+	}
+
+	aiManager := ai.NewManager(aiProviders...)
+	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов
 	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)
@@ -108,7 +138,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		cfg:              cfg,
 		metrics:          m,
 		cacheAdapter:     cacheAdapter,
-		geminiClient:     gmClient,
+		aiManager:        aiManager,
 		feeds:            feeds,
 		keywords:         keywords,
 		websiteGenerator: websiteGen,
@@ -126,16 +156,15 @@ func (a *App) Run(ctx context.Context) {
 		return
 	}
 
-	defer a.geminiClient.Close()
+	defer a.aiManager.Close()
 
-	// Save file cache on exit if used
-	if fileAdapter, ok := a.cacheAdapter.(*FileCacheAdapter); ok {
-		defer func() {
+	defer func() {
+		if fileAdapter, ok := a.cacheAdapter.(*FileCacheAdapter); ok {
 			if err := fileAdapter.cache.Save(); err != nil {
 				logger.Error("Failed to save cache", "error", err)
 			}
-		}()
-	}
+		}
+	}()
 
 	// 4.1 Обработка очереди неудачных сообщений (DLQ)
 	if pgAdapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok {
@@ -159,11 +188,10 @@ func (a *App) Run(ctx context.Context) {
 		Limit:             a.cfg.MaxNewsLimit,
 		MaxAge:            a.cfg.NewsMaxAge,
 		PerSource:         2,
-		MaxGeminiRequests: a.cfg.MaxGeminiRequests,
 		ScrapeMaxArticles: a.cfg.ScrapeMaxArticles,
 		ScrapeConcurrency: a.cfg.ScrapeConcurrency,
 		Keywords:          a.keywords,
-		AIClient:          a.geminiClient,
+		AI:                a.aiManager,
 		Metrics:           a.metrics,
 	})
 	if err != nil {
@@ -198,11 +226,11 @@ func (a *App) CheckHealth(_ context.Context) map[string]string {
 		status["db"] = "ok (file cache)"
 	}
 
-	// Check Gemini (simple check if client is initialized)
-	if a.geminiClient != nil {
-		status["gemini"] = "initialized"
+	// Check AI manager
+	if a.aiManager != nil {
+		status["ai"] = "ready"
 	} else {
-		status["gemini"] = "error: not initialized"
+		status["ai"] = "not_initialized"
 	}
 
 	return status

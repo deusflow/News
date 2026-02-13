@@ -30,6 +30,8 @@ type Config struct {
 	GeminiAPIKey      string
 	GeminiModel       string // model name, e.g. "gemini-2.5-flash"
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
+	// GROQ settings (fallback LLM)
+	GroqAPIKey string
 
 	// RSS settings
 	FeedsConfigPath    string
@@ -73,6 +75,9 @@ type Config struct {
 	SupabaseURL        string // Supabase project URL
 	SupabaseServiceKey string // Supabase service_role key
 	EnableSupabase     bool   // if true, save news to Supabase archive
+
+	// AI Settings
+	AIProviders []string // List of AI providers, e.g. ["gemini", "groq"]
 }
 
 // Keyword represents a single keyword with its weight and category
@@ -130,13 +135,14 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			// log as warning to avoid silent failures
+			fmt.Printf("Warning: failed to close config file %s: %v\n", path, closeErr)
+		}
+	}()
 
-	// New format: keywords is an array of objects with word/category/weight
-	var cfg struct {
-		Keywords []Keyword `yaml:"keywords"`
-	}
-
+	var cfg KeywordsConfig
 	dec := yaml.NewDecoder(f)
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse keywords config: %w", err)
@@ -185,6 +191,7 @@ func Load() (*Config, error) {
 	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	cfg.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash")
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
+	cfg.GroqAPIKey = os.Getenv("GROQ_API_KEY")
 
 	// Cache settings
 	cfg.CacheFilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
@@ -271,6 +278,17 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
 		cfg.ChannelUsername = v
+	}
+
+	// AI Providers (default and env override)
+	cfg.AIProviders = []string{"gemini", "groq"}
+	if providers := os.Getenv("AI_PROVIDERS"); providers != "" {
+		// split by comma and trim spaces
+		parts := strings.Split(providers, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		cfg.AIProviders = parts
 	}
 
 	if v := os.Getenv("ENABLE_HTTP_MONITORING"); v == "true" {

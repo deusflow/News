@@ -596,12 +596,6 @@ func (c *SupabaseClient) Ping() error {
 	return nil
 }
 
-// GenerateSlug creates a URL-friendly slug from title
-// Uses published date for uniqueness instead of current time
-func GenerateSlug(title string) string {
-	return GenerateSlugWithDate(title, time.Now())
-}
-
 // GenerateSlugWithDate creates a URL-friendly slug from title with specific date
 func GenerateSlugWithDate(title string, publishedAt time.Time) string {
 	// Normalize unicode
