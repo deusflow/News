@@ -23,7 +23,7 @@ type Client struct {
 func NewClient(apiKey string) *Client {
 	return &Client{
 		apiKey: apiKey,
-		model:  "llama3-8b-8192", // Быстрая и дешевая модель
+		model:  "llama-3.3-70b-versatile", // Быстрая и дешевая модель
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
