@@ -30,19 +30,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check if we should start HTTP server for monitoring
-	if cfg.Monitoring.EnableHTTPMonitoring {
-		go startMonitoringServer(cfg.Monitoring.Port, m, application)
-	}
-
 	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Check if we should start HTTP server for monitoring
+	if cfg.Monitoring.EnableHTTPMonitoring {
+		go startMonitoringServer(ctx, cfg.Monitoring.Port, m, application)
+	}
+
 	application.Run(ctx)
 }
 
-func startMonitoringServer(port string, m *metrics.Metrics, a *app.App) {
+func startMonitoringServer(ctx context.Context, port string, m *metrics.Metrics, a *app.App) {
 	if port == "" {
 		port = "8080"
 	}
@@ -57,9 +57,19 @@ func startMonitoringServer(port string, m *metrics.Metrics, a *app.App) {
 		reloadHandler(w, r, a)
 	})
 
-	logger.Info("Starting monitoring server", "port", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		logger.Error("Monitoring server error", "error", err)
+	server := &http.Server{Addr: ":" + port, Handler: nil}
+
+	go func() {
+		logger.Info("Starting monitoring server", "port", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Monitoring server error", "error", err)
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info("Shutting down monitoring server")
+	if err := server.Shutdown(context.Background()); err != nil {
+		logger.Error("Monitoring server shutdown error", "error", err)
 	}
 }
 
