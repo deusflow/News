@@ -11,73 +11,96 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
-	// Telegram settings
-	TelegramToken  string
-	TelegramChatID string
-	BotMode        string // "single" or "multiple"
+type TelegramConfig struct {
+	Token   string
+	ChatID  string
+	BotMode string // "single" or "multiple"
+}
 
-	// Posting/formatting policy
-	PostingPolicy           string // hybrid | photo-only | text-only | two-messages (reserved)
+type PostingConfig struct {
+	Policy                  string // hybrid | photo-only | text-only | two-messages (reserved)
 	PhotoCaptionMaxRunes    int    // target/max caption budget for photo mode (~900)
 	PhotoMinPerLangRunes    int    // minimal budget per language in photo caption (≥120)
 	PhotoSentencesPerLang   int    // sentences per language in photo mode (1 or 2)
 	TextSentencesPerLangMin int    // 2 by default
 	TextSentencesPerLangMax int    // 4 by default
 	MinSummaryTotalRunes    int    // minimal informativeness threshold to consider content "full"
+	PhotoTextLimit          int    // limit for photo text (1024)
+}
 
-	// Gemini settings
+type AIConfig struct {
 	GeminiAPIKey      string
 	GeminiModel       string // model name, e.g. "gemini-2.5-flash"
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
-	// GROQ settings (fallback LLM)
-	GroqAPIKey string
+	GroqAPIKey        string
+	Providers         []string // List of AI providers, e.g. ["gemini", "groq"]
+}
 
-	// RSS settings
+type RSSConfig struct {
 	FeedsConfigPath    string
 	KeywordsConfigPath string
 	MaxNewsLimit       int
 	NewsMaxAge         time.Duration
+}
 
-	// Scraper settings
-	ScrapeConcurrency int // parallel fetches for full article extraction
-	ScrapeMaxArticles int // cap of articles to extract per run
+type ScraperConfig struct {
+	Concurrency int // parallel fetches for full article extraction
+	MaxArticles int // cap of articles to extract per run
+}
 
-	// App settings
+type AppConfig struct {
 	Debug          bool
 	RequestTimeout time.Duration
 	RetryAttempts  int
 	RetryDelay     time.Duration
+}
 
-	// Cache settings
-	CacheFilePath   string
-	CacheTTLHours   int
+type CacheConfig struct {
+	FilePath        string
+	TTLHours        int
 	DuplicateWindow int // hours for duplicate detection
+}
 
-	// PostgreSQL settings
-	DatabaseURL string
+type DatabaseConfig struct {
+	URL         string
 	UsePostgres bool // if true, use PostgreSQL instead of file cache
-	DatabaseTTL int  // hours to keep records in database
+	TTL         int  // hours to keep records in database
+}
 
-	// Feature flags
+type FeatureConfig struct {
 	EnableInlineButtons bool
 	ChannelUsername     string // for building URL buttons (e.g. deusflow_news)
+}
 
-	// Monitoring settings
+type MonitoringConfig struct {
 	EnableHTTPMonitoring bool
-	MonitoringPort       string
+	Port                 string
+}
 
-	// Website generation settings
-	EnableWebsite     bool   // if true, generate Hugo posts for website
-	WebsiteContentDir string // path to Hugo content directory (e.g., "website/content")
+type WebsiteConfig struct {
+	Enable     bool   // if true, generate Hugo posts for website
+	ContentDir string // path to Hugo content directory (e.g., "website/content")
+}
 
-	// Supabase settings (for website archive)
-	SupabaseURL        string // Supabase project URL
-	SupabaseServiceKey string // Supabase service_role key
-	EnableSupabase     bool   // if true, save news to Supabase archive
+type SupabaseConfig struct {
+	URL        string // Supabase project URL
+	ServiceKey string // Supabase service_role key
+	Enable     bool   // if true, save news to Supabase archive
+}
 
-	// AI Settings
-	AIProviders []string // List of AI providers, e.g. ["gemini", "groq"]
+type Config struct {
+	Telegram   TelegramConfig
+	Posting    PostingConfig
+	AI         AIConfig
+	RSS        RSSConfig
+	Scraper    ScraperConfig
+	App        AppConfig
+	Cache      CacheConfig
+	Database   DatabaseConfig
+	Feature    FeatureConfig
+	Monitoring MonitoringConfig
+	Website    WebsiteConfig
+	Supabase   SupabaseConfig
 }
 
 // Keyword represents a single keyword with its weight and category
@@ -90,18 +113,6 @@ type Keyword struct {
 // KeywordsConfig holds the keywords for filtering
 type KeywordsConfig struct {
 	Keywords []Keyword `yaml:"keywords"`
-
-	// Legacy fields for backward compatibility (deprecated)
-	UkrainiansInDenmark []string `yaml:"ukrainians_in_denmark"`
-	FamilyLife          []string `yaml:"family_life"`
-	PositiveDenmark     []string `yaml:"positive_denmark"`
-	RefugeeBoost        []string `yaml:"refugee_boost"`
-	UkraineWar          []string `yaml:"ukraine_war"`
-	Viborg              []string `yaml:"viborg"`
-	Economy             []string `yaml:"economy"`
-	Construction        []string `yaml:"construction"`
-	Leisure             []string `yaml:"leisure"`
-	Exclude             []string `yaml:"exclude"`
 }
 
 // CalculateScore calculates the total score for a given text based on keywords.
@@ -159,156 +170,177 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		// Default values
-		FeedsConfigPath:         "configs/feeds.yaml",
-		KeywordsConfigPath:      "configs/keywords.yaml",
-		MaxGeminiRequests:       10, // Gemini is PRIMARY - handles all translation
-		MaxNewsLimit:            8,
-		NewsMaxAge:              24 * time.Hour,
-		RequestTimeout:          30 * time.Second,
-		RetryAttempts:           3,
-		RetryDelay:              5 * time.Second,
-		BotMode:                 "multiple",
-		PostingPolicy:           "hybrid",
-		PhotoCaptionMaxRunes:    900,
-		PhotoMinPerLangRunes:    120,
-		PhotoSentencesPerLang:   2,
-		TextSentencesPerLangMin: 2,
-		TextSentencesPerLangMax: 4,
-		MinSummaryTotalRunes:    180,
-		ScrapeConcurrency:       8,
-		ScrapeMaxArticles:       10,
-		DatabaseTTL:             48, // default TTL for database records
-		EnableInlineButtons:     true,
-		ChannelUsername:         "",
-		EnableHTTPMonitoring:    false,
-		MonitoringPort:          "8080",
+		RSS: RSSConfig{
+			FeedsConfigPath:    "configs/feeds.yaml",
+			KeywordsConfigPath: "configs/keywords.yaml",
+			MaxNewsLimit:       8,
+			NewsMaxAge:         24 * time.Hour,
+		},
+		AI: AIConfig{
+			MaxGeminiRequests: 10, // Gemini is PRIMARY - handles all translation
+		},
+		App: AppConfig{
+			RequestTimeout: 30 * time.Second,
+			RetryAttempts:  3,
+			RetryDelay:     5 * time.Second,
+		},
+		Telegram: TelegramConfig{
+			BotMode: "multiple",
+		},
+		Posting: PostingConfig{
+			Policy:                  "hybrid",
+			PhotoCaptionMaxRunes:    900,
+			PhotoMinPerLangRunes:    120,
+			PhotoSentencesPerLang:   2,
+			TextSentencesPerLangMin: 2,
+			TextSentencesPerLangMax: 4,
+			MinSummaryTotalRunes:    180,
+			PhotoTextLimit:          1024,
+		},
+		Scraper: ScraperConfig{
+			Concurrency: 8,
+			MaxArticles: 10,
+		},
+		Database: DatabaseConfig{
+			TTL: 48, // default TTL for database records
+		},
+		Feature: FeatureConfig{
+			EnableInlineButtons: true,
+			ChannelUsername:     "",
+		},
+		Monitoring: MonitoringConfig{
+			EnableHTTPMonitoring: false,
+			Port:                 "8080",
+		},
+		Website: WebsiteConfig{
+			ContentDir: "website/content",
+		},
 	}
 
 	// Load from environment
-	cfg.TelegramToken = os.Getenv("TELEGRAM_TOKEN")
-	cfg.TelegramChatID = os.Getenv("TELEGRAM_CHAT_ID")
-	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
-	cfg.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash")
-	cfg.DatabaseURL = os.Getenv("DATABASE_URL")
-	cfg.GroqAPIKey = os.Getenv("GROQ_API_KEY")
+	cfg.Telegram.Token = os.Getenv("TELEGRAM_TOKEN")
+	cfg.Telegram.ChatID = os.Getenv("TELEGRAM_CHAT_ID")
+	cfg.AI.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	cfg.AI.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash")
+	cfg.Database.URL = os.Getenv("DATABASE_URL")
+	cfg.AI.GroqAPIKey = os.Getenv("GROQ_API_KEY")
 
 	// Cache settings
-	cfg.CacheFilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
-	cfg.CacheTTLHours = getEnvIntOrDefault("CACHE_TTL_HOURS", 48)
-	cfg.DuplicateWindow = getEnvIntOrDefault("DUPLICATE_WINDOW_HOURS", 24)
+	cfg.Cache.FilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
+	cfg.Cache.TTLHours = getEnvIntOrDefault("CACHE_TTL_HOURS", 48)
+	cfg.Cache.DuplicateWindow = getEnvIntOrDefault("DUPLICATE_WINDOW_HOURS", 24)
 
 	// Sync DatabaseTTL with CacheTTLHours if not explicitly set
-	cfg.DatabaseTTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", cfg.CacheTTLHours)
+	cfg.Database.TTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", cfg.Cache.TTLHours)
 
 	if mode := os.Getenv("BOT_MODE"); mode != "" {
-		cfg.BotMode = mode
+		cfg.Telegram.BotMode = mode
 	}
 
 	if policy := os.Getenv("POSTING_POLICY"); policy != "" {
-		cfg.PostingPolicy = policy
+		cfg.Posting.Policy = policy
 	}
 	if v := os.Getenv("PHOTO_CAPTION_MAX_RUNES"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.PhotoCaptionMaxRunes = val
+			cfg.Posting.PhotoCaptionMaxRunes = val
 		}
 	}
 	if v := os.Getenv("PHOTO_MIN_PER_LANG_RUNES"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val >= 60 {
-			cfg.PhotoMinPerLangRunes = val
+			cfg.Posting.PhotoMinPerLangRunes = val
 		}
 	}
 	if v := os.Getenv("PHOTO_SENTENCES_PER_LANG"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && (val == 1 || val == 2) {
-			cfg.PhotoSentencesPerLang = val
+			cfg.Posting.PhotoSentencesPerLang = val
 		}
 	}
 	if v := os.Getenv("TEXT_SENTENCES_PER_LANG_MIN"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val >= 1 {
-			cfg.TextSentencesPerLangMin = val
+			cfg.Posting.TextSentencesPerLangMin = val
 		}
 	}
 	if v := os.Getenv("TEXT_SENTENCES_PER_LANG_MAX"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= cfg.TextSentencesPerLangMin {
-			cfg.TextSentencesPerLangMax = val
+		if val, err := strconv.Atoi(v); err == nil && val >= cfg.Posting.TextSentencesPerLangMin {
+			cfg.Posting.TextSentencesPerLangMax = val
 		}
 	}
 	if v := os.Getenv("MIN_SUMMARY_TOTAL_RUNES"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.MinSummaryTotalRunes = val
+			cfg.Posting.MinSummaryTotalRunes = val
 		}
 	}
 
 	if v := os.Getenv("SCRAPE_CONCURRENCY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.ScrapeConcurrency = val
+			cfg.Scraper.Concurrency = val
 		}
 	}
 	if v := os.Getenv("SCRAPE_MAX_ARTICLES"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.ScrapeMaxArticles = val
+			cfg.Scraper.MaxArticles = val
 		}
 	}
 
 	if debug := os.Getenv("DEBUG"); debug == "true" {
-		cfg.Debug = true
+		cfg.App.Debug = true
 	}
 
 	if limit := os.Getenv("MAX_NEWS_LIMIT"); limit != "" {
 		if val, err := strconv.Atoi(limit); err == nil && val > 0 {
-			cfg.MaxNewsLimit = val
+			cfg.RSS.MaxNewsLimit = val
 		}
 	}
 
 	// Read MAX_GEMINI_REQUESTS from env
 	if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
 		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
-			cfg.MaxGeminiRequests = val
+			cfg.AI.MaxGeminiRequests = val
 		}
 	}
 
 	// Check if PostgreSQL should be used
 	if usePg := os.Getenv("USE_POSTGRES"); usePg == "true" {
-		cfg.UsePostgres = true
+		cfg.Database.UsePostgres = true
 	}
 
 	// Feature flags
 	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
-		cfg.EnableInlineButtons = v == "true"
+		cfg.Feature.EnableInlineButtons = v == "true"
 	}
 	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
-		cfg.ChannelUsername = v
+		cfg.Feature.ChannelUsername = v
 	}
 
 	// AI Providers (default and env override)
-	cfg.AIProviders = []string{"gemini", "groq"}
+	cfg.AI.Providers = []string{"gemini", "groq"}
 	if providers := os.Getenv("AI_PROVIDERS"); providers != "" {
 		// split by comma and trim spaces
 		parts := strings.Split(providers, ",")
 		for i := range parts {
 			parts[i] = strings.TrimSpace(parts[i])
 		}
-		cfg.AIProviders = parts
+		cfg.AI.Providers = parts
 	}
 
 	if v := os.Getenv("ENABLE_HTTP_MONITORING"); v == "true" {
-		cfg.EnableHTTPMonitoring = true
+		cfg.Monitoring.EnableHTTPMonitoring = true
 	}
 	if v := os.Getenv("MONITORING_PORT"); v != "" {
-		cfg.MonitoringPort = v
+		cfg.Monitoring.Port = v
 	}
 
 	// Website generation settings
 	if v := os.Getenv("ENABLE_WEBSITE"); v == "true" {
-		cfg.EnableWebsite = true
+		cfg.Website.Enable = true
 	}
-	cfg.WebsiteContentDir = getEnvOrDefault("WEBSITE_CONTENT_DIR", "website/content")
+	cfg.Website.ContentDir = getEnvOrDefault("WEBSITE_CONTENT_DIR", "website/content")
 
 	// Supabase settings
-	cfg.SupabaseURL = os.Getenv("SUPABASE_URL")
-	cfg.SupabaseServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
-	if cfg.SupabaseURL != "" && cfg.SupabaseServiceKey != "" {
-		cfg.EnableSupabase = true
+	cfg.Supabase.URL = os.Getenv("SUPABASE_URL")
+	cfg.Supabase.ServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
+	if cfg.Supabase.URL != "" && cfg.Supabase.ServiceKey != "" {
+		cfg.Supabase.Enable = true
 	}
 
 	return cfg, cfg.Validate()
@@ -331,16 +363,16 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 }
 
 func (c *Config) Validate() error {
-	if c.TelegramToken == "" {
+	if c.Telegram.Token == "" {
 		return fmt.Errorf("TELEGRAM_TOKEN is required")
 	}
-	if c.TelegramChatID == "" {
+	if c.Telegram.ChatID == "" {
 		return fmt.Errorf("TELEGRAM_CHAT_ID is required")
 	}
-	if c.GeminiAPIKey == "" {
+	if c.AI.GeminiAPIKey == "" {
 		return fmt.Errorf("GEMINI_API_KEY is required")
 	}
-	if c.BotMode != "single" && c.BotMode != "multiple" {
+	if c.Telegram.BotMode != "single" && c.Telegram.BotMode != "multiple" {
 		return fmt.Errorf("BOT_MODE must be 'single' or 'multiple'")
 	}
 	return nil

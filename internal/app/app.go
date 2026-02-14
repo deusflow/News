@@ -19,12 +19,102 @@ import (
 	"github.com/deusflow/News/internal/website"
 )
 
+// Service interfaces for SRP
+type NewsFetcher interface {
+	Fetch(ctx context.Context) ([]*rss.FeedItem, error)
+}
+
+type NewsProcessor interface {
+	Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error)
+}
+
+type NewsSender interface {
+	SendSingle(ctx context.Context, newsList []news.News)
+	SendMultiple(ctx context.Context, newsList []news.News, max int)
+}
+
+type HealthChecker interface {
+	CheckHealth(ctx context.Context) map[string]string
+}
+
+// RSSFetcher implements NewsFetcher
+type RSSFetcher struct {
+	feeds []rss.FeedSource
+}
+
+func NewRSSFetcher(feeds []rss.FeedSource) *RSSFetcher {
+	return &RSSFetcher{feeds: feeds}
+}
+
+func (f *RSSFetcher) Fetch(ctx context.Context) ([]*rss.FeedItem, error) {
+	return rss.FetchAllFeeds(f.feeds)
+}
+
+// NewsFilterProcessor implements NewsProcessor
+type NewsFilterProcessor struct {
+	cfg      *config.Config
+	aiMgr    *ai.Manager
+	metrics  *metrics.Metrics
+	keywords *config.KeywordsConfig
+}
+
+func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Metrics, keywords *config.KeywordsConfig) *NewsFilterProcessor {
+	return &NewsFilterProcessor{
+		cfg:      cfg,
+		aiMgr:    aiMgr,
+		metrics:  m,
+		keywords: keywords,
+	}
+}
+
+func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error) {
+	return news.FilterAndTranslateWithOptions(ctx, items, news.Options{
+		Limit:             p.cfg.RSS.MaxNewsLimit,
+		MaxAge:            p.cfg.RSS.NewsMaxAge,
+		PerSource:         2,
+		ScrapeMaxArticles: p.cfg.Scraper.MaxArticles,
+		ScrapeConcurrency: p.cfg.Scraper.Concurrency,
+		Keywords:          p.keywords,
+		AI:                p.aiMgr,
+		Metrics:           p.metrics,
+	})
+}
+
+// TelegramNewsSender implements NewsSender
+type TelegramNewsSender struct {
+	cfg              *config.Config
+	cacheAdapter     CacheAdapter
+	metrics          *metrics.Metrics
+	websiteGenerator *website.Generator
+	supabaseClient   *storage.SupabaseClient
+}
+
+func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) *TelegramNewsSender {
+	return &TelegramNewsSender{
+		cfg:              cfg,
+		cacheAdapter:     cacheAdapter,
+		metrics:          m,
+		websiteGenerator: websiteGen,
+		supabaseClient:   supabase,
+	}
+}
+
+func (s *TelegramNewsSender) SendSingle(ctx context.Context, newsList []news.News) {
+	sendSingleNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient)
+}
+
+func (s *TelegramNewsSender) SendMultiple(ctx context.Context, newsList []news.News, max int) {
+	sendMultipleNews(ctx, newsList, s.cfg, s.cacheAdapter, max, s.metrics, s.websiteGenerator, s.supabaseClient)
+}
+
 type App struct {
 	cfg              *config.Config
 	metrics          *metrics.Metrics
 	cacheAdapter     CacheAdapter
 	aiManager        *ai.Manager
-	feeds            []rss.FeedSource
+	fetcher          NewsFetcher
+	processor        NewsProcessor
+	sender           NewsSender
 	keywords         *config.KeywordsConfig
 	websiteGenerator *website.Generator
 	supabaseClient   *storage.SupabaseClient
@@ -37,8 +127,8 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	// 1. Инициализация кэша
 	var cacheAdapter CacheAdapter
 
-	if cfg.UsePostgres {
-		pgCache, err := storage.NewPostgresCache(cfg.DatabaseURL, cfg.DatabaseTTL)
+	if cfg.Database.UsePostgres {
+		pgCache, err := storage.NewPostgresCache(cfg.Database.URL, cfg.Database.TTL)
 		if err != nil {
 			return nil, fmt.Errorf("postgres error: %v", err)
 		}
@@ -47,14 +137,14 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		if err := pgCache.Cleanup(); err != nil {
 			logger.Warn("Failed to cleanup postgres cache", "error", err)
 		} else {
-			logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.DatabaseTTL)
+			logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.Database.TTL)
 		}
 
 		cacheAdapter = &PostgresCacheAdapter{cache: pgCache}
 		logger.Info("Using PostgreSQL cache")
 	} else {
 		// Мы используем FileCache из storage, но нам нужен адаптер для работы в app
-		fileCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
+		fileCache := storage.NewFileCache(cfg.Cache.FilePath, cfg.Cache.TTLHours)
 		if err := fileCache.Load(); err != nil {
 			logger.Warn("Failed to load cache", "error", err)
 		}
@@ -65,10 +155,10 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	// 2. Инициализация AI (НОВАЯ ЛОГИКА)
 	var aiProviders []ai.Provider
 
-	for _, pName := range cfg.AIProviders {
+	for _, pName := range cfg.AI.Providers {
 		switch strings.TrimSpace(strings.ToLower(pName)) {
 		case "gemini":
-			client, err := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel)
+			client, err := gemini.NewClient(cfg.AI.GeminiAPIKey, cfg.AI.GeminiModel)
 			if err != nil {
 				logger.Error("Failed to init Gemini", "error", err)
 				continue // Не падаем, пробуем следующего
@@ -77,8 +167,8 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			logger.Info("AI Provider added", "name", "gemini")
 
 		case "groq":
-			if cfg.GroqAPIKey != "" {
-				client := groq.NewClient(cfg.GroqAPIKey)
+			if cfg.AI.GroqAPIKey != "" {
+				client := groq.NewClient(cfg.AI.GroqAPIKey)
 				aiProviders = append(aiProviders, client)
 				logger.Info("AI Provider added", "name", "groq")
 			} else {
@@ -97,26 +187,26 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов
-	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)
+	feeds, err := rss.LoadFeeds(cfg.RSS.FeedsConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("feeds error: %v", err)
 	}
 
-	keywords, err := config.LoadKeywords(cfg.KeywordsConfigPath)
+	keywords, err := config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
 	if err != nil {
 		logger.Warn("Failed to load keywords config, using defaults or empty", "error", err)
 	}
 
 	// Initialize website generator
-	websiteGen := website.NewGenerator(cfg.WebsiteContentDir, cfg.EnableWebsite)
-	if cfg.EnableWebsite {
-		logger.Info("Website generation enabled", "content_dir", cfg.WebsiteContentDir)
+	websiteGen := website.NewGenerator(cfg.Website.ContentDir, cfg.Website.Enable)
+	if cfg.Website.Enable {
+		logger.Info("Website generation enabled", "content_dir", cfg.Website.ContentDir)
 	}
 
 	// Initialize Supabase client for website archive
 	var supabaseClient *storage.SupabaseClient
-	if cfg.EnableSupabase {
-		supabaseClient, err = storage.NewSupabaseClient(cfg.SupabaseURL, cfg.SupabaseServiceKey)
+	if cfg.Supabase.Enable {
+		supabaseClient, err = storage.NewSupabaseClient(cfg.Supabase.URL, cfg.Supabase.ServiceKey)
 		if err != nil {
 			logger.Warn("Failed to initialize Supabase client", "error", err)
 		} else {
@@ -134,16 +224,20 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		}
 	}
 
-	return &App{
+	app := &App{
 		cfg:              cfg,
 		metrics:          m,
 		cacheAdapter:     cacheAdapter,
 		aiManager:        aiManager,
-		feeds:            feeds,
+		fetcher:          NewRSSFetcher(feeds),
+		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords),
+		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient),
 		keywords:         keywords,
 		websiteGenerator: websiteGen,
 		supabaseClient:   supabaseClient,
-	}, nil
+	}
+
+	return app, nil
 }
 
 // Run запускает приложение
@@ -172,7 +266,7 @@ func (a *App) Run(ctx context.Context) {
 	}
 
 	// 5. Скачивание новостей
-	items, err := rss.FetchAllFeeds(a.feeds)
+	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
 		logger.Error("Fetch error", "err", err)
 		return
@@ -184,26 +278,17 @@ func (a *App) Run(ctx context.Context) {
 	}
 
 	// 6. Фильтрация и перевод
-	filtered, err := news.FilterAndTranslateWithOptions(ctx, items, news.Options{
-		Limit:             a.cfg.MaxNewsLimit,
-		MaxAge:            a.cfg.NewsMaxAge,
-		PerSource:         2,
-		ScrapeMaxArticles: a.cfg.ScrapeMaxArticles,
-		ScrapeConcurrency: a.cfg.ScrapeConcurrency,
-		Keywords:          a.keywords,
-		AI:                a.aiManager,
-		Metrics:           a.metrics,
-	})
+	filtered, err := a.processor.Process(ctx, items)
 	if err != nil {
 		logger.Error("Filter error", "err", err)
 		return
 	}
 
 	// 7. Отправка в Telegram
-	if a.cfg.BotMode == "single" {
-		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator, a.supabaseClient)
+	if a.cfg.Telegram.BotMode == "single" {
+		a.sender.SendSingle(ctx, filtered)
 	} else {
-		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics, a.websiteGenerator, a.supabaseClient)
+		a.sender.SendMultiple(ctx, filtered, a.cfg.RSS.MaxNewsLimit)
 	}
 
 	// Метрики
@@ -241,18 +326,23 @@ func (a *App) ReloadConfig() error {
 	logger.Info("Reloading configuration...")
 
 	// Reload feeds
-	feeds, err := rss.LoadFeeds(a.cfg.FeedsConfigPath)
+	feeds, err := rss.LoadFeeds(a.cfg.RSS.FeedsConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to reload feeds: %v", err)
 	}
-	a.feeds = feeds
+	if rssFetcher, ok := a.fetcher.(*RSSFetcher); ok {
+		rssFetcher.feeds = feeds
+	}
 
 	// Reload keywords
-	keywords, err := config.LoadKeywords(a.cfg.KeywordsConfigPath)
+	keywords, err := config.LoadKeywords(a.cfg.RSS.KeywordsConfigPath)
 	if err != nil {
 		logger.Warn("Failed to reload keywords, keeping old ones", "error", err)
 	} else {
 		a.keywords = keywords
+		if filterProcessor, ok := a.processor.(*NewsFilterProcessor); ok {
+			filterProcessor.keywords = keywords
+		}
 	}
 
 	logger.Info("Configuration reloaded successfully")
@@ -260,7 +350,7 @@ func (a *App) ReloadConfig() error {
 }
 
 // sendSingleNews отправляет одну новость (с фото или без)
-func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+func sendSingleNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	for _, n := range newsList {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if cacheAdapter.IsAlreadySent(hash) {
@@ -277,31 +367,31 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 		}
 
 		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
+		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit, 0, 0, 0)
 		var outText string
 		var err error
 
 		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
-		if cfg.EnableInlineButtons && n.Link != "" {
+		if cfg.Feature.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 			})
 		}
 
 		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
+			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit, 0, 0)
 			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
+				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 			} else {
-				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 			}
 		} else {
 			outText = news.FormatNewsWithImage(n, 0, 0)
 			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
 			}
 		}
 
@@ -322,7 +412,7 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 
 			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
 			if supabase != nil {
-				saveToSupabase(supabase, n)
+				saveToSupabase(ctx, supabase, n)
 			}
 
 			// Generate website post (SYNC - must complete before workflow exits)
@@ -337,7 +427,7 @@ func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cache
 }
 
 // sendMultipleNews отправляет список новостей
-func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+func sendMultipleNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	sent := 0
 	for _, n := range newsList {
 		if sent >= max {
@@ -359,31 +449,31 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 		}
 
 		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
+		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit, 0, 0, 0)
 		var outText string
 		var err error
 
 		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
-		if cfg.EnableInlineButtons && n.Link != "" {
+		if cfg.Feature.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 			})
 		}
 
 		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
+			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit, 0, 0)
 			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
+				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 			} else {
-				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
+				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 			}
 		} else {
 			outText = news.FormatNewsWithImage(n, 0, 0)
 			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
+				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
+				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
 			}
 		}
 
@@ -405,7 +495,7 @@ func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter Cac
 
 			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
 			if supabase != nil {
-				saveToSupabase(supabase, n)
+				saveToSupabase(ctx, supabase, n)
 			}
 
 			// Generate website post (SYNC - must complete before workflow exits)
@@ -445,7 +535,7 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 }
 
 // saveToSupabase saves news to Supabase for website archive
-func saveToSupabase(client *storage.SupabaseClient, n news.News) {
+func saveToSupabase(ctx context.Context, client *storage.SupabaseClient, n news.News) {
 	archive := storage.NewsArchive{
 		Slug:             storage.GenerateSlugWithDate(n.Title, n.Published),
 		Title:            n.Title,
@@ -463,7 +553,7 @@ func saveToSupabase(client *storage.SupabaseClient, n news.News) {
 		PublishedAt:      n.Published,
 	}
 
-	if err := client.SaveNews(archive); err != nil {
+	if err := client.SaveNews(ctx, archive); err != nil {
 		logger.Warn("Failed to save to Supabase", "title", n.Title, "error", err)
 	} else {
 		logger.Info("Saved to Supabase archive", "title", n.Title)
@@ -484,9 +574,9 @@ func processFailedMessages(adapter *PostgresCacheAdapter, cfg *config.Config, m 
 	for _, item := range items {
 		var err error
 		if item.ImageURL != "" {
-			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, item.ImageURL, item.MessageText)
+			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, item.MessageText)
+			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText)
 		}
 
 		if err != nil {

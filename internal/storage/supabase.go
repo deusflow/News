@@ -2,7 +2,9 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -142,11 +144,11 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 }
 
 // SaveNews saves a news item to Supabase with retry logic for transient errors
-func (c *SupabaseClient) SaveNews(news NewsArchive) error {
+func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 	// Check by source_url (most reliable duplicate detection)
-	isDuplicateURL, err := c.IsDuplicateBySourceURL(news.SourceURL)
+	isDuplicateURL, err := c.IsDuplicateBySourceURL(ctx, news.SourceURL)
 	if err != nil {
-		log.Printf("Warning: source_url duplicate check failed: %v", err)
+		return fmt.Errorf("source_url duplicate check failed: %w", err)
 	}
 	if isDuplicateURL {
 		log.Printf("⏭️ Skipping duplicate (same source_url): %s", news.SourceURL)
@@ -261,7 +263,7 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 
 // IsDuplicateBySourceURL checks if news with the same source_url already exists
 // This is more reliable than title comparison because URLs are unique per news
-func (c *SupabaseClient) IsDuplicateBySourceURL(sourceURL string) (bool, error) {
+func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL string) (bool, error) {
 	// Validate input
 	if sourceURL == "" {
 		return false, nil // No URL to check, allow the news
@@ -313,13 +315,15 @@ func (c *SupabaseClient) IsDuplicateBySourceURL(sourceURL string) (bool, error) 
 		resultChan <- result{len(existing) > 0, nil}
 	}()
 
-	// Wait with 2 second timeout
+	// Wait with timeout using modern context pattern
+	timeoutCtx, cancel := context.WithTimeoutCause(ctx, 2*time.Second, errors.New("duplicate check timeout"))
+	defer cancel()
+
 	select {
 	case res := <-resultChan:
 		return res.isDuplicate, res.err
-	case <-time.After(2 * time.Second):
-		log.Println("⚠️ Source URL duplicate check timeout (2s), allowing news")
-		return false, nil
+	case <-timeoutCtx.Done():
+		return false, context.Cause(timeoutCtx)
 	}
 }
 

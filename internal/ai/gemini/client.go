@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/deusflow/News/internal/ai" // Импортируем наш новый пакет
+	"github.com/deusflow/News/internal/logger"
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
 )
@@ -52,19 +52,24 @@ func (c *Client) Close() {
 }
 
 func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*ai.Response, error) {
+	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content))
+
 	// Ждем своей очереди (Rate Limit)
 	select {
 	case <-c.rateLimiter:
 	case <-ctx.Done():
+		logger.Warn("Gemini request cancelled", "title", title)
 		return nil, ctx.Err()
 	}
 
 	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
+		logger.Error("❌ Gemini API Error", "title", title, "error", err)
 		return nil, fmt.Errorf("gemini generate error: %w", err)
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		logger.Error("❌ Gemini Empty Response", "title", title)
 		return nil, fmt.Errorf("gemini returned empty response")
 	}
 
@@ -84,9 +89,10 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 
 	var data ai.Response
 	if err := json.Unmarshal([]byte(jsonText), &data); err != nil {
-		log.Printf("❌ Gemini JSON Parse Error. Raw: %s", jsonText)
+		logger.Error("❌ Gemini JSON Parse Error", "raw", jsonText)
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
+	logger.Debug("✅ Gemini Success", "title", title)
 	return &data, nil
 }

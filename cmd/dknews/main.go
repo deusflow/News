@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,13 +10,15 @@ import (
 
 	"github.com/deusflow/News/internal/app"
 	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		logger.Error("Config error", "error", err)
+		os.Exit(1)
 	}
 
 	m := metrics.New()
@@ -25,12 +26,13 @@ func main() {
 	// Initialize application
 	application, err := app.New(cfg, m)
 	if err != nil {
-		log.Fatalf("App init error: %v", err)
+		logger.Error("App init error", "error", err)
+		os.Exit(1)
 	}
 
 	// Check if we should start HTTP server for monitoring
-	if cfg.EnableHTTPMonitoring {
-		go startMonitoringServer(cfg.MonitoringPort, m, application)
+	if cfg.Monitoring.EnableHTTPMonitoring {
+		go startMonitoringServer(cfg.Monitoring.Port, m, application)
 	}
 
 	// Graceful shutdown context
@@ -55,9 +57,9 @@ func startMonitoringServer(port string, m *metrics.Metrics, a *app.App) {
 		reloadHandler(w, r, a)
 	})
 
-	log.Printf("Starting monitoring server on port %s", port)
+	logger.Info("Starting monitoring server", "port", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Printf("Monitoring server error: %v", err)
+		logger.Error("Monitoring server error", "error", err)
 	}
 }
 

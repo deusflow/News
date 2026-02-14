@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/logger"
 )
 
 type Client struct {
@@ -29,7 +30,7 @@ func NewClient(cfg *config.Config) *Client {
 	}
 	return &Client{
 		apiKey: apiKey,
-		model:  "llama-3.3-70b-versatile",
+		model:  "mistral-large-latest",
 		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
@@ -64,6 +65,7 @@ type chatResponse struct {
 // GenerateContent выполняет запрос к API и возвращает JSON строку
 func (c *Client) GenerateContent(ctx context.Context, prompt string) (string, error) {
 	if c.apiKey == "" {
+		logger.Error("API key is empty")
 		return "", fmt.Errorf("API key is empty")
 	}
 
@@ -79,11 +81,13 @@ func (c *Client) GenerateContent(ctx context.Context, prompt string) (string, er
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		logger.Error("Failed to marshal request body", "error", err)
 		return "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
+		logger.Error("Failed to create HTTP request", "error", err)
 		return "", err
 	}
 
@@ -92,6 +96,7 @@ func (c *Client) GenerateContent(ctx context.Context, prompt string) (string, er
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		logger.Error("HTTP request failed", "error", err)
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer func() {
@@ -101,19 +106,23 @@ func (c *Client) GenerateContent(ctx context.Context, prompt string) (string, er
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
+		logger.Error("API returned non-200 status", "status", resp.StatusCode, "body", string(body))
 		return "", fmt.Errorf("api error %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result chatResponse
 	if err := json.Unmarshal(body, &result); err != nil {
+		logger.Error("Failed to unmarshal response", "error", err, "body", string(body))
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	if result.Error != nil {
+		logger.Error("API returned error in response", "message", result.Error.Message)
 		return "", fmt.Errorf("api returned error: %s", result.Error.Message)
 	}
 
 	if len(result.Choices) == 0 {
+		logger.Error("API returned empty choices")
 		return "", fmt.Errorf("empty choices")
 	}
 

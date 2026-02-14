@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/logger"
 )
 
 type Client struct {
@@ -60,6 +60,8 @@ type groqResponse struct {
 }
 
 func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*ai.Response, error) {
+	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content))
+
 	// Для Groq лучше явно добавить инструкцию про JSON в конец
 	finalPrompt := prompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown formatting."
 
@@ -76,6 +78,7 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 	jsonBody, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		logger.Error("❌ Groq Request Creation Error", "title", title, "error", err)
 		return nil, err
 	}
 
@@ -84,21 +87,25 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		logger.Error("❌ Groq HTTP Error", "title", title, "error", err)
 		return nil, fmt.Errorf("groq request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		logger.Error("❌ Groq API Error", "status", resp.StatusCode, "body", string(body))
 		return nil, fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body))
 	}
 
 	var groqResp groqResponse
 	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
+		logger.Error("❌ Groq Decode Error", "title", title, "error", err)
 		return nil, fmt.Errorf("groq decode error: %w", err)
 	}
 
 	if len(groqResp.Choices) == 0 {
+		logger.Error("❌ Groq No Choices", "title", title)
 		return nil, fmt.Errorf("groq returned no choices")
 	}
 
@@ -110,9 +117,10 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 
 	var data ai.Response
 	if err := json.Unmarshal([]byte(jsonText), &data); err != nil {
-		log.Printf("❌ Groq JSON Parse Error. Raw: %s", jsonText)
+		logger.Error("❌ Groq JSON Parse Error", "raw", jsonText)
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
+	logger.Debug("✅ Groq Success", "title", title)
 	return &data, nil
 }
