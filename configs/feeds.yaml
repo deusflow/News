@@ -1,63 +1,65 @@
-feeds:
-  # ГЛАВНЫЕ НОВОСТИ ДАНИИ
-  - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
-    name: DR Nyheder
-    lang: da
-    priority: 95
-    active: true
-    categories: [denmark, main, politics, ukraine]
+# ОФИЦИАЛЬНЫЕ ИСТОЧНИКИ ДАНИИ
+- url: https://www.nyidanmark.dk/da-dk/nyheder/rss.xml
+  name: Ny i Danmark
+  lang: da
+  priority: 95
+  active: true
+  categories: [visas, ukraine, official]
+  # Официальный сайт для иммигрантов — первоисточник по правилам
 
-  # ЕВРОПАРЛАМЕНТ (Законы ЕС)
-  - url: https://www.europarl.europa.eu/rss/doc/top-stories/en.xml
-    name: European Parliament
-    lang: en
-    priority: 80
-    active: true
-    categories: [eu, politics, ukraine, visas]
+- url: https://www.ft.dk/da/aktuelt/nyheder/rss
+  name: Folketing
+  lang: da
+  priority: 85
+  active: true
+  categories: [politics, visas, laws]
+  # Парламент — там рождаются законы про særlov
 
-  # viborg
-  - url: https://www.tvmidtvest.dk/rss
-    name: TV Midtvest
-    lang: da
-    priority: 60
-    active: true
-    categories: [local, viborg, lifestyle]
+- url: https://www.jobnet.dk/rss
+  name: JobNet
+  lang: da
+  priority: 70
+  active: true
+  categories: [work, jobs]
+  # Официальный сайт вакансий — прямые объявления
 
-  # ОРХУС (Для тусовок и событий рядом)
-  - url: https://www.tv2ostjylland.dk/rss
-    name: TV2 Østjylland
-    lang: da
-    priority: 50
-    active: true
-    categories: [local, aarhus, lifestyle]
+# АНГЛИЙСКИЕ ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ
+- url: https://www.thelocal.dk/rss.xml
+  name: The Local Denmark
+  lang: en
+  priority: 75
+  active: true
+  categories: [denmark, expats, visas]
+  # Новости про Данию по-английски — хорошо для тех, кто не читает по-датски
 
-  # ==========================================
-  # ПЕРВОИСТОЧНИКИ ПО СТАТУСУ УКРАИНЦЕВ (ЕС)
-  # ==========================================
+- url: https://www.unhcr.org/rss/news.xml
+  name: UNHCR
+  lang: en
+  priority: 80
+  active: true
+  categories: [eu, ukraine, rights, visas]
 
-  # Euractiv (Брюссель) — Главный источник инсайдов о решениях Еврокомиссии.
-  # Пишут про продление защиты, новые правила и споры стран ЕС.
-  - url: https://www.euractiv.com/feed/
-    name: Euractiv EU
-    lang: en
-    priority: 90
-    active: true
-    categories: [eu, politics, visas, ukraine]
+# ✅ ПРОВЕРЕНО — РАБОТАЕТ
+- url: https://ecre.org/feed/
+  name: ECRE (беженцы, права, законы ЕС)
+  lang: en
+  priority: 85
+  active: true
+  categories: [eu, ukraine, visas, rights]
+  # Главный независимый источник про права беженцев в Европе
 
-  # ECRE (Council on Refugees) — Юридические разборы и отчеты.
-  # Пишут, что РЕАЛЬНО ждет беженцев (права, депортации, условия).
-  - url: https://ecre.org/feed/
-    name: ECRE NGO
-    lang: en
-    priority: 80
-    active: true
-    categories: [eu, society, rights, ukraine]
+- url: https://www.euractiv.com/feed/
+  name: Euractiv
+  lang: en
+  priority: 90
+  active: true
+  categories: [eu, politics, visas, ukraine]
+  # Этот ты уже имеешь — он точно работает
 
-  # EU Observer — Еще один независимый взгляд на брюссельскую кухню.
-  # Часто пишут про кулуарные договоренности по мигрантам.
-  - url: https://euobserver.com/rss
-    name: EU Observer
-    lang: en
-    priority: 90
-    active: true
-    categories: [eu, politics, visas]
+- url: https://reliefweb.int/updates/rss.xml?primary_country=Ukraine
+  name: ReliefWeb Ukraine
+  lang: en
+  priority: 75
+  active: true
+  categories: [ukraine, society, rights]
+  # Агрегатор ООН-организаций — туда попадают и UNHCR-отчёты
