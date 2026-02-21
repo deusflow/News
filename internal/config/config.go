@@ -198,7 +198,7 @@ func Load() (*Config, error) {
 			PhotoTextLimit:          1024,
 		},
 		Scraper: ScraperConfig{
-			Concurrency: 8,
+			Concurrency: 1,
 			MaxArticles: 10,
 		},
 		Database: DatabaseConfig{

@@ -7,32 +7,55 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/deusflow/News/internal/metrics"
 )
 
+// aiJob - структура задачи для очереди
+type aiJob struct {
+	ctx     context.Context
+	title   string
+	content string
+	prompt  string
+	result  chan aiResult
+}
+
+// aiResult - структура ответа от ИИ
+type aiResult struct {
+	resp *Response
+	err  error
+}
+
 type Manager struct {
 	providers []Provider
 	metrics   *metrics.Metrics
 
-	// Очередь (Rate Limiter)
-	mu           sync.Mutex
-	lastCallTime time.Time
-	delay        time.Duration
+	jobQueue  chan aiJob         // Канал для задач (Queue)
+	cancelCtx context.CancelFunc // Функция для остановки воркера
+	delay     time.Duration
 }
 
 func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
-	return &Manager{
+	// Создаем контекст для управления жизненным циклом воркера
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mgr := &Manager{
 		providers: providers,
 		metrics:   m,
-		// Устанавливаем строгую задержку: 1 запрос в 40 секунд
-		delay: 40 * time.Second,
+		jobQueue:  make(chan aiJob, 50), // Bounded queue (лимит в 50 задач одновременно)
+		cancelCtx: cancel,
+		delay:     40 * time.Second, // 1 запрос в 40 секунд
 	}
+
+	// Запускаем фонового воркера (Менеджера очереди)
+	go mgr.worker(ctx)
+
+	return mgr
 }
 
 func (m *Manager) Close() {
+	m.cancelCtx() // Останавливаем фонового воркера
 	for _, p := range m.providers {
 		p.Close()
 	}
@@ -40,6 +63,53 @@ func (m *Manager) Close() {
 
 func (m *Manager) Name() string {
 	return "ai-manager"
+}
+
+// worker обрабатывает задачи строго по одной с заданным интервалом
+func (m *Manager) worker(ctx context.Context) {
+	var lastCall time.Time
+
+	for {
+		select {
+		case <-ctx.Done():
+			return // Завершаем работу воркера при выключении программы
+
+		case job := <-m.jobQueue:
+			// Если задача уже была отменена (например, вышел таймаут),
+			// сразу возвращаем ошибку и берем следующую без задержек.
+			if job.ctx.Err() != nil {
+				job.result <- aiResult{nil, job.ctx.Err()}
+				continue
+			}
+
+			// Вычисляем, нужно ли подождать
+			elapsed := time.Since(lastCall)
+			if elapsed < m.delay {
+				wait := m.delay - elapsed
+				log.Printf("⏳ Worker queue: waiting %v before calling AI...", wait)
+
+				// Используем безопасный таймер вместо time.After, чтобы избежать утечек памяти
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-job.ctx.Done(): // Если отменили во время ожидания
+					timer.Stop()
+					job.result <- aiResult{nil, job.ctx.Err()}
+					continue
+				case <-timer.C:
+					// Ожидание окончено
+				}
+			}
+
+			// Запускаем обработку через нейросети
+			resp, err := m.executeWithFallback(job.ctx, job.title, job.content, job.prompt)
+
+			lastCall = time.Now()
+			job.result <- aiResult{resp, err}
+		}
+	}
 }
 
 func tryParseRetrySeconds(text string) (int, bool) {
@@ -62,32 +132,8 @@ func tryParseRetrySeconds(text string) (int, bool) {
 	return 0, false
 }
 
-// Generate работает как турникет: пускает строго по одному запросу с паузой 40 сек
-func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (*Response, error) {
-	// Блокируем очередь для других потоков
-	m.mu.Lock()
-
-	timeSinceLastCall := time.Since(m.lastCallTime)
-
-	// Если прошло меньше 40 секунд, ждем
-	if timeSinceLastCall < m.delay {
-		waitTime := m.delay - timeSinceLastCall
-		log.Printf("⏳ Rate Limiter: Waiting %v before calling AI...", waitTime)
-
-		select {
-		case <-time.After(waitTime):
-			// Время вышло, можно продолжать
-		case <-ctx.Done():
-			m.mu.Unlock() // Обязательно снимаем блокировку при отмене
-			return nil, ctx.Err()
-		}
-	}
-
-	m.lastCallTime = time.Now()
-
-	// Отпускаем очередь, следующий поток начнет отсчитывать свои 40 секунд
-	m.mu.Unlock()
-
+// executeWithFallback пытается выполнить запрос, переключаясь между ИИ при ошибке
+func (m *Manager) executeWithFallback(ctx context.Context, title, content, prompt string) (*Response, error) {
 	var lastErr error
 
 	for _, provider := range m.providers {
@@ -106,9 +152,11 @@ func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (
 					m.metrics.IncrementAIRetry()
 				}
 
+				timer := time.NewTimer(time.Duration(secs+2) * time.Second)
 				select {
-				case <-time.After(time.Duration(secs+2) * time.Second):
+				case <-timer.C:
 				case <-ctx.Done():
+					timer.Stop()
 					return nil, ctx.Err()
 				}
 
@@ -129,4 +177,32 @@ func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (
 	}
 
 	return nil, fmt.Errorf("all AI providers failed, last error: %v", lastErr)
+}
+
+// Generate теперь просто отправляет задачу в канал (Queue) и ждет ответа
+func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (*Response, error) {
+	resultCh := make(chan aiResult, 1)
+
+	job := aiJob{
+		ctx:     ctx,
+		title:   title,
+		content: content,
+		prompt:  prompt,
+		result:  resultCh,
+	}
+
+	// Отправляем задачу в очередь
+	select {
+	case m.jobQueue <- job:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// Ждем результат из очереди
+	select {
+	case res := <-resultCh:
+		return res.resp, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
