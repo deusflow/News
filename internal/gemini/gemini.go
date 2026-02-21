@@ -338,6 +338,7 @@ TASKS (return valid JSON only):
    - Ukrainian, start with ONE emoji
    - MUST be unrelated to this specific news topic
    - General interesting fact about Danish Kingdom
+   - Make it surprising, unique, or lesser-known. Avoid overused facts like the age of the monarchy, hygge, Lego origins, bicycle culture, or tourist attractions.
 
 ABSOLUTE PROHIBITIONS:
 - No "(Примітка: ...)" or translator commentary
