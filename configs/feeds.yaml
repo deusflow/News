@@ -1,65 +1,59 @@
-# ОФИЦИАЛЬНЫЕ ИСТОЧНИКИ ДАНИИ
-- url: https://www.nyidanmark.dk/da-dk/nyheder/rss.xml
-  name: Ny i Danmark
-  lang: da
-  priority: 95
-  active: true
-  categories: [visas, ukraine, official]
-  # Официальный сайт для иммигрантов — первоисточник по правилам
+feeds:
+  # ОФИЦИАЛЬНЫЕ ИСТОЧНИКИ ДАНИИ
+  - url: https://www.nyidanmark.dk/da-dk/nyheder/rss.xml
+    name: Ny i Danmark
+    lang: da
+    priority: 95
+    active: true
+    categories: [visas, ukraine, official]
 
-- url: https://www.ft.dk/da/aktuelt/nyheder/rss
-  name: Folketing
-  lang: da
-  priority: 85
-  active: true
-  categories: [politics, visas, laws]
-  # Парламент — там рождаются законы про særlov
+  - url: https://www.ft.dk/da/aktuelt/nyheder/rss
+    name: Folketing
+    lang: da
+    priority: 85
+    active: true
+    categories: [politics, visas, laws]
 
-- url: https://www.jobnet.dk/rss
-  name: JobNet
-  lang: da
-  priority: 70
-  active: true
-  categories: [work, jobs]
-  # Официальный сайт вакансий — прямые объявления
+  - url: https://www.jobnet.dk/rss
+    name: JobNet
+    lang: da
+    priority: 70
+    active: true
+    categories: [work, jobs]
 
-# АНГЛИЙСКИЕ ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ
-- url: https://www.thelocal.dk/rss.xml
-  name: The Local Denmark
-  lang: en
-  priority: 75
-  active: true
-  categories: [denmark, expats, visas]
-  # Новости про Данию по-английски — хорошо для тех, кто не читает по-датски
+  # АНГЛИЙСКИЕ ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ
+  - url: https://www.thelocal.dk/rss.xml
+    name: The Local Denmark
+    lang: en
+    priority: 75
+    active: true
+    categories: [denmark, expats, visas]
 
-- url: https://www.unhcr.org/rss/news.xml
-  name: UNHCR
-  lang: en
-  priority: 80
-  active: true
-  categories: [eu, ukraine, rights, visas]
+  - url: https://www.unhcr.org/rss/news.xml
+    name: UNHCR
+    lang: en
+    priority: 80
+    active: true
+    categories: [eu, ukraine, rights, visas]
 
-# ✅ ПРОВЕРЕНО — РАБОТАЕТ
-- url: https://ecre.org/feed/
-  name: ECRE (беженцы, права, законы ЕС)
-  lang: en
-  priority: 85
-  active: true
-  categories: [eu, ukraine, visas, rights]
-  # Главный независимый источник про права беженцев в Европе
+  # ✅ ПРОВЕРЕНО — РАБОТАЕТ
+  - url: https://ecre.org/feed/
+    name: ECRE (беженцы, права, законы ЕС)
+    lang: en
+    priority: 85
+    active: true
+    categories: [eu, ukraine, visas, rights]
 
-- url: https://www.euractiv.com/feed/
-  name: Euractiv
-  lang: en
-  priority: 90
-  active: true
-  categories: [eu, politics, visas, ukraine]
-  # Этот ты уже имеешь — он точно работает
+  - url: https://www.euractiv.com/feed/
+    name: Euractiv
+    lang: en
+    priority: 90
+    active: true
+    categories: [eu, politics, visas, ukraine]
 
-- url: https://reliefweb.int/updates/rss.xml?primary_country=Ukraine
-  name: ReliefWeb Ukraine
-  lang: en
-  priority: 75
-  active: true
-  categories: [ukraine, society, rights]
-  # Агрегатор ООН-организаций — туда попадают и UNHCR-отчёты
+  - url: https://reliefweb.int/updates/rss.xml?primary_country=Ukraine
+    name: ReliefWeb Ukraine
+    lang: en
+    priority: 75
+    active: true
+    categories: [ukraine, society, rights]
