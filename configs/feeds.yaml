@@ -1,59 +1,42 @@
 feeds:
-  # ОФИЦИАЛЬНЫЕ ИСТОЧНИКИ ДАНИИ
-  - url: https://www.nyidanmark.dk/da-dk/nyheder/rss.xml
-    name: Ny i Danmark
+  # НАДЕЖНЫЕ ИСТОЧНИКИ ДАНИИ (Работают стабильно)
+  - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
+    name: DR Nyheder
     lang: da
-    priority: 95
+    priority: 100
     active: true
-    categories: [visas, ukraine, official]
+    categories: [denmark, news, official]
+    # Главный национальный источник новостей Дании
 
-  - url: https://www.ft.dk/da/aktuelt/nyheder/rss
-    name: Folketing
+  - url: https://www.tvmidtvest.dk/rss
+    name: TV Midtvest
+    lang: da
+    priority: 90
+    active: true
+    categories: [local, news]
+    # Локальные новости (Midtvest)
+
+  - url: https://www.tv2ostjylland.dk/rss
+    name: TV2 Østjylland
     lang: da
     priority: 85
     active: true
-    categories: [politics, visas, laws]
+    categories: [local, news]
+    # Локальные новости (Østjylland)
 
-  - url: https://www.jobnet.dk/rss
-    name: JobNet
-    lang: da
-    priority: 70
-    active: true
-    categories: [work, jobs]
-
-  # АНГЛИЙСКИЕ ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ
-  - url: https://www.thelocal.dk/rss.xml
-    name: The Local Denmark
-    lang: en
-    priority: 75
-    active: true
-    categories: [denmark, expats, visas]
-
-  - url: https://www.unhcr.org/rss/news.xml
-    name: UNHCR
-    lang: en
-    priority: 80
-    active: true
-    categories: [eu, ukraine, rights, visas]
-
-  # ✅ ПРОВЕРЕНО — РАБОТАЕТ
+  # ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ / ЕС
   - url: https://ecre.org/feed/
     name: ECRE (беженцы, права, законы ЕС)
     lang: en
     priority: 85
     active: true
     categories: [eu, ukraine, visas, rights]
+    # Главный независимый источник про права беженцев в Европе (Успешно работает)
 
-  - url: https://www.euractiv.com/feed/
-    name: Euractiv
+  - url: https://euobserver.com/rss
+    name: EU Observer
     lang: en
-    priority: 90
+    priority: 80
     active: true
-    categories: [eu, politics, visas, ukraine]
-
-  - url: https://reliefweb.int/updates/rss.xml?primary_country=Ukraine
-    name: ReliefWeb Ukraine
-    lang: en
-    priority: 75
-    active: true
-    categories: [ukraine, society, rights]
+    categories: [eu, politics, visas]
+    # Новости Евросоюза и политики
