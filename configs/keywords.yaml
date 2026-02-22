@@ -1,107 +1,42 @@
 keywords:
   # =======================================================
-  # ШКАЛА ВЕСОВ (для понимания)
-  # 30-35 = критически важно (særlov, positivlisten)
-  # 20-25 = высокий приоритет (статус, работа, жильё)
-  # 12-18 = средний приоритет (образование, семья, IT)
-  #  5-10 = фоновый интерес (местные новости, лайфстайл)
-  #  < 0  = спам/шум (убираем из ленты)
-  # =======================================================
-
-  # =======================================================
-  # ТОП-ПРИОРИТЕТ: СТАТУС И ЗАЩИТА (Weight 25-35)
+  # НАИВЫСШИЙ ПРИОРИТЕТ: УКРАИНЦЫ, ВИЗЫ И СТАТУС (Weight 25)
   # =======================================================
   - word: "særlov"
     category: "visas"
-    weight: 30
-  - word: "særlovens ophør"        # Отмена særlov — самое критичное
-    category: "visas"
-    weight: 35
+    weight: 25
   - word: "ukrainerloven"
     category: "visas"
-    weight: 30
+    weight: 25
   - word: "midlertidig beskyttelse"
     category: "visas"
-    weight: 30
-  - word: "exitstrategi"           # Стратегия выхода из временной защиты
-    category: "visas"
-    weight: 30
-  - word: "exit strategy"
-    category: "visas"
-    weight: 30
-  - word: "marts 2027"             # Дата окончания защиты (только одна запись!)
-    category: "visas"
-    weight: 30
-  - word: "march 2027"
-    category: "visas"
-    weight: 30
-  - word: "udlændingestyrelsen"
+    weight: 25
+  - word: "paragraf 24" # Германия/ЕС
     category: "visas"
     weight: 25
-  - word: "paragraf 24"
-    category: "visas"
-    weight: 25
-  - word: "temporary protection"
-    category: "visas"
-    weight: 25
-  - word: "etias"                  # Новая система въезда в ЕС с 2026
-    category: "visas"
-    weight: 25
+  - word: "mercantec" # ТВОЯ ШКОЛА (СУПЕР ВАЖНО - УВЕЛИЧИЛ ДО 35)
+    category: "education"
+    weight: 35
 
-  # Документы и разрешения
+  # Визы и документы (Weight 20)
   - word: "opholdstilladelse"
     category: "visas"
-    weight: 22
+    weight: 20
   - word: "forlængelse"
     category: "visas"
-    weight: 22
-  - word: "hjemsendelse"
-    category: "visas"
-    weight: 22
-  - word: "sporskifte"             # Переход с Særlov на рабочий ВНЖ
-    category: "visas"
-    weight: 25
-  - word: "integrationskontrakt"   # Договор интеграции с коммуной
-    category: "visas"
-    weight: 22
-  - word: "integrationsprogram"
-    category: "visas"
     weight: 20
-  - word: "permanent ophold"       # ПМЖ
-    category: "visas"
-    weight: 20
-  - word: "long-term resident"     # Статус долговременного резидента ЕС
-    category: "visas"
-    weight: 20
-  - word: "residence permit"
-    category: "visas"
-    weight: 18
-  - word: "cpr-nummer"             # Без него ничего не работает
-    category: "visas"
-    weight: 25
-  - word: "cpr nummer"
-    category: "visas"
-    weight: 25
-  - word: "borger.dk"
-    category: "visas"
-    weight: 18
-  - word: "udlændingeloven"
-    category: "visas"
-    weight: 12
   - word: "ophold"
     category: "visas"
-    weight: 12
-
-  # Украинцы (идентификация)
+    weight: 15
   - word: "ukrainer"
     category: "visas"
-    weight: 18
+    weight: 15
   - word: "ukrainsk"
     category: "visas"
     weight: 15
-  - word: "ukrainsk statsborger"
+  - word: "hjemsendelse"
     category: "visas"
-    weight: 22
+    weight: 20
   - word: "statsborgerskab"
     category: "visas"
     weight: 15
@@ -109,152 +44,139 @@ keywords:
     category: "visas"
     weight: 15
 
-  # Возвращение
-  - word: "frivillig hjemrejse"
-    category: "visas"
-    weight: 18
-  - word: "frivillig tilbagevenden"
-    category: "visas"
-    weight: 18
-  - word: "voluntary return"
-    category: "visas"
-    weight: 18
-
-  # =======================================================
-  # РАБОЧИЙ ВНЖ И ПОЗИТИВНЫЙ СПИСОК (Weight 25-35)
-  # =======================================================
-  - word: "positivlisten"          # IT в списке всегда — план Б
-    category: "work"
-    weight: 35
-  - word: "positive list"
-    category: "work"
-    weight: 35
-  - word: "beløbsordningen"        # ВНЖ по зарплате
-    category: "work"
-    weight: 30
-  - word: "pay limit scheme"
-    category: "work"
-    weight: 30
+  # Работа для украинцев (Weight 15-20)
   - word: "arbejdstilladelse"
-    category: "work"
-    weight: 22
-  - word: "work permit"
     category: "work"
     weight: 20
   - word: "job til ukrainer"
     category: "work"
     weight: 20
-  - word: "studiejob"
-    category: "work"
-    weight: 20
-  - word: "jobcenter"
-    category: "work"
-    weight: 20
   - word: "ansættelse"
     category: "work"
     weight: 15
-  - word: "beskæftigelse"
-    category: "work"
-    weight: 15
-  - word: "aktivt arbejdsmarked"
-    category: "work"
-    weight: 18
-  - word: "arbejdsmarkedet"
-    category: "work"
-    weight: 15
 
-  # =======================================================
-  # ПОСОБИЯ И ДЕНЬГИ (Weight 15-25)
-  # =======================================================
-  - word: "selvforsørgelse"        # Самообеспечение (новое требование)
-    category: "money"
-    weight: 25
+  # Пособия и поддержка (Weight 15)
   - word: "selvforsørgelses"
     category: "money"
-    weight: 20
-  - word: "boligstøtte"            # Субсидия на жильё
-    category: "money"
-    weight: 22
-  - word: "kontanthjælp ukraine"
-    category: "money"
-    weight: 22
+    weight: 15
   - word: "integrationsydelse"
     category: "money"
-    weight: 18
+    weight: 15
   - word: "hjemrejseydelse"
-    category: "money"
-    weight: 18
-  - word: "repatriering"
-    category: "money"
-    weight: 15
-  - word: "støtte til hjemrejse"
-    category: "money"
-    weight: 15
-  - word: "nemkonto"               # Счёт для выплат от государства
-    category: "money"
-    weight: 18
-  - word: "børnepenge"
-    category: "money"
-    weight: 15
-  - word: "børnecheck"
     category: "money"
     weight: 15
   - word: "ydelse"
     category: "money"
     weight: 10
-  - word: "su"                     # Студенческая стипендия (короткое — риск шума!)
-    category: "money"
-    weight: 8
 
-  # =======================================================
-  # ОБРАЗОВАНИЕ (Weight 15-25)
-  # =======================================================
-  - word: "mercantec"              # Твоя школа
-    category: "education"
-    weight: 25
-  - word: "praktik"
-    category: "education"
-    weight: 25
-  - word: "læreplads"
-    category: "education"
-    weight: 25
-  - word: "elevplads"
-    category: "education"
-    weight: 25
-  - word: "erhvervsskole"
-    category: "education"
-    weight: 20
-  - word: "it-uddannelse"
-    category: "education"
-    weight: 20
-  - word: "danskuddannelse"
-    category: "education"
-    weight: 18
+  # Язык и курсы (Weight 12)
   - word: "sprogskole"
     category: "education"
-    weight: 15
-  - word: "sprogkrav"              # Языковые требования
+    weight: 12
+  - word: "danskuddannelse"
     category: "education"
-    weight: 18
+    weight: 12
   - word: "integrationskursus"
     category: "education"
+    weight: 12
+
+  # =======================================================
+  # ТВОЙ РЕГИОН: ВИБОРГ (Weight 20)
+  # =======================================================
+  - word: "viborg"
+    category: "local"
+    weight: 5
+  - word: "8800"
+    category: "local"
+    weight: 10
+  - word: "midtjylland"
+    category: "local"
     weight: 15
+  - word: "skive"
+    category: "local"
+    weight: 5
+  - word: "bjerringbro"
+    category: "local"
+    weight: 10
+  - word: "karup"
+    category: "local"
+    weight: 10
+  - word: "stoholm"
+    category: "local"
+    weight: 10
+  - word: "sunds"
+    category: "local"
+    weight: 10
+  - word: "kjellerup"
+    category: "local"
+    weight: 10
+  - word: "silkeborg"
+    category: "local"
+    weight: 10
+
+  # =======================================================
+  # IT И НОВЫЕ ТЕХНОЛОГИИ (Weight 15)
+  # =======================================================
+  - word: "kunstig intelligens" # Искусственный интеллект (AI)
+    category: "tech"
+    weight: 15
+  - word: "ai" # AI (часто пишут по-английски)
+    category: "tech"
+    weight: 15
+  - word: "chatgpt"
+    category: "tech"
+    weight: 15
+  - word: "cybersikkerhed" # Кибербезопасность (очень важно в Дании)
+    category: "tech"
+    weight: 15
+  - word: "it-sikkerhed" # IT-безопасность
+    category: "tech"
+    weight: 15
+  - word: "hacker" # Хакеры (новости про взломы)
+    category: "tech"
+    weight: 12
+  - word: "digitalisering" # Цифровизация (госуслуги, MitID)
+    category: "tech"
+    weight: 10
+  - word: "robot" # Роботы
+    category: "tech"
+    weight: 10
+  - word: "software"
+    category: "tech"
+    weight: 10
+  - word: "programmering"
+    category: "tech"
+    weight: 10
+  - word: "teknologi"
+    category: "tech"
+    weight: 12
+
+  # =======================================================
+  # ВЫСОКИЙ ПРИОРИТЕТ: СЕМЬЯ И ДЕТИ (Weight 15)
+  # =======================================================
+
+  # Деньги на детей
+  - word: "børnepenge"
+    category: "family"
+    weight: 15
+  - word: "børnecheck"
+    category: "family"
+    weight: 15
+  - word: "barsel"
+    category: "family"
+    weight: 12
+
+  # Образование детей и молодежи
+  - word: "erhvervsskole" # Техникум
+    category: "education"
+    weight: 20
+  - word: "gymnasium"
+    category: "education"
+    weight: 10
   - word: "folkeskole"
     category: "education"
     weight: 15
   - word: "skole"
-    category: "education"
-    weight: 12
-  - word: "dimittend"
-    category: "education"
-    weight: 15
-  - word: "aarhus universitet"
-    category: "education"
-    weight: 15
-  - word: "via university"         # VIA — IT-программы, берут украинцев
-    category: "education"
-    weight: 15
-  - word: "erhvervsakademi"
     category: "education"
     weight: 15
   - word: "uddannelse"
@@ -263,251 +185,100 @@ keywords:
   - word: "studerende"
     category: "education"
     weight: 10
-  - word: "gymnasium"
-    category: "education"
-    weight: 10
   - word: "eksamen"
     category: "education"
     weight: 5
 
-  # =======================================================
-  # IT И ТЕХНОЛОГИИ (Weight 10-20)
-  # =======================================================
-  - word: "kunstig intelligens"
-    category: "tech"
-    weight: 18
-  - word: "cybersikkerhed"
-    category: "tech"
-    weight: 18
-  - word: "it-sikkerhed"
-    category: "tech"
-    weight: 18
-  - word: "softwareudvikler"
-    category: "tech"
-    weight: 18
-  - word: "mitid"                  # Цифровой ключ — важно для новичков
-    category: "tech"
-    weight: 22
-  - word: "chatgpt"
-    category: "tech"
-    weight: 15
-  - word: "digitalisering"
-    category: "tech"
-    weight: 12
-  - word: "teknologi"
-    category: "tech"
-    weight: 12
-  - word: "udvikler"
-    category: "tech"
-    weight: 15
-  - word: "hacker"
-    category: "tech"
-    weight: 12
-  - word: "programmering"
-    category: "tech"
-    weight: 12
-  - word: "software"
-    category: "tech"
-    weight: 10
-  - word: "robot"
-    category: "tech"
-    weight: 10
-  - word: "start-up"
-    category: "tech"
-    weight: 10
-  - word: "nemid"
-    category: "tech"
-    weight: 12
-  # УБРАНО: "ai" (слишком короткое — ложные срабатывания в любых словах)
-  # УБРАНО: "data" (слишком общее — шум)
-
-  # =======================================================
-  # ЖИЛЬЁ (Weight 15-22)
-  # =======================================================
-  - word: "boliganvisning"         # Направление на жильё от коммуны
-    category: "housing"
-    weight: 22
-  - word: "lejebolig"
-    category: "housing"
-    weight: 20
-  - word: "kommunal bolig"
-    category: "housing"
-    weight: 20
-  - word: "almennyttig bolig"      # Социальное жильё
-    category: "housing"
-    weight: 20
-  - word: "huslejenævn"
-    category: "housing"
-    weight: 15
-  - word: "depositum"
-    category: "housing"
-    weight: 10
-
-  # =======================================================
-  # ЗДОРОВЬЕ (Weight 10-20)
-  # =======================================================
-  - word: "sundhedskort"           # Медицинская карточка
-    category: "health"
-    weight: 22
-  - word: "praktiserende læge"
-    category: "health"
-    weight: 20
-  - word: "lægevagt"
-    category: "health"
-    weight: 15
-  - word: "psykolog"               # Актуально для беженцев
-    category: "health"
-    weight: 15
-  - word: "sygehus"
-    category: "health"
-    weight: 10
-  - word: "tandlæge"
-    category: "health"
-    weight: 10
-
-  # =======================================================
-  # СЕМЬЯ И ДЕТИ (Weight 10-18)
-  # =======================================================
+  # Садики и уход
   - word: "børnehave"
     category: "family"
-    weight: 18
+    weight: 20
   - word: "vuggestue"
     category: "family"
-    weight: 18
-  - word: "familie"
+    weight: 20
+  - word: "daginstitution"
     category: "family"
-    weight: 18
-  - word: "barsel"
-    category: "family"
-    weight: 15
-  - word: "teenager"
-    category: "family"
-    weight: 15
+    weight: 5
+
+  # Семья и подростки
   - word: "unge"
     category: "family"
     weight: 10
-  - word: "daginstitution"
+  - word: "teenager"
     category: "family"
-    weight: 8
+    weight: 15
+  - word: "familie"
+    category: "family"
+    weight: 20
 
   # =======================================================
-  # БЕЖЕНЦЫ (ОБЩИЕ ТЕРМИНЫ) (Weight 15-25)
+  # ПОЗИТИВ, КУЛЬТУРА И СПОРТ (Weight 5-8)
+  # =======================================================
+  - word: "festival"
+    category: "lifestyle"
+    weight: 8
+  - word: "koncert"
+    category: "lifestyle"
+    weight: 5
+  - word: "royal run"
+    category: "sport"
+    weight: 5
+  - word: "jul"
+    category: "lifestyle"
+    weight: 10
+  - word: "påske"
+    category: "lifestyle"
+    weight: 5
+  - word: "ferie"
+    category: "lifestyle"
+    weight: 10
+  - word: "oplevelse"
+    category: "lifestyle"
+    weight: 5
+  - word: "seværdighed"
+    category: "lifestyle"
+    weight: 5
+
+  # =======================================================
+  # БЕЖЕНЦЫ (ОБЩИЕ ТЕРМИНЫ) (Weight 10-15)
   # =======================================================
   - word: "flygtning"
     category: "society"
     weight: 25
-  - word: "asylcenter"
-    category: "society"
-    weight: 22
-  - word: "unhcr"
-    category: "society"
-    weight: 18
-  - word: "unhcr funding"
-    category: "society"
-    weight: 22
-  - word: "humanitær hjælp"
-    category: "society"
-    weight: 15
   - word: "asyl"
     category: "society"
     weight: 12
+  - word: "asylcenter"
+    category: "society"
+    weight: 25
+  - word: "udlændingestyrelsen"
+    category: "visas"
+    weight: 25
 
   # =======================================================
-  # ТРАНСПОРТ (Weight 5-18)
+  # ЭКОНОМИКА (Weight 5)
   # =======================================================
-  - word: "kørekort"               # Замена украинских прав
-    category: "transport"
-    weight: 18
-  - word: "midttrafik"
-    category: "transport"
-    weight: 15
-  - word: "rejsekort"
-    category: "transport"
-    weight: 10
-
-  # =======================================================
-  # ЭКОНОМИКА (Weight 8-20)
-  # =======================================================
+  - word: "løn"
+    category: "economy"
+    weight: 20
+  - word: "skat"
+    category: "economy"
+    weight: 5
   - word: "fradrag"
     category: "economy"
     weight: 20
-  - word: "løn"
-    category: "economy"
-    weight: 18
-  - word: "inflation"
-    category: "economy"
-    weight: 10
   - word: "årsopgørelse"
     category: "economy"
     weight: 8
-  - word: "skat"                   # "Skat" = налог И "дорогой/милый" — риск шума
+  - word: "su"
+    category: "money"
+    weight: 8
+  - word: "inflation"
     category: "economy"
-    weight: 8
-
-  # =======================================================
-  # ВИБОРГ И РЕГИОН (Weight 8-25)
-  # =======================================================
-  - word: "viborg kommune"
-    category: "local"
-    weight: 15
-  - word: "viborg"
-    category: "local"
-    weight: 10
-  - word: "midtjylland"
-    category: "local"
-    weight: 15
-  - word: "8800"
-    category: "local"
-    weight: 5
-  - word: "bjerringbro"
-    category: "local"
-    weight: 5
-  - word: "karup"
-    category: "local"
-    weight: 5
-  - word: "kjellerup"
-    category: "local"
-    weight: 10
-  - word: "sunds"
-    category: "local"
-    weight: 10
-  - word: "silkeborg"
-    category: "local"
-    weight: 10
-  - word: "skive"
-    category: "local"
-    weight: 8
-  - word: "apple"                  # Дата-центр Apple под Виборгом
-    category: "local"
     weight: 10
 
   # =======================================================
-  # ОРХУС И ВОСТОЧНЫЙ ЮТЛАНД (Weight 8-15)
-  # =======================================================
-  - word: "aarhus"
-    category: "local"
-    weight: 12
-  - word: "østjylland"
-    category: "local"
-    weight: 10
-  - word: "aarhus kommune"
-    category: "local"
-    weight: 10
-  - word: "it-city aarhus"
-    category: "tech"
-    weight: 10
-  - word: "alexandra instituttet"
-    category: "tech"
-    weight: 10
-  - word: "8000"
-    category: "local"
-    weight: 5
-  - word: "8200"
-    category: "local"
-    weight: 5
-
-  # =======================================================
-  # ВОЙНА (ДЛЯ КОНТЕКСТА) (Weight 12-18)
+  # ВОЙНА (НИЗКИЙ ПРИОРИТЕТ, КАК ПРОСИЛ) (Weight 3-5)
   # =======================================================
   - word: "krig i ukraine"
     category: "war"
@@ -517,51 +288,69 @@ keywords:
     weight: 15
   - word: "zelensky"
     category: "war"
-    weight: 12
-  - word: "genopbygning ukraine"   # Восстановление — важно для возвращения
-    category: "war"
-    weight: 15
-  - word: "reconstruction ukraine"
-    category: "war"
     weight: 15
 
   # =======================================================
-  # ЛАЙФСТАЙЛ И КУЛЬТУРА (Weight 5-10)
-  # =======================================================
-  - word: "jul"
-    category: "lifestyle"
-    weight: 10
-  - word: "ferie"
-    category: "lifestyle"
-    weight: 8
-  - word: "festival"
-    category: "lifestyle"
-    weight: 8
-  - word: "koncert"
-    category: "lifestyle"
-    weight: 5
-  - word: "påske"
-    category: "lifestyle"
-    weight: 5
-  - word: "oplevelse"
-    category: "lifestyle"
-    weight: 5
-  - word: "seværdighed"
-    category: "lifestyle"
-    weight: 5
-  - word: "royal run"
-    category: "sport"
-    weight: 5
-
-  # =======================================================
-  # ИСКЛЮЧЕНИЯ / СПАМ (Weight -5 до -20)
+  # ИСКЛЮЧЕНИЯ (МУСОР И ДАЛЕКИЙ НЕГАТИВ)
   # =======================================================
 
-  # Геополитика далёкая
+  # СПОРТ — главная проблема (матчи Виборга забивают ленту)
+  # Логика: viborg(+10) + fodbold(-20) = -10 → не проходит
+  # Но:    viborg(+10) + ukrainer(+18) = +28 → проходит
+  - word: "viborg ff"              # Футбольный клуб — прямой фильтр
+    category: "spam"
+    weight: -30
+  - word: "fodbold"
+    category: "spam"
+    weight: -20
+  - word: "håndbold"
+    category: "spam"
+    weight: -20
+  - word: "superliga"
+    category: "spam"
+    weight: -25
+  - word: "1. division"
+    category: "spam"
+    weight: -20
+  - word: "pokalkamp"
+    category: "spam"
+    weight: -20
+  - word: "pokalrunde"
+    category: "spam"
+    weight: -20
+  - word: "grundspil"
+    category: "spam"
+    weight: -20
+  - word: "transfervindue"
+    category: "spam"
+    weight: -20
+  - word: "topscorer"
+    category: "spam"
+    weight: -15
+  - word: "bundspiller"
+    category: "spam"
+    weight: -15
+  - word: "slutspil"
+    category: "spam"
+    weight: -15
+  - word: "sæsonstart"
+    category: "spam"
+    weight: -15
+  - word: "spillere"
+    category: "spam"
+    weight: -10
+  - word: "træner"
+    category: "spam"
+    weight: -10
+  - word: "mesterskab"
+    category: "spam"
+    weight: -10
+
+  # Геополитика (чтобы не читать про Трампа и КНДР)
   - word: "nordkorea"
     category: "spam"
     weight: -15
-  - word: "mellemøsten"
+  - word: "mellemøsten" # Ближний Восток
     category: "spam"
     weight: -10
 
@@ -584,12 +373,30 @@ keywords:
   - word: "reality"
     category: "spam"
     weight: -5
-  - word: "paradise hotel"         # Было "paradise" — слишком общее слово
+  - word: "paradise"
     category: "spam"
     weight: -10
   - word: "ex on the beach"
     category: "spam"
     weight: -10
+
+  # Криминал (Мягкий фильтр: -5)
+  # Это позволит показать криминал, если он связан с Виборгом (+25 - 5 = +20)
+  - word: "voldtægt"
+    category: "spam"
+    weight: 0
+  - word: "knivstik"
+    category: "spam"
+    weight: -5
+  - word: "skyderi"
+    category: "spam"
+    weight: 5
+  - word: "mord"
+    category: "spam"
+    weight: -5
+  - word: "fængsel"
+    category: "spam"
+    weight: -5
 
   # Рецепты
   - word: "opskrift"
@@ -599,29 +406,371 @@ keywords:
     category: "spam"
     weight: -5
 
-  # Криминал (мягкий фильтр: viborg+криминал всё равно пройдёт)
-  - word: "voldtægt"
-    category: "spam"
-    weight: -5
-  - word: "knivstik"
-    category: "spam"
-    weight: 0
-  - word: "skyderi"
-    category: "spam"
-    weight: 5
-  - word: "mord"
-    category: "spam"
-    weight: -1
-  - word: "fængsel"
-    category: "spam"
-    weight: 0
+  - word: "praktik"          # Практика/Стажировка
+    category: "education"
+    weight: 25
+  - word: "læreplads"        # Место ученика (официальный термин)
+    category: "education"
+    weight: 25
+  - word: "elevplads"        # То же самое, часто используется
+    category: "education"
+    weight: 25
+  - word: "studiejob"        # Студенческая работа
+    category: "work"
+    weight: 20
+  - word: "dimittend"        # Выпускник (правила для выпускников)
+    category: "education"
+    weight: 15
+
+  - word: "udvikler"         # Developer (Разработчик)
+    category: "tech"
+    weight: 15
+  - word: "softwareudvikler" # Software developer
+    category: "tech"
+    weight: 15
+  - word: "data"             # Часто новости про "Data center" (в Виборге есть Apple Data Center)
+    category: "tech"
+    weight: 12
+  - word: "apple"            # Из-за дата-центра под Виборгом
+    category: "local"
+    weight: 10
+  - word: "start-up"         # Стартапы
+    category: "tech"
+    weight: 10
+
+  - word: "netherlands"
+    category: "visas"
+    weight: 15
+  - word: "norge"
+    category: "visas"
+    weight: 10
+  - word: "sl1"
+    category: "visas"
+    weight: 30
+
+  # Термины законов и статусов (Ищем SL1, SL2, Paragraph 24 в новостях)
+  - word: "temporary protection"
+    category: "visas"
+    weight: 25
+  - word: "midlertidig beskyttelse"
+    category: "visas"
+    weight: 25
+  - word: "residence permit"
+    category: "visas"
+    weight: 20
+  - word: "work permit"
+    category: "work"
+    weight: 20
+  - word: "repatriation"  # Репатриация (возвращение домой за деньги)
+    category: "visas"
+    weight: 15
+  # =======================================================
+  # ТВОЕ БУДУЩЕЕ: РАБОЧИЙ ВНЖ И ПОЗИТИВНЫЙ СПИСОК (CRITICAL)
+  # =======================================================
+  # Это твой план Б, чтобы остаться, если закон о беженцах отменят
+  - word: "positivlisten"      # Позитивный список (IT там всегда есть)
+    category: "work"
+    weight: 35
+  - word: "positive list"
+    category: "work"
+    weight: 35
+  - word: "beløbsordningen"    # Pay Limit Scheme (ВНЖ по зарплате)
+    category: "work"
+    weight: 30
+  - word: "pay limit scheme"
+    category: "work"
+    weight: 30
+  - word: "sporskifte"         # "Смена колеи" (переход с Særlov на рабочий ВНЖ)
+    category: "visas"
+    weight: 25
+  - word: "arbejdsmarkedet"    # Рынок труда (в контексте ВНЖ)
+    category: "work"
+    weight: 15
 
   # =======================================================
-  # КОДЫ СТАТУСА УКРАИНЦЕВ В ДАНИИ (Weight 25-30)
+  # ПРОДЛЕНИЕ ЗАЩИТЫ ДО 2027 И ДАЛЬШЕ
   # =======================================================
-  - word: "sl1"                    # Код статуса временной защиты (как параграф 24)
+  - word: "marts 2027"         # Новая дата окончания защиты
+    category: "visas"
+    weight: 25
+  - word: "march 2027"
+    category: "visas"
+    weight: 25
+  - word: "long-term resident" # Статус долговременного резидента ЕС (обсуждается)
+    category: "visas"
+    weight: 20
+  - word: "permanent ophold"   # ПМЖ
+    category: "visas"
+    weight: 20
+  - word: "udlændingeloven"    # Закон об иностранцах (общий)
+    category: "visas"
+    weight: 10
+
+  # =======================================================
+  # ВОЗВРАЩЕНИЕ (ЕСЛИ БУДУТ ПЛАТИТЬ ЗА ОТЪЕЗД)
+  # =======================================================
+  - word: "repatriering"       # Репатриация (официальный термин)
+    category: "money"
+    weight: 15
+  - word: "støtte til hjemrejse" # Деньги на возвращение домой
+    category: "money"
+    weight: 15
+  - word: "frivillig hjemrejse"  # Добровольное возвращение
+    category: "visas"
+    weight: 15
+
+  - word: "ukrainsk statsborger"
+    category: "visas"
+    weight: 20
+
+  - word: "særlovens ophør"    # Отмена særlov
+    category: "visas"
+    weight: 35
+
+  - word: "it-uddannelse"
+    category: "tech"
+    weight: 20
+
+  - word: "beskæftigelse"
+    category: "work"
+    weight: 15
+
+  # =======================================================
+  # ОРХУС И ВОСТОЧНЫЙ ЮТЛАНД (Weight 10-15)
+  # =======================================================
+  - word: "aarhus"
+    category: "local"
+    weight: 10
+  - word: "8000"              # Почтовый индекс Орхуса
+    category: "local"
+    weight: 5
+  - word: "8200"              # Aarhus N (большой район)
+    category: "local"
+    weight: 5
+  - word: "østjylland"        # Восточный Ютланд (регион)
+    category: "local"
+    weight: 5
+
+  # Учёба в Орхусе (актуально если думаешь о переезде)
+  - word: "aarhus universitet" # AU — крупнейший универ Дании
+    category: "education"
+    weight: 15
+  - word: "via university"    # VIA — политехнический, много IT
+    category: "education"
+    weight: 15
+  - word: "erhvervsakademi"   # Профессиональный колледж
+    category: "education"
+    weight: 15
+
+  # Работа в Орхусе
+  - word: "aarhus kommune"
+    category: "work"
+    weight: 8
+  - word: "alexandra instituttet" # IT-исследования, часть IT-Orхуса
+    category: "tech"
+    weight: 8
+  - word: "it-city aarhus"
+    category: "tech"
+    weight: 8
+
+  # =======================================================
+  # ПРАКТИЧЕСКАЯ ЖИЗНЬ В ДАНИИ (критично для новичков)
+  # =======================================================
+  - word: "cpr-nummer"         # Без него ничего не работает
     category: "visas"
     weight: 30
-  - word: "sl2"                    # Второй код статуса
+  - word: "cpr nummer"
     category: "visas"
     weight: 30
+  - word: "mitid"              # Цифровой ключ ко всему
+    category: "tech"
+    weight: 25
+  - word: "nemkonto"           # Счет для выплат от государства
+    category: "money"
+    weight: 20
+  - word: "nemid"
+    category: "tech"
+    weight: 15
+  - word: "borger.dk"
+    category: "visas"
+    weight: 20
+
+  # =======================================================
+  # ЖИЛЬЁ (огромная боль для украинцев)
+  # =======================================================
+  - word: "lejebolig"          # Аренда жилья
+    category: "housing"
+    weight: 20
+  - word: "boligstøtte"        # Субсидия на жильё
+    category: "money"
+    weight: 25
+  - word: "kommunal bolig"     # Муниципальное жильё
+    category: "housing"
+    weight: 20
+  - word: "boliganvisning"     # Направление на жильё от коммуны
+    category: "housing"
+    weight: 25
+  - word: "huslejenævn"        # Споры с арендодателем
+    category: "housing"
+    weight: 15
+  - word: "depositum"          # Депозит
+    category: "housing"
+    weight: 10
+  - word: "almennyttig bolig"  # Социальное жильё (типа BoligViborg)
+    category: "housing"
+    weight: 20
+
+  # =======================================================
+  # ЗДОРОВЬЕ (люди не знают как работает система)
+  # =======================================================
+  - word: "sundhedskort"       # Медицинская карточка
+    category: "health"
+    weight: 25
+  - word: "praktiserende læge" # Врач общей практики
+    category: "health"
+    weight: 20
+  - word: "sygehus"            # Больница
+    category: "health"
+    weight: 10
+  - word: "psykolog"           # Психолог (актуально для беженцев)
+    category: "health"
+    weight: 15
+  - word: "tandlæge"           # Зубной (часто не знают, что покрывает)
+    category: "health"
+    weight: 10
+  - word: "lægevagt"           # Скорая/дежурный врач
+    category: "health"
+    weight: 15
+
+  # =======================================================
+  # ТРАНСПОРТ И МОБИЛЬНОСТЬ
+  # =======================================================
+  - word: "kørekort"           # Водительские права (замена украинских)
+    category: "transport"
+    weight: 20
+  - word: "midttrafik"         # Автобусы в Мидтьюлланд
+    category: "transport"
+    weight: 15
+  - word: "rejsekort"          # Проездная карта
+    category: "transport"
+    weight: 10
+  - word: "tog"                # Поезд Виборг-Орхус
+    category: "transport"
+    weight: 5
+
+  # =======================================================
+  # КОММУНА И ИНТЕГРАЦИЯ
+  # =======================================================
+  - word: "jobcenter"          # Центр занятости — часто требуют явки
+    category: "work"
+    weight: 20
+  - word: "integrationsprogram"
+    category: "visas"
+    weight: 20
+  - word: "kontaktperson"      # Куратор от коммуны
+    category: "visas"
+    weight: 10
+  - word: "viborg kommune"
+    category: "local"
+    weight: 25
+  - word: "kommunen"
+    category: "local"
+    weight: 10
+
+  # =======================================================
+  # ЕС: ТРЕНДЫ 2026-2027 (КРИТИЧНО ДЛЯ ВСЕХ УЧАСТНИКОВ)
+  # =======================================================
+  - word: "marts 2027"
+    category: "visas"
+    weight: 35
+  - word: "march 2027"
+    category: "visas"
+    weight: 35
+  - word: "4 million ukrainians"   # Масштаб — часто упоминается в статьях
+    category: "visas"
+    weight: 20
+  - word: "exitstrategi"           # Стратегия выхода из временной защиты
+    category: "visas"
+    weight: 30
+  - word: "exit strategy"
+    category: "visas"
+    weight: 30
+  - word: "etias"                  # Новая система въезда в ЕС с 2026
+    category: "visas"
+    weight: 25
+
+  # =======================================================
+  # ИНТЕГРАЦИЯ КАК УСЛОВИЕ ОСТАТЬСЯ
+  # =======================================================
+  - word: "aktivt arbejdsmarked"   # Активный рынок труда (требование)
+    category: "work"
+    weight: 20
+  - word: "selvforsørgelse"        # Самообеспечение (новое требование)
+    category: "money"
+    weight: 25
+  - word: "integrationskontrakt"   # Договор интеграции с коммуной
+    category: "visas"
+    weight: 25
+  - word: "sprogkrav"              # Языковые требования
+    category: "education"
+    weight: 20
+
+  # =======================================================
+  # ООН / УВКБ — СОКРАЩЕНИЕ ФИНАНСИРОВАНИЯ
+  # =======================================================
+  - word: "unhcr"
+    category: "society"
+    weight: 20
+  - word: "unhcr funding"
+    category: "society"
+    weight: 25
+  - word: "kontanthjælp ukraine"   # Прямые выплаты украинцам
+    category: "money"
+    weight: 25
+  - word: "humanitær hjælp"        # Гуманитарная помощь
+    category: "society"
+    weight: 15
+
+  # =======================================================
+  # ДОБРОВОЛЬНОЕ ВОЗВРАЩЕНИЕ (ЕС ГОТОВИТ ПРОГРАММЫ)
+  # =======================================================
+  - word: "frivillig tilbagevenden"
+    category: "visas"
+    weight: 20
+  - word: "voluntary return"
+    category: "visas"
+    weight: 20
+  - word: "genopbygning ukraine"   # Восстановление Украины
+    category: "war"
+    weight: 15
+  - word: "reconstruction ukraine"
+    category: "war"
+    weight: 15
+
+  # =======================================================
+  # УКРАИНЦЫ + КОММУНЫ (то что реально важно людям)
+  # =======================================================
+  - word: "ukrainske flygtninge"   # Точная фраза — золото
+    category: "society"
+    weight: 35
+  - word: "modtagelse"             # Приём беженцев
+    category: "society"
+    weight: 25
+  - word: "kommunerne advarer"     # "Муниципалитеты предупреждают"
+    category: "society"
+    weight: 30
+  - word: "kapacitet"              # Нехватка ресурсов
+    category: "society"
+    weight: 18
+  - word: "boliger til flygtninge" # Жильё для беженцев
+    category: "housing"
+    weight: 30
+  - word: "presset"                # "Под давлением" — типичный датский заголовок
+    category: "society"
+    weight: 15
+  - word: "fireårsdagen"           # Годовщины войны — всегда много про украинцев
+    category: "war"
+    weight: 25
+  - word: "integrationsansvarlig"  # Ответственный за интеграцию в коммуне
+    category: "society"
+    weight: 25
