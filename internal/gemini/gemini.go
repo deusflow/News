@@ -276,7 +276,7 @@ func (c *Client) translateWithModel(ctx context.Context, modelName, title, conte
 	content = strings.ReplaceAll(content, "\r", "")
 	content = strings.TrimSpace(content)
 	content = strings.Join(strings.Fields(content), " ")
-	maxChars := 8000
+	maxChars := 15000
 	if utf8.RuneCountInString(content) > maxChars {
 		runes := []rune(content)
 		trimmed := string(runes[:maxChars])

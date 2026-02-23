@@ -968,9 +968,9 @@ func StrictTranslateText(text, from, to string) (string, error) {
 
 	text = cleanTextForTranslation(text)
 	originalText := text
-	if utf8.RuneCountInString(text) > 10000 {
+	if utf8.RuneCountInString(text) > 15000 {
 		runes := []rune(text)
-		text = string(runes[:10000]) + "..."
+		text = string(runes[:15000]) + "..."
 	}
 
 	// Providers order: Gemini first (quality), then Groq (fallback)
