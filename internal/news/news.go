@@ -2,7 +2,6 @@ package news
 
 import (
 	"context"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/deusflow/News/internal/ai"
 	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/rss"
 	"github.com/deusflow/News/internal/scraper"
@@ -68,8 +68,8 @@ type scrapedItem struct {
 }
 
 func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, opts Options) ([]News, error) {
-	log.Printf("🚀 Starting news fetch cycle...")
-	log.Printf("📥 Received %d raw items from RSS", len(items))
+	logger.Info("starting news fetch cycle")
+	logger.Info("received raw items from RSS", "count", len(items))
 
 	// ── Шаг 1: фильтрация по дате ────────────────────────────────────────────
 	var recent []*rss.FeedItem
@@ -103,7 +103,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		// Одинаковое время — берём источник с большим приоритетом первым
 		return candidates[i].Source.Priority > candidates[j].Source.Priority
 	})
-	log.Printf("🔍 Unique items after dedup: %d", len(candidates))
+	logger.Info("unique items after dedup", "count", len(candidates))
 
 	// ── Шаг 2б: лимит новостей с одного источника ────────────────────────────
 	//
@@ -120,7 +120,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			}
 		}
 		if len(filtered) < len(candidates) {
-			log.Printf("🔀 PerSource=%d applied: %d → %d items", opts.PerSource, len(candidates), len(filtered))
+			logger.Info("PerSource limit applied",
+				"per_source", opts.PerSource,
+				"before", len(candidates),
+				"after", len(filtered))
 		}
 		candidates = filtered
 	}
@@ -133,7 +136,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	if concurrency <= 0 {
 		concurrency = 1
 	}
-	log.Printf("🌐 Phase 1 — parallel scraping (%d workers)...", concurrency)
+	logger.Info("phase 1: parallel scraping", "workers", concurrency)
 
 	type scrapeJob struct {
 		index int
@@ -173,9 +176,9 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					imageURL = ac.ImageURL
 				case j.item.Description != "":
 					content = j.item.Description
-					log.Printf("⚠️ Scrape failed for %s, using RSS description: %v", j.item.Link, err)
+					logger.Warn("scrape failed, using RSS description", "url", j.item.Link, "error", err)
 				default:
-					log.Printf("⚠️ No content at all for %s: %v", j.item.Link, err)
+					logger.Warn("no content for item", "url", j.item.Link, "error", err)
 				}
 
 				scrapeResults <- scrapeResult{index: j.index, item: j.item, content: content, scrapeImageURL: imageURL}
@@ -207,7 +210,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			})
 		}
 	}
-	log.Printf("✅ Phase 1 done: %d items scraped", len(scraped))
+	logger.Info("phase 1 done", "scraped", len(scraped))
 
 	// ── Шаг 4: последовательные AI-вызовы (строго один за одним) ────────────
 	//
@@ -216,14 +219,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	// никакого риска потерять контент, который уже scrape-нут.
 	//
 	// Если контекст отменяется в середине — обрабатываем только то, что успели.
-	log.Printf("🤖 Phase 2 — sequential AI processing (%d items)...", len(scraped))
+	logger.Info("phase 2: sequential AI processing", "items", len(scraped))
 
 	var result []News
 	aiErrors := 0
 
 	for _, s := range scraped {
 		if ctx.Err() != nil {
-			log.Printf("⚠️ Context cancelled after %d AI calls, stopping early", len(result)+aiErrors)
+			logger.Warn("context cancelled, stopping early", "completed", len(result)+aiErrors)
 			break
 		}
 		if opts.Limit > 0 && len(result) >= opts.Limit {
@@ -232,7 +235,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
 		if err != nil {
-			log.Printf("❌ AI failed for item %d ('%s'): %v", s.index+1, s.item.Title, err)
+			logger.Error("AI failed for item", "index", s.index+1, "title", s.item.Title, "error", err)
 			aiErrors++
 			continue
 		}
@@ -241,7 +244,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 	}
 
-	log.Printf("✅ Phase 2 done: %d news ready, %d AI errors", len(result), aiErrors)
+	logger.Info("phase 2 done", "ready", len(result), "errors", aiErrors)
 
 	// ── Шаг 5: сортировка по score ───────────────────────────────────────────
 	sort.SliceStable(result, func(i, j int) bool {
@@ -291,32 +294,34 @@ func calculateScore(n News) int {
 func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, content, scrapeImageURL string, opts Options) (*News, error) {
 	title := item.Title
 	link := item.Link
-	log.Printf("🤖 AI processing item %d: %s", index+1, title)
+	logger.Info("AI processing item", "index", index+1, "title", title)
 
 	// HIGH-3 guard: если контент пустой и заголовок слишком короткий —
 	// AI получит практически нулевой input и начнёт галлюцинировать.
 	// Минимальный полезный заголовок: 30 символов (~5-6 слов на датском).
 	const minTitleLen = 30
 	if content == "" && len([]rune(strings.TrimSpace(title))) < minTitleLen {
-		log.Printf("⚠️ Skipping item %d — no content and title too short (%d chars): %q",
-			index+1, len([]rune(strings.TrimSpace(title))), title)
+		logger.Warn("skipping item — no content and title too short",
+			"index", index+1,
+			"title_len", len([]rune(strings.TrimSpace(title))),
+			"title", title)
 		return nil, nil
 	}
 	if content == "" {
-		log.Printf("⚠️ Item %d has no scraped content, AI will work from title only: %q", index+1, title)
+		logger.Warn("no scraped content, AI works from title only", "index", index+1, "title", title)
 	}
 
 	prompt := GenerateNewsPrompt(title, content)
 
 	resp, aiErr := opts.AI.Generate(ctx, title, content, prompt)
 	if aiErr != nil {
-		log.Printf("❌ All AI providers failed for '%s': %v", title, aiErr)
+		logger.Error("all AI providers failed", "title", title, "error", aiErr)
 		return nil, aiErr
 	}
 
 	// Валидация AI ответа: проверяем обязательные поля и нормализуем mood
 	if err := resp.Validate(); err != nil {
-		log.Printf("❌ AI response validation failed for '%s': %v", title, err)
+		logger.Error("AI response validation failed", "title", title, "error", err)
 		return nil, err
 	}
 
@@ -380,11 +385,11 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		n.Score = calculateScore(n)
 	}
 
-	log.Printf("📂 Category for '%s': %s (score: %d)", title, n.Category, n.Score)
+	logger.Info("category assigned", "title", title, "category", n.Category, "score", n.Score)
 
 	// Фильтр мусора (score < 0)
 	if n.Score < 0 {
-		log.Printf("🗑️ Skipping low score news: %s (%d)", n.Title, n.Score)
+		logger.Info("skipping low score news", "title", n.Title, "score", n.Score)
 		return nil, nil
 	}
 

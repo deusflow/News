@@ -3,13 +3,13 @@ package ai
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 )
 
@@ -64,7 +64,7 @@ func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
 	if v := os.Getenv("AI_REQUEST_DELAY_SECONDS"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 			delay = time.Duration(secs) * time.Second
-			log.Printf("ℹ️ AI request delay overridden: %v (AI_REQUEST_DELAY_SECONDS=%s)", delay, v)
+			logger.Info("AI request delay overridden", "delay", delay, "env_value", v)
 		}
 	}
 
@@ -76,7 +76,7 @@ func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
 		delay:     delay,
 	}
 
-	log.Printf("ℹ️ AI Manager: single-worker mode, inter-request delay = %v", delay)
+	logger.Info("AI Manager started", "mode", "single-worker", "inter_request_delay", delay)
 	go mgr.worker(ctx)
 
 	return mgr
@@ -112,11 +112,11 @@ func (m *Manager) worker(ctx context.Context) {
 
 			// Соблюдаем паузу между запросами.
 			elapsed := time.Since(lastCall)
-			if lastCall.IsZero() {
-				// Первый запрос — идём сразу.
-			} else if elapsed < m.delay {
+			if !lastCall.IsZero() && elapsed < m.delay {
 				wait := m.delay - elapsed
-				log.Printf("⏳ AI queue: enforcing %v delay (%.1fs since last call)...", wait.Round(time.Millisecond), elapsed.Seconds())
+				logger.Info("AI queue: enforcing delay",
+					"wait", wait.Round(time.Millisecond),
+					"elapsed_sec", fmt.Sprintf("%.1f", elapsed.Seconds()))
 
 				timer := time.NewTimer(wait)
 				select {
@@ -137,7 +137,9 @@ func (m *Manager) worker(ctx context.Context) {
 			lastCall = time.Now()
 
 			if err == nil {
-				log.Printf("✅ AI done in %.1fs (next allowed in %v)", time.Since(start).Seconds(), m.delay)
+				logger.Info("AI request done",
+					"duration_sec", fmt.Sprintf("%.1f", time.Since(start).Seconds()),
+					"next_allowed_in", m.delay)
 			}
 
 			job.result <- aiResult{resp, err}
@@ -172,16 +174,18 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 	var lastErr error
 
 	for _, provider := range m.providers {
-		log.Printf("🤖 Trying AI provider: %s", provider.Name())
+		logger.Info("trying AI provider", "provider", provider.Name())
 
 		resp, err := provider.Generate(ctx, title, content, prompt)
 		if err == nil {
-			log.Printf("✅ AI Success with %s", provider.Name())
+			logger.Info("AI success", "provider", provider.Name())
 			return resp, nil
 		}
 
 		if secs, ok := tryParseRetrySeconds(err.Error()); ok && secs > 0 && secs <= 180 {
-			log.Printf("⚠️ Provider %s: rate limited, waiting %ds as requested...", provider.Name(), secs)
+			logger.Warn("AI provider rate limited",
+				"provider", provider.Name(),
+				"wait_sec", secs)
 			if m.metrics != nil {
 				m.metrics.IncrementAIRetry()
 			}
@@ -196,14 +200,14 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 
 			resp2, err2 := provider.Generate(ctx, title, content, prompt)
 			if err2 == nil {
-				log.Printf("✅ AI Success with %s (after rate-limit wait)", provider.Name())
+				logger.Info("AI success after rate-limit wait", "provider", provider.Name())
 				return resp2, nil
 			}
 			lastErr = err2
 			continue
 		}
 
-		log.Printf("⚠️ Provider %s failed: %v", provider.Name(), err)
+		logger.Warn("AI provider failed", "provider", provider.Name(), "error", err)
 		lastErr = err
 	}
 

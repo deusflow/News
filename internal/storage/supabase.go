@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/slugify"
 )
 
@@ -34,24 +35,28 @@ func isRetryableError(statusCode int) bool {
 		statusCode == 500 // Internal Server Error
 }
 
-// retryableRequest executes an HTTP request with retry logic for transient errors
-func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*http.Response, error) {
+// retryableRequest executes an HTTP request with retry logic for transient errors.
+// ctx is forwarded to every request so SIGTERM cancels in-flight Supabase calls.
+func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
 	var lastErr error
 	var resp *http.Response
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Create new request for each attempt (body reader needs to be fresh)
+		// Bail out immediately if context is already cancelled
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		var reqBody io.Reader
 		if body != nil {
 			reqBody = bytes.NewBuffer(body)
 		}
 
-		req, err := http.NewRequest(method, url, reqBody)
+		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		// Set headers
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("apikey", c.serviceKey)
 		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
@@ -59,18 +64,24 @@ func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*htt
 			req.Header.Set("Prefer", "return=minimal")
 		}
 
-		// Execute request
 		resp, err = c.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
 			log.Printf("⚠️ Supabase request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
 
-			// Wait before retry with exponential backoff
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
 				delay = retryMaxDelay
 			}
-			time.Sleep(delay)
+
+			// Context-aware sleep: stop waiting if shutdown is signalled
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
 			continue
 		}
 
@@ -81,12 +92,18 @@ func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*htt
 			lastErr = fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Supabase returned %d (attempt %d/%d): %s", resp.StatusCode, attempt+1, maxRetries, string(respBody))
 
-			// Wait before retry with exponential backoff
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
 				delay = retryMaxDelay
 			}
-			time.Sleep(delay)
+
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
 			continue
 		}
 
@@ -168,7 +185,7 @@ func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 
 	// Execute request with retry logic
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive", c.url)
-	resp, err := c.retryableRequest("POST", reqURL, body)
+	resp, err := c.retryableRequest(ctx, "POST", reqURL, body)
 	if err != nil {
 		return fmt.Errorf("failed to save news after retries: %w", err)
 	}
@@ -216,7 +233,7 @@ func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title strin
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			fmt.Println("⚠️ Supabase duplicate check timeout (2s), skipping check")
+			logger.Warn("supabase duplicate check timeout", "duration_sec", 2)
 			return false, nil // timeout → allow the news through
 		}
 		return false, err

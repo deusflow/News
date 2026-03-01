@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,11 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
+
+	// Set connection pool limits for Neon free tier (max 5–10 connections)
+	db.SetMaxOpenConns(3)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	cache := &PostgresCache{
 		db:       db,
@@ -286,7 +292,7 @@ func generateContentHash(content string) string {
 	}
 
 	// Sort numbers for consistency
-	sortStrings(numbers)
+	sort.Strings(numbers)
 
 	// Create signature from significant numbers
 	signature := strings.Join(numbers, ",")
@@ -295,17 +301,6 @@ func generateContentHash(content string) string {
 	h := fnv.New64a()
 	h.Write([]byte(signature))
 	return fmt.Sprintf("%016x", h.Sum64())
-}
-
-// sortStrings sorts a slice of strings in place
-func sortStrings(s []string) {
-	for i := 0; i < len(s)-1; i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[i] > s[j] {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
 }
 
 // MarkAsSent marks news as sent with transaction to prevent race conditions

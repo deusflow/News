@@ -35,15 +35,6 @@ func New() *Metrics {
 	return &Metrics{IsHealthy: true}
 }
 
-// TrackGeminiRequest is a lightweight package-level helper used by legacy callers.
-// It is intentionally minimal here — metrics should ideally be recorded on a
-// Metrics instance passed through the app. Keeping this function avoids
-// breaking changes while preserving build compatibility.
-func TrackGeminiRequest(status string) {
-	// no-op for now; future: route to a global metrics collector or logger
-	_ = status
-}
-
 func (m *Metrics) IncrementNewsProcessed() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

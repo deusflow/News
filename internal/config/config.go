@@ -31,6 +31,7 @@ type PostingConfig struct {
 type AIConfig struct {
 	GeminiAPIKey      string
 	GeminiModel       string // model name, e.g. "gemini-2.5-flash"
+	GroqModel         string // model name, e.g. "llama-3.3-70b-versatile" (default if empty)
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 	GroqAPIKey        string
 	Providers         []string // List of AI providers, e.g. ["gemini", "groq"]

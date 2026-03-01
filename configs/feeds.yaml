@@ -1,63 +1,42 @@
 feeds:
-  # ГЛАВНЫЕ НОВОСТИ ДАНИИ
+  # НАДЕЖНЫЕ ИСТОЧНИКИ ДАНИИ (Работают стабильно)
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
     lang: da
-    priority: 95
+    priority: 100
     active: true
-    categories: [denmark, main, politics, ukraine]
+    categories: [denmark, news, official]
+    # Главный национальный источник новостей Дании
 
-  # ЕВРОПАРЛАМЕНТ (Законы ЕС)
-  - url: https://www.europarl.europa.eu/rss/doc/top-stories/en.xml
-    name: European Parliament
-    lang: en
-    priority: 80
-    active: true
-    categories: [eu, politics, ukraine, visas]
-
-  # viborg
   - url: https://www.tvmidtvest.dk/rss
     name: TV Midtvest
     lang: da
-    priority: 60
+    priority: 90
     active: true
-    categories: [local, viborg, lifestyle]
+    categories: [local, news]
+    # Локальные новости (Midtvest)
 
-  # ОРХУС (Для тусовок и событий рядом)
   - url: https://www.tv2ostjylland.dk/rss
     name: TV2 Østjylland
     lang: da
-    priority: 50
+    priority: 85
     active: true
-    categories: [local, aarhus, lifestyle]
+    categories: [local, news]
+    # Локальные новости (Østjylland)
 
-  # ==========================================
-  # ПЕРВОИСТОЧНИКИ ПО СТАТУСУ УКРАИНЦЕВ (ЕС)
-  # ==========================================
-
-  # Euractiv (Брюссель) — Главный источник инсайдов о решениях Еврокомиссии.
-  # Пишут про продление защиты, новые правила и споры стран ЕС.
-  - url: https://www.euractiv.com/feed/
-    name: Euractiv EU
-    lang: en
-    priority: 90
-    active: true
-    categories: [eu, politics, visas, ukraine]
-
-  # ECRE (Council on Refugees) — Юридические разборы и отчеты.
-  # Пишут, что РЕАЛЬНО ждет беженцев (права, депортации, условия).
+  # ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ / ЕС
   - url: https://ecre.org/feed/
-    name: ECRE NGO
+    name: ECRE (беженцы, права, законы ЕС)
     lang: en
-    priority: 80
+    priority: 85
     active: true
-    categories: [eu, society, rights, ukraine]
+    categories: [eu, ukraine, visas, rights]
+    # Главный независимый источник про права беженцев в Европе (Успешно работает)
 
-  # EU Observer — Еще один независимый взгляд на брюссельскую кухню.
-  # Часто пишут про кулуарные договоренности по мигрантам.
   - url: https://euobserver.com/rss
     name: EU Observer
     lang: en
-    priority: 90
+    priority: 80
     active: true
     categories: [eu, politics, visas]
+    # Новости Евросоюза и политики

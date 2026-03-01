@@ -47,7 +47,7 @@ func NewRSSFetcher(feeds []rss.FeedSource) *RSSFetcher {
 }
 
 func (f *RSSFetcher) Fetch(ctx context.Context) ([]*rss.FeedItem, error) {
-	return rss.FetchAllFeeds(f.feeds)
+	return rss.FetchAllFeeds(ctx, f.feeds)
 }
 
 // NewsFilterProcessor implements NewsProcessor
@@ -296,9 +296,6 @@ func (a *App) Run(ctx context.Context) {
 	} else {
 		a.sender.SendMultiple(ctx, filtered, a.cfg.RSS.MaxNewsLimit)
 	}
-
-	// Метрики
-	a.metrics.IncrementTelegramMessagesSent()
 }
 
 // CheckHealth performs health checks on components
