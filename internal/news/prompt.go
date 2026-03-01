@@ -10,99 +10,128 @@ type NewsBudget struct {
 	FunFactChars   int
 }
 
-// DefaultBudget - стандартні налаштування
+// DefaultBudget — character limits for each part of a news item.
+//
+// Budget breakdown for photo caption (1024 hard Telegram limit):
+//
+//	header:    ~25 chars   ("⚔️ ВІЙНА\n\n")
+//	TLDR:      ~95 chars   ("💬 <b>...</b>\n\n")
+//	DK title:  ~65 chars   ("🇩🇰 <b>Title</b>\n")
+//	DK body:   320 chars
+//	separator:  ~2 chars   ("\n\n")
+//	UA title:  ~75 chars   ("🇺🇦 <b>Title</b>\n")
+//	UA body:   320 chars
+//	─────────────────────
+//	Total:     ~902 chars  ✅ fits in 1024 with ~122 chars spare for tags
 var DefaultBudget = NewsBudget{
-	DanishChars:    600,
-	UkrainianChars: 800,
-	TLDRChars:      150,
-	FunFactChars:   200,
+	DanishChars:    320,
+	UkrainianChars: 320,
+	TLDRChars:      90,
+	FunFactChars:   150,
 }
 
-// validCategoryList — строка со списком категорий для подстановки в промпт.
-// Генерируется из ValidCategories чтобы prompt и код всегда были синхронизированы.
-const validCategoryList = `"visas", "work", "money", "society", "war", "local", "education", "crime", "tech", "economy", "family", "lifestyle", "sport", "eu"`
-
-// GenerateNewsPrompt створює єдиний промт для всіх AI моделей (Gemini, Groq)
+// GenerateNewsPrompt створює єдиний промт для всіх AI моделей (Gemini, Groq).
+// Список категорій генерується динамічно з categories.go — завжди синхронізований.
 func GenerateNewsPrompt(title, content string) string {
-	return fmt.Sprintf(`
-You are an editor in a bilingual newsroom. Create ONE news item in two languages: Danish and Ukrainian.
+	return fmt.Sprintf(`You are an editor for a bilingual Telegram news channel for Ukrainian speakers in Denmark.
+Your task: create ONE news item in two languages — Danish and Ukrainian — from the source below.
 
 INPUT:
 TITLE: %s
 CONTENT: %s
 
-GLOBAL STYLE (applies to ALL fields):
-- Journalistic / reporter tone: neutral, factual, readable, dynamic
-- No opinions, no emotions, no publicist style
-- Not bureaucratic and not "machine-translation" sounding
-- Keep proper nouns EXACTLY as in source: personal names, brands, organizations, countries, cities, events
-  Examples: "Tinderbox", "EU", "New Delhi", "Fredericia", "Skanderborg", "NATO" must stay unchanged
+━━━ STYLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Tone: journalistic, neutral, factual, dynamic. No opinions or emotions.
+- Proper nouns UNCHANGED: names, brands, orgs, cities, countries, events.
+  Examples: "Tinderbox", "NATO", "Fredericia", "Orbán" — never translate or alter.
 
-CRITICAL CONSISTENCY RULE:
-- Danish and Ukrainian must describe the SAME facts, logic, and key accents.
-- They must NOT contradict each other.
-- They should NOT be word-for-word identical; wording should be natural in each language.
+━━━ LENGTH RULES (CRITICAL — Telegram will visibly cut text if exceeded!) ━━━
+- "danish" body: STRICT MAX %d characters
+- "ukrainian" body: STRICT MAX %d characters
+- Both bodies MUST be approximately equal length (within ±15 percent of each other).
+  If Danish = 280 chars → Ukrainian must be 238–322 chars. NOT 280 vs 500!
+- Count characters before writing. Shorten the longer version if needed.
 
-⚠️ CHARACTER LIMITS ARE STRICT - content will be used in Telegram with hard limits!
+━━━ TASKS — return valid JSON only ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-TASKS (return valid JSON only):
-1) "summary": internal working summary (max 500 chars)
+"danish": News body in Danish. MAX %d chars.
+  • DO NOT repeat the title — it is shown above this text separately.
+  • 3 sentences: main fact → context → consequence.
+  • Include specific numbers, dates, names where available.
 
-2) "danish": News BODY text in Danish (STRICT MAX %d characters!)
-   - DO NOT include the title! Title is shown separately above this text.
-   - Write 2-4 sentences with key facts
-   - Start directly with the main fact/event
-   - Be concise but informative
+"ukrainian": Same news in Ukrainian. MAX %d chars.
+  • Exactly the same facts as Danish — no additions, no omissions.
+  • DO NOT repeat the title.
+  • 3 sentences: same structure as Danish.
 
-3) "ukrainian": News BODY text in Ukrainian (STRICT MAX %d characters!)
-   - DO NOT include the title! Title is shown separately above this text.
-   - Write 2-4 sentences with the SAME facts as Danish version
-   - Start directly with the main fact/event
-   - No greetings, no rhetorical questions
+"title_ukrainian": Ukrainian headline. MAX 85 chars.
+  • Translate the TITLE only — short newspaper front-page style.
+  • Proper nouns unchanged.
 
-4) "title_ukrainian": Ukrainian translation of the TITLE only (max 100 chars)
-   - Proper nouns unchanged
-   - Neutral newsroom headline style
+"mood": ONE of exactly: "positive" | "negative" | "neutral" | "shocking" | "urgent"
 
-5) "mood": One of EXACTLY: "positive", "negative", "neutral", "shocking", "urgent"
-   - Choose the one that best fits the overall tone of the news
+"category": ONE value from this list ONLY — %s
+  Read the rules below — wrong category is a critical error.
 
-6) "category": ONE value from EXACTLY this list (no other values allowed!):
-   %s
-   - "visas"     → news about residence permits, Ukrainian status, EU protection law, deportation
-   - "work"      → jobs, employment, work permits, labour market
-   - "money"     → benefits, taxes, cost of living, salaries, subsidies
-   - "society"   → social issues, integration, protests, public life (DEFAULT if unsure)
-   - "war"       → Ukraine war, military aid, NATO, defence
-   - "local"     → Viborg, Midtjylland, local Danish city news
-   - "education" → schools, universities, courses, training, EHF/erhvervsskole
-   - "crime"     → crime, police, court, prison
-   - "tech"      → AI, cybersecurity, IT, digitalisation, startups
-   - "economy"   → Danish economy, GDP, inflation, trade, business
-   - "family"    → children, daycare, parental leave, family benefits
-   - "lifestyle" → culture, festivals, food, travel, sports events
-   - "sport"     → competitive sports, leagues, athletes
-   - "eu"        → European Parliament, EU law, Brussels decisions
+  "war"       → ANY armed conflict, military strike, weapons, soldiers, casualties, ceasefire.
+                Ukraine war, Gaza, Iran attack, Middle East, NATO defence spending.
+                ✓ US strikes Iran  ✓ Russia attacks Ukraine  ✓ NATO summit on defence
+                ✗ DO NOT use "eu" or "society" for conflict news.
 
-7) "tags": 2-4 Ukrainian tags (short nouns, NO # symbol)
+  "eu"        → EU institutions ONLY: EP votes, Commission decisions, EU sanctions, EU budget.
+                ✓ EP votes on migration  ✓ EU sanctions Russia
+                ✗ DO NOT use for war news or general European politics.
 
-8) "tldr": ONE Ukrainian TL;DR sentence (STRICT MAX %d chars) starting with ONE emoji
-   - Captures the essence of the news
+  "society"   → Default for social topics: Danish public life, integration, protests,
+                immigration debate, Ukrainian refugees in Denmark.
+                Use this when no other category fits clearly.
 
-9) "fun_fact": ONE interesting fact about Denmark (STRICT MAX %d chars)
-   - Ukrainian, start with ONE emoji
-   - MUST be unrelated to this specific news topic
-   - Prefer recent (after 2000), surprising, cultural, legal, tech, social or lifestyle facts
-   - General interesting fact about Danish Kingdom
-   - Make it feel contemporary and relevant today
+  "economy"   → Danish macroeconomics: GDP, inflation, trade, corporate news, interest rates.
+                ✗ NOT personal finance (use "money").
 
-ABSOLUTE PROHIBITIONS:
-- No "(Примітка: ...)" or translator commentary
-- No explanations like "це означає"
-- No hashtags in danish/ukrainian (tags field is separate)
-- DO NOT repeat or paraphrase the title in danish/ukrainian fields!
-- For "category": output ONLY the raw string value, e.g. "society" — never invent new values!
+  "money"     → Personal finance: benefits, taxes, salaries, cost of living, subsidies.
+
+  "tech"      → Technology only: AI, IT, cybersecurity, software, startups, digitalisation.
+                ✗ DO NOT use for political news that merely mentions technology.
+
+  "local"     → Any specific Danish city or municipality: Copenhagen, Aarhus, Viborg,
+                Odense, Aalborg, Esbjerg, or any named Danish region/municipality.
+
+  "visas"     → Residence permits, asylum, Ukrainian TPS status, deportation, border control.
+  "work"      → Jobs, employment, work permits, labour market statistics.
+  "education" → Schools, universities, erhvervsskole, courses, student grants.
+  "crime"     → Crime, police investigation, court rulings, prison sentences.
+  "family"    → Children, daycare, parental leave, family benefits.
+  "lifestyle" → Culture, festivals, food, travel, entertainment (non-sport).
+  "sport"     → Competitive sports, leagues, athletes, tournaments.
+
+"tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol.
+  ✓ Good: "оборона", "Іран", "НАТО"
+  ✗ Bad: "збройний конфлікт між США та Іраном"
+
+"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji.
+  This is a headline — 10–14 words maximum.
+  ✓ Good: "💥 США завдали удар по Ірану, загинув Хаменеї"
+  ✗ Too long: "💥 Атака США на Іран, що вбила Хаменеї, не отримала підтримки союзників"
+
+"fun_fact": ONE fact about Denmark. STRICT MAX %d chars. Start with ONE emoji.
+  • Ukrainian language.
+  • Must be UNRELATED to this news topic.
+  • Must feel current and surprising — NOT clichés like "Denmark is happiest country"
+    or "LEGO is from Denmark". Prefer facts about Danish law, society, tech, daily life.
+  ✓ Good: "🧾 У Данії заборонено давати дитині ім'я, якого немає у державному списку з 7000 імен"
+  ✗ Bad: "🇩🇰 Данія — найщасливіша країна світу"
+
+━━━ PROHIBITIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- No translator notes: "(Примітка: ...)", "це означає", "тобто"
+- No hashtags inside danish/ukrainian/tldr fields
+- Do NOT start danish or ukrainian with the title or its paraphrase
+- Output ONLY valid JSON — no markdown, no explanations outside JSON
 
 Output valid JSON only.
-`, title, content, DefaultBudget.DanishChars, DefaultBudget.UkrainianChars, validCategoryList, DefaultBudget.TLDRChars, DefaultBudget.FunFactChars)
+`, title, content,
+		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
+		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
+		BuildValidCategoryList(),
+		DefaultBudget.TLDRChars, DefaultBudget.FunFactChars)
 }

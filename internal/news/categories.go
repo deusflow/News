@@ -1,6 +1,9 @@
 package news
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Category — строго типизированная категория новости.
 // Всегда используй константы ниже — никаких magic strings в коде.
@@ -27,15 +30,18 @@ const (
 )
 
 // categoryEmoji — иконка темы, отображается в header новости перед label-ом.
+//
+// Правило выбора emoji: уникальный, не пересекается с mood-emoji (🟢🔴⚡🚨🔵)
+// и не вызывает ложных ассоциаций с другими категориями.
 var categoryEmoji = map[Category]string{
 	CategoryVisas:     "🇺🇦",
 	CategoryWork:      "💼",
 	CategoryMoney:     "💰",
-	CategorySociety:   "📋",
+	CategorySociety:   "🗣️",
 	CategoryWar:       "⚔️",
 	CategoryLocal:     "🏙️",
 	CategoryEducation: "🎓",
-	CategoryCrime:     "🚨",
+	CategoryCrime:     "🔍", // было 🚨 — конфликт с mood "urgent"
 	CategoryTech:      "💻",
 	CategoryEconomy:   "📊",
 	CategoryFamily:    "👨‍👩‍👧‍👦",
@@ -44,26 +50,27 @@ var categoryEmoji = map[Category]string{
 	CategoryEU:        "🇪🇺",
 }
 
-// categoryLabel — текст header-а новости (украинский, заглавными буквами).
+// categoryLabel — текст header-а новости (украинский, заглавними літерами).
+// Всі лейбли — українською для консистентності.
 var categoryLabel = map[Category]string{
 	CategoryVisas:     "ВАЖЛИВО ДЛЯ УКРАЇНЦІВ",
 	CategoryWork:      "РОБОТА",
 	CategoryMoney:     "ГРОШІ",
 	CategorySociety:   "СУСПІЛЬСТВО",
 	CategoryWar:       "ВІЙНА",
-	CategoryLocal:     "VIBORG",
+	CategoryLocal:     "МІСТО",
 	CategoryEducation: "ОСВІТА",
-	CategoryCrime:     "CRIME",
+	CategoryCrime:     "КРИМІНАЛ", // було "CRIME"
 	CategoryTech:      "ТЕХНОЛОГІЇ",
 	CategoryEconomy:   "ЕКОНОМІКА",
 	CategoryFamily:    "СІМ'Я",
-	CategoryLifestyle: "LIFESTYLE",
-	CategorySport:     "SPORT",
-	CategoryEU:        "EU",
+	CategoryLifestyle: "СТИЛЬ ЖИТТЯ", // було "LIFESTYLE"
+	CategorySport:     "СПОРТ",       // було "SPORT"
+	CategoryEU:        "ЄВРОСОЮЗ",    // було "EU"
 }
 
-// ValidCategories — полный whitelist допустимых категорий.
-// Используется при валидации ответа AI и RSS-категорий.
+// ValidCategories — повний whitelist допустимих категорій.
+// Використовується при валідації відповіді AI та RSS-категорій.
 var ValidCategories = func() map[string]Category {
 	m := make(map[string]Category, len(categoryEmoji))
 	for c := range categoryEmoji {
@@ -71,6 +78,18 @@ var ValidCategories = func() map[string]Category {
 	}
 	return m
 }()
+
+// BuildValidCategoryList returns a sorted quoted comma-separated list of all
+// valid category strings for embedding in AI prompts.
+// Generated from ValidCategories — always in sync with categories.go.
+func BuildValidCategoryList() string {
+	keys := make([]string, 0, len(ValidCategories))
+	for k := range ValidCategories {
+		keys = append(keys, `"`+k+`"`)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
 
 // ValidateCategory нормализует строку к Category.
 // Если значение не входит в whitelist — возвращает CategoryDefault.

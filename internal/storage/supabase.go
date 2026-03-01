@@ -243,70 +243,45 @@ func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title strin
 	return false, nil
 }
 
-// IsDuplicateBySourceURL checks if news with the same source_url already exists
-// This is more reliable than title comparison because URLs are unique per news
+// IsDuplicateBySourceURL checks if news with the same source_url already exists.
+// Uses a 2-second context timeout — no goroutine leak on slow responses.
 func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL string) (bool, error) {
-	// Validate input
 	if sourceURL == "" {
-		return false, nil // No URL to check, allow the news
+		return false, nil
 	}
 
-	// Create result channel for timeout handling
-	type result struct {
-		isDuplicate bool
-		err         error
-	}
-	resultChan := make(chan result, 1)
-
-	// Run check in goroutine (for timeout)
-	go func() {
-		// Build request URL with filter
-		// eq. means "equals" in Supabase query language
-		reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
-			c.url,
-			url.QueryEscape(sourceURL)) // Escape special characters in URL
-
-		req, err := http.NewRequest("GET", reqURL, nil)
-		if err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-
-		// Add authentication headers
-		req.Header.Set("apikey", c.serviceKey)
-		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
-
-		// Execute request
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-		defer resp.Body.Close()
-
-		// Parse response
-		var existing []struct {
-			ID int `json:"id"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&existing); err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-
-		// If we found any records, it's a duplicate
-		resultChan <- result{len(existing) > 0, nil}
-	}()
-
-	// Wait with timeout using modern context pattern
-	timeoutCtx, cancel := context.WithTimeoutCause(ctx, 2*time.Second, errors.New("duplicate check timeout"))
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	select {
-	case res := <-resultChan:
-		return res.isDuplicate, res.err
-	case <-timeoutCtx.Done():
-		return false, context.Cause(timeoutCtx)
+	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
+		c.url, url.QueryEscape(sourceURL))
+
+	req, err := http.NewRequestWithContext(checkCtx, "GET", reqURL, nil)
+	if err != nil {
+		return false, err
 	}
+
+	req.Header.Set("apikey", c.serviceKey)
+	req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(checkCtx.Err(), context.DeadlineExceeded) {
+			log.Printf("⚠️ Supabase source_url duplicate check timeout (2s), allowing news")
+			return false, nil
+		}
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	var existing []struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&existing); err != nil {
+		return false, err
+	}
+
+	return len(existing) > 0, nil
 }
 
 // normalizeTitle removes common variations to compare titles

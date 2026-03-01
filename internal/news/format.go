@@ -158,12 +158,19 @@ func FormatNewsWithImage(n News) string {
 // ──────────────────────────────────────────────────────────────────────
 // FormatCaptionForPhoto — подпись под фото (лимит 1024 символа Telegram).
 //
-// Тот же формат что FormatNewsWithImage, но с жёсткой обрезкой.
-// Если не влезает — сначала убираем факт, потом теги, потом обрезаем.
+// ВАЖНО: эта функция НИКОГДА не обрезает контент.
+// Если текст не влезает в maxLen — возвращает "".
+// ShouldUsePhoto проверит это и переключится на текстовый режим (4096 лимит),
+// где новость будет показана полностью на обоих языках одинаковой длины.
+//
+// Приоритет при нехватке места:
+//  1. Убрать fun_fact
+//  2. Убрать теги
+//  3. Если core (header+tldr+DK+UA) не влезает — вернуть "" → текстовый режим
+//
 // ──────────────────────────────────────────────────────────────────────
 func FormatCaptionForPhoto(n News, maxLen int) string {
 	// Telegram API hard limit for photo captions is 1024 characters.
-	// If caller passes 0 (unset) or an out-of-range value we clamp to 1024.
 	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
 	if maxLen <= 0 || maxLen > 1024 {
 		maxLen = 1024
@@ -173,74 +180,67 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	if ukTitle == "" {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
+	dkBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title))
+	uaBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))
 
+	// buildCore assembles the mandatory content block — never trimmed.
 	var sb strings.Builder
-
-	// 1. Тема
 	sb.WriteString(formatHeader(n))
 	sb.WriteString("\n\n")
-
-	// 2. TLDR
 	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
 		sb.WriteString("💬 <b>" + tldr + "</b>")
 		sb.WriteString("\n\n")
 	}
-
-	// 3. Датская
 	sb.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
-	if dk := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title)); dk != "" {
-		sb.WriteString("\n" + dk)
+	if dkBody != "" {
+		sb.WriteString("\n" + dkBody)
 	}
 	sb.WriteString("\n\n")
-
-	// 4. Украинская
 	sb.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
-	if ua := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)); ua != "" {
-		sb.WriteString("\n" + ua)
+	if uaBody != "" {
+		sb.WriteString("\n" + uaBody)
 	}
-
-	// Основной контент готов — проверяем сколько осталось места
 	core := sb.String()
-	coreLen := utf8.RuneCountInString(core)
 
-	// 5. Теги (добавляем если есть место)
+	// If core alone doesn't fit — signal caller to use text mode instead.
+	if utf8.RuneCountInString(core) > maxLen {
+		return ""
+	}
+
+	// Try to add tags
 	tags := formatTags(n.Tags)
-	tagsBlock := ""
+	withTags := core
 	if tags != "" {
-		tagsBlock = "\n\n" + tags
+		withTags = core + "\n\n" + tags
 	}
 
-	// 6. Факт (добавляем если есть место)
-	factBlock := ""
+	// Try to add fun_fact
 	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		factBlock = "\n\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
+		full := withTags + "\n\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
+		if utf8.RuneCountInString(full) <= maxLen {
+			return full
+		}
 	}
 
-	// Пробуем полную версию (core + tags + fact)
-	full := core + tagsBlock + factBlock
-	if utf8.RuneCountInString(full) <= maxLen {
-		return full
-	}
-
-	// Не влезает — убираем факт
-	withTags := core + tagsBlock
+	// Fact didn't fit — try with tags only
 	if utf8.RuneCountInString(withTags) <= maxLen {
 		return withTags
 	}
 
-	// Не влезает даже без факта — убираем теги тоже
-	if coreLen <= maxLen {
-		return core
-	}
-
-	// Даже core не влезает — жёсткая обрезка
-	runes := []rune(core)
-	return string(runes[:maxLen-3]) + "..."
+	// Tags didn't fit either — return core only (always fits, checked above)
+	return core
 }
 
-// ShouldUsePhoto проверяет, помещается ли контент под фото (caption ≤ maxLen).
+// ShouldUsePhoto возвращает true только если:
+//   - у новости есть ImageURL
+//   - FormatCaptionForPhoto вернул непустую строку (весь контент влезает)
+//
+// Если контент не влезает — бот автоматически переключится на текстовый режим
+// где лимит 4096 символов и новость будет показана полностью на обоих языках.
 func ShouldUsePhoto(n News, maxLen int) bool {
+	if n.ImageURL == "" {
+		return false
+	}
 	caption := FormatCaptionForPhoto(n, maxLen)
-	count := utf8.RuneCountInString(caption)
-	return count <= maxLen && count > 100
+	return caption != ""
 }

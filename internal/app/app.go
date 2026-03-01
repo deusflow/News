@@ -369,7 +369,12 @@ func sendSingleNews(ctx context.Context, newsList []news.News, cfg *config.Confi
 			continue
 		}
 
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+		// ShouldUsePhoto returns false if: no ImageURL OR caption won't fit in 1024 chars.
+		// In the latter case we fall back to text mode (4096 limit) so the news is always shown complete.
+		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+		if n.ImageURL != "" && !canPhoto {
+			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+		}
 		var outText string
 		var err error
 
@@ -450,7 +455,10 @@ func sendMultipleNews(ctx context.Context, newsList []news.News, cfg *config.Con
 			continue
 		}
 
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+		if n.ImageURL != "" && !canPhoto {
+			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+		}
 		var outText string
 		var err error
 
