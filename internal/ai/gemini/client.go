@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/deusflow/News/internal/ai" // Импортируем наш новый пакет
+	"github.com/deusflow/News/internal/ai"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
 )
 
+// Client wraps the Gemini generative model.
+// Rate limiting is intentionally NOT handled here — it is the Manager's
+// responsibility to serialise requests and enforce inter-request delays.
+// Having a second rate limiter here would cause double-waiting and a
+// timer goroutine leak (ticker.Stop() was never called before).
 type Client struct {
 	genaiClient *genai.Client
 	model       *genai.GenerativeModel
-	rateLimiter <-chan time.Time
 }
 
 func NewClient(apiKey, modelName string) (*Client, error) {
@@ -33,13 +36,9 @@ func NewClient(apiKey, modelName string) (*Client, error) {
 	model := client.GenerativeModel(modelName)
 	model.SetTemperature(0.3)
 
-	// Лимит: 1 запрос раз в 5 секунд (12 RPM) - безопасно для Free Tier
-	ticker := time.NewTicker(5 * time.Second)
-
 	return &Client{
 		genaiClient: client,
 		model:       model,
-		rateLimiter: ticker.C,
 	}, nil
 }
 
@@ -53,14 +52,6 @@ func (c *Client) Close() {
 
 func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content))
-
-	// Ждем своей очереди (Rate Limit)
-	select {
-	case <-c.rateLimiter:
-	case <-ctx.Done():
-		logger.Warn("Gemini request cancelled", "title", title)
-		return nil, ctx.Err()
-	}
 
 	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
@@ -81,7 +72,7 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 	}
 	rawText := sb.String()
 
-	// Очистка JSON
+	// Очистка JSON (модель иногда оборачивает ответ в ```json ... ```)
 	jsonText := strings.TrimSpace(rawText)
 	jsonText = strings.ReplaceAll(jsonText, "```json", "")
 	jsonText = strings.ReplaceAll(jsonText, "```", "")
