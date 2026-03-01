@@ -162,6 +162,9 @@ func FormatNewsWithImage(n News) string {
 // Если не влезает — сначала убираем факт, потом теги, потом обрезаем.
 // ──────────────────────────────────────────────────────────────────────
 func FormatCaptionForPhoto(n News, maxLen int) string {
+	// Telegram API hard limit for photo captions is 1024 characters.
+	// If caller passes 0 (unset) or an out-of-range value we clamp to 1024.
+	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
 	if maxLen <= 0 || maxLen > 1024 {
 		maxLen = 1024
 	}

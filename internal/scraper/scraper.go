@@ -3,12 +3,10 @@ package scraper
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -157,10 +155,17 @@ func extractDRContent(doc *goquery.Document) string {
 }
 
 // isNavigationOrOtherArticle проверяет, является ли текст навигацией или частью другой статьи
+// isNavigationOrOtherArticle returns true for UI/navigation fragments that
+// should be skipped during content extraction.
+//
+// IMPORTANT: this function must NOT filter by topic or subject matter.
+// "Does this paragraph contain news about Putin?" is NOT a navigation question.
+// Topic/subject filtering belongs exclusively in keywords/scoring (config/keywords.yaml).
+// Putting topic filters here silently drops content from articles that happen to
+// mention those names — even when the article is primarily about Denmark.
 func isNavigationOrOtherArticle(text string) bool {
 	lowerText := strings.ToLower(text)
 
-	// Навигационные элементы
 	navIndicators := []string{
 		"læs også", "se også", "følg", "cookie", "gdpr",
 		"abonnement", "privatlivspolitik", "nyhedsbrev",
@@ -169,18 +174,7 @@ func isNavigationOrOtherArticle(text string) bool {
 		"redigeret", "publiceret", "dr nyheder",
 	}
 
-	// Признаки других статей (международные новости, кото��ые не относятся к Дании)
-	otherArticleIndicators := []string{
-		"den russiske præsident", "vladimir putin", "kim jong-un",
-		"nordkoreas leder", "kinas hovedstad", "beijing",
-		"militærparade", "anden verdenskrig", "jeffrey epstein",
-		"amerikanske kongres", "føderale efterforskning",
-		"sexforbryder", "dokumenter fra", "undersøger",
-	}
-
-	allIndicators := append(navIndicators, otherArticleIndicators...)
-
-	for _, indicator := range allIndicators {
+	for _, indicator := range navIndicators {
 		if strings.Contains(lowerText, indicator) {
 			return true
 		}
@@ -513,80 +507,6 @@ func cleanContent(content string) string {
 	}
 
 	return resultText
-}
-
-// ExtractArticlesInBackground gets full content of articles in background (defaults)
-func ExtractArticlesInBackground(ctx context.Context, urls []string) map[string]*ArticleContent {
-	return ExtractArticlesInBackgroundWithLimits(ctx, urls, 10, 8)
-}
-
-// ExtractArticlesInBackgroundWithLimits gets full content with configurable parallelism and cap
-func ExtractArticlesInBackgroundWithLimits(ctx context.Context, urls []string, maxArticles, concurrency int) map[string]*ArticleContent {
-	result := make(map[string]*ArticleContent)
-	if maxArticles <= 0 {
-		maxArticles = 10
-	}
-	if len(urls) < maxArticles {
-		maxArticles = len(urls)
-	}
-	if concurrency <= 0 {
-		concurrency = 8
-	}
-	if maxArticles == 0 {
-		return result
-	}
-	if concurrency > maxArticles {
-		concurrency = maxArticles
-	}
-
-	type job struct{ u string }
-	jobs := make(chan job, maxArticles)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	worker := func(id int) {
-		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case j, ok := <-jobs:
-				if !ok {
-					return
-				}
-				log.Printf("[scraper] worker %d: fetching %s", id, j.u)
-				article, err := ExtractFullArticle(ctx, j.u)
-				if err == nil && article != nil && len(article.Content) > 100 {
-					mu.Lock()
-					result[j.u] = article
-					mu.Unlock()
-					log.Printf("✅ Got content (%d chars)", len(article.Content))
-				} else if err != nil {
-					log.Printf("⚠️ Can't get content %s: %v", j.u, err)
-				} else {
-					log.Printf("⚠️ Content too short: %s", j.u)
-				}
-				// Tiny backoff between jobs to be gentle
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(200 * time.Millisecond):
-				}
-			}
-		}
-	}
-
-	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
-		go worker(i + 1)
-	}
-
-	for i := 0; i < maxArticles; i++ {
-		jobs <- job{u: urls[i]}
-	}
-	close(jobs)
-	wg.Wait()
-	return result
 }
 
 // extractImageFromDoc extracts the best representative image URL from an

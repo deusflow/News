@@ -90,14 +90,40 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		candidates = append(candidates, item)
 	}
 
-	// Сортируем: свежие сначала (стабильный порядок для AI-очереди)
+	// Сортируем: свежие сначала; при равной свежести — выше приоритет источника.
+	// Source.Priority берётся из feeds.yaml (DR=95, Euractiv=90, TV2=50 и т.д.)
 	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].PublishedParsed == nil || candidates[j].PublishedParsed == nil {
+		ti, tj := candidates[i].PublishedParsed, candidates[j].PublishedParsed
+		if ti == nil || tj == nil {
 			return false
 		}
-		return candidates[i].PublishedParsed.After(*candidates[j].PublishedParsed)
+		if !ti.Equal(*tj) {
+			return ti.After(*tj)
+		}
+		// Одинаковое время — берём источник с большим приоритетом первым
+		return candidates[i].Source.Priority > candidates[j].Source.Priority
 	})
 	log.Printf("🔍 Unique items after dedup: %d", len(candidates))
+
+	// ── Шаг 2б: лимит новостей с одного источника ────────────────────────────
+	//
+	// Без этого DR.dk (50+ новостей/день) мог монополизировать всю квоту Gemini.
+	// PerSource = 0 → лимит отключён (берём всё).
+	if opts.PerSource > 0 {
+		sourceCounts := make(map[string]int, len(candidates))
+		filtered := candidates[:0] // reuse backing array
+		for _, item := range candidates {
+			name := item.Source.Name
+			if sourceCounts[name] < opts.PerSource {
+				filtered = append(filtered, item)
+				sourceCounts[name]++
+			}
+		}
+		if len(filtered) < len(candidates) {
+			log.Printf("🔀 PerSource=%d applied: %d → %d items", opts.PerSource, len(candidates), len(filtered))
+		}
+		candidates = filtered
+	}
 
 	// ── Шаг 3: параллельный скрейпинг (ТОЛЬКО HTTP, без AI) ──────────────────
 	//

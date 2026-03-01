@@ -8,14 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
-	"golang.org/x/text/unicode/norm"
+	"github.com/deusflow/News/internal/slugify"
 )
 
 // Retry configuration for Supabase requests
@@ -188,43 +188,24 @@ func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 	return nil
 }
 
-// IsDuplicateNews checks if a similar news already exists in Supabase
-// Has a 2 second timeout to prevent blocking the bot
+// IsDuplicateNews checks if a similar news already exists in Supabase.
+// Uses a 2-second context timeout so the bot is never blocked by a slow Supabase response.
+// The HTTP request is cancelled when the timeout fires — no goroutine leak.
 func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
-	// Create a channel for the result
-	type result struct {
-		isDuplicate bool
-		err         error
-	}
-	resultChan := make(chan result, 1)
-
-	go func() {
-		isDup, err := c.checkDuplicateInternal(title)
-		resultChan <- result{isDup, err}
-	}()
-
-	// Wait for result with 2 second timeout
-	select {
-	case res := <-resultChan:
-		return res.isDuplicate, res.err
-	case <-time.After(2 * time.Second):
-		fmt.Println("⚠️ Supabase duplicate check timeout (2s), skipping check")
-		return false, nil // On timeout, allow the news (don't block)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return c.checkDuplicateInternal(ctx, title)
 }
 
-// checkDuplicateInternal performs the actual duplicate check
-func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
-	// Normalize title for comparison
+// checkDuplicateInternal performs the actual duplicate check with a cancellable context.
+func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title string) (bool, error) {
 	normalizedTitle := normalizeTitle(title)
 
-	// Get recent news (last 24 hours) to check for duplicates
 	oneDayAgo := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
-
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?published_at=gte.%s&select=title",
 		c.url, oneDayAgo)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -234,6 +215,10 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			fmt.Println("⚠️ Supabase duplicate check timeout (2s), skipping check")
+			return false, nil // timeout → allow the news through
+		}
 		return false, err
 	}
 	defer resp.Body.Close()
@@ -245,15 +230,12 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 	var existingNews []struct {
 		Title string `json:"title"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&existingNews); err != nil {
 		return false, err
 	}
 
-	// Check if any existing title is similar (>70% match)
 	for _, existing := range existingNews {
-		existingNormalized := normalizeTitle(existing.Title)
-		if isSimilarTitle(normalizedTitle, existingNormalized) {
+		if isSimilarTitle(normalizedTitle, normalizeTitle(existing.Title)) {
 			return true, nil
 		}
 	}
@@ -498,11 +480,39 @@ func (c *SupabaseClient) GetArchivedNews(limit, offset int) ([]NewsArchive, erro
 	return c.fetchNews(reqURL)
 }
 
-// GetCarouselNews retrieves random news for the carousel
+// GetCarouselNews retrieves random news for the carousel.
+// Supabase REST API does not support ORDER BY RANDOM(), so we fetch a larger
+// pool (3× limit, capped at 30) and shuffle it in Go before returning limit items.
 func (c *SupabaseClient) GetCarouselNews(limit int) ([]NewsArchive, error) {
-	// Supabase doesn't support ORDER BY RANDOM(), so we fetch more and randomize in Go
-	// Or use the active news endpoint
-	return c.GetActiveNews(limit)
+	if limit <= 0 {
+		limit = 6
+	}
+
+	// Fetch a larger pool so the shuffle produces meaningful variety
+	poolSize := limit * 3
+	if poolSize > 30 {
+		poolSize = 30
+	}
+
+	pool, err := c.GetActiveNews(poolSize)
+	if err != nil {
+		return nil, err
+	}
+	if len(pool) == 0 {
+		return pool, nil
+	}
+
+	// Fisher-Yates shuffle
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := len(pool) - 1; i > 0; i-- {
+		j := r.Intn(i + 1)
+		pool[i], pool[j] = pool[j], pool[i]
+	}
+
+	if len(pool) > limit {
+		pool = pool[:limit]
+	}
+	return pool, nil
 }
 
 // GetTrendingNews retrieves the latest N news items
@@ -600,64 +610,8 @@ func (c *SupabaseClient) Ping() error {
 	return nil
 }
 
-// GenerateSlugWithDate creates a URL-friendly slug from title with specific date
+// GenerateSlugWithDate creates a URL-friendly slug from title with a date suffix.
+// Delegates to the canonical slugify package — single source of truth for all slug logic.
 func GenerateSlugWithDate(title string, publishedAt time.Time) string {
-	// Normalize unicode
-	title = norm.NFC.String(title)
-
-	// Convert to lowercase
-	title = strings.ToLower(title)
-
-	// Replace special characters with transliterations
-	replacements := map[string]string{
-		"æ": "ae", "ø": "oe", "å": "aa",
-		"ä": "ae", "ö": "oe", "ü": "ue",
-		"і": "i", "ї": "yi", "є": "ye",
-		"а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g",
-		"д": "d", "е": "e", "ж": "zh", "з": "z", "и": "y",
-		"й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
-		"о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
-		"у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch",
-		"ш": "sh", "щ": "shch", "ь": "", "ю": "yu", "я": "ya",
-		"ё": "yo", "э": "e", "ы": "y",
-	}
-
-	for from, to := range replacements {
-		title = strings.ReplaceAll(title, from, to)
-	}
-
-	// Remove non-alphanumeric characters (keep spaces and hyphens)
-	var result strings.Builder
-	for _, r := range title {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			result.WriteRune(r)
-		} else if r == ' ' || r == '-' {
-			result.WriteRune('-')
-		}
-	}
-
-	slug := result.String()
-
-	// Replace multiple hyphens with single hyphen
-	re := regexp.MustCompile(`-+`)
-	slug = re.ReplaceAllString(slug, "-")
-
-	// Trim hyphens from start and end
-	slug = strings.Trim(slug, "-")
-
-	// Limit length
-	if len(slug) > 60 {
-		slug = slug[:60]
-		// Don't cut in the middle of a word
-		if lastHyphen := strings.LastIndex(slug, "-"); lastHyphen > 30 {
-			slug = slug[:lastHyphen]
-		}
-	}
-
-	// Add date suffix based on PUBLISHED date (not current time!)
-	// This ensures the same news always gets the same slug
-	dateSuffix := publishedAt.Format("20060102")
-	slug = fmt.Sprintf("%s-%s", slug, dateSuffix)
-
-	return slug
+	return slugify.SlugWithDate(title, publishedAt)
 }
