@@ -287,9 +287,20 @@
                                 const a = d.address || {};
                                 const city = a.city || a.town || a.village || a.municipality || a.county || '—';
                                 const cc   = (a.country_code || '').toUpperCase();
-                                const flag = cc.length === 2
-                                    ? String.fromCodePoint(...cc.split('').map(c => 0x1F1E0 + c.charCodeAt(0) - 65))
+
+                                // IMPORTANT: some platforms (esp. older Android/Windows fonts) render
+                                // regional-indicator flags as tofu (two squares). Use a stable mapping.
+                                const flag = (cc === 'DK') ? '🇩🇰'
+                                    : (cc === 'UA') ? '🇺🇦'
+                                    : (cc === 'SE') ? '🇸🇪'
+                                    : (cc === 'NO') ? '🇳🇴'
+                                    : (cc === 'DE') ? '🇩🇪'
+                                    : (cc === 'NL') ? '🇳🇱'
+                                    : (cc === 'PL') ? '🇵🇱'
+                                    : (cc === 'GB') ? '🇬🇧'
+                                    : (cc === 'US') ? '🇺🇸'
                                     : '📍';
+
                                 return { city, country: a.country || cc, flag };
                             } catch { return null; }
                         }
