@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,13 +10,15 @@ import (
 
 	"github.com/deusflow/News/internal/app"
 	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Config error: %v", err)
+		logger.Error("Config error", "error", err)
+		os.Exit(1)
 	}
 
 	m := metrics.New()
@@ -25,22 +26,23 @@ func main() {
 	// Initialize application
 	application, err := app.New(cfg, m)
 	if err != nil {
-		log.Fatalf("App init error: %v", err)
-	}
-
-	// Check if we should start HTTP server for monitoring
-	if cfg.EnableHTTPMonitoring {
-		go startMonitoringServer(cfg.MonitoringPort, m, application)
+		logger.Error("App init error", "error", err)
+		os.Exit(1)
 	}
 
 	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Check if we should start HTTP server for monitoring
+	if cfg.Monitoring.EnableHTTPMonitoring {
+		go startMonitoringServer(ctx, cfg.Monitoring.Port, m, application)
+	}
+
 	application.Run(ctx)
 }
 
-func startMonitoringServer(port string, m *metrics.Metrics, a *app.App) {
+func startMonitoringServer(ctx context.Context, port string, m *metrics.Metrics, a *app.App) {
 	if port == "" {
 		port = "8080"
 	}
@@ -55,9 +57,19 @@ func startMonitoringServer(port string, m *metrics.Metrics, a *app.App) {
 		reloadHandler(w, r, a)
 	})
 
-	log.Printf("Starting monitoring server on port %s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Printf("Monitoring server error: %v", err)
+	server := &http.Server{Addr: ":" + port, Handler: nil}
+
+	go func() {
+		logger.Info("Starting monitoring server", "port", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Monitoring server error", "error", err)
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info("Shutting down monitoring server")
+	if err := server.Shutdown(context.Background()); err != nil {
+		logger.Error("Monitoring server shutdown error", "error", err)
 	}
 }
 

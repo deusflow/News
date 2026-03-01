@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
-	"golang.org/x/text/unicode/norm"
+	"github.com/deusflow/News/internal/slugify"
 )
 
 // NewsPost represents data needed to generate a website post
@@ -90,7 +88,7 @@ func (g *Generator) GeneratePost(post NewsPost) error {
 	}
 
 	// Generate filename
-	slug := generateSlug(post.Title)
+	slug := slugify.Slug(post.Title)
 	dateStr := post.PublishedAt.Format("2006-01-02")
 	filename := fmt.Sprintf("%s-%s.md", dateStr, slug)
 	filePath := filepath.Join(postsDir, filename)
@@ -170,20 +168,20 @@ func (g *Generator) generateMarkdown(post NewsPost) string {
 	// Ukrainian content
 	sb.WriteString("## 🇺🇦 Українською\n\n")
 	if post.SummaryUkrainian != "" {
-		sb.WriteString(post.SummaryUkrainian)
+		sb.WriteString(sanitizeMarkdownContent(post.SummaryUkrainian))
 	} else if post.ContentUkrainian != "" {
-		sb.WriteString(post.ContentUkrainian)
+		sb.WriteString(sanitizeMarkdownContent(post.ContentUkrainian))
 	} else {
-		sb.WriteString(post.Content)
+		sb.WriteString(sanitizeMarkdownContent(post.Content))
 	}
 	sb.WriteString("\n\n")
 
 	// Danish content
 	sb.WriteString("## 🇩🇰 På dansk\n\n")
 	if post.SummaryDanish != "" {
-		sb.WriteString(post.SummaryDanish)
+		sb.WriteString(sanitizeMarkdownContent(post.SummaryDanish))
 	} else if post.ContentDanish != "" {
-		sb.WriteString(post.ContentDanish)
+		sb.WriteString(sanitizeMarkdownContent(post.ContentDanish))
 	} else {
 		sb.WriteString("*Dansk version kommer snart*")
 	}
@@ -192,74 +190,38 @@ func (g *Generator) generateMarkdown(post NewsPost) string {
 	// Fun fact
 	if post.FunFact != "" {
 		sb.WriteString("---\n\n")
-		sb.WriteString(fmt.Sprintf("💡 **Цікавий факт:** %s\n", post.FunFact))
+		sb.WriteString(fmt.Sprintf("💡 **Цікавий факт:** %s\n", sanitizeMarkdownContent(post.FunFact)))
 	}
 
 	return sb.String()
 }
 
-// generateSlug creates a URL-friendly slug from title
-func generateSlug(title string) string {
-	// Normalize unicode
-	title = norm.NFC.String(title)
-
-	// Convert to lowercase
-	title = strings.ToLower(title)
-
-	// Replace special characters with transliterations
-	replacements := map[string]string{
-		"æ": "ae", "ø": "oe", "å": "aa",
-		"ä": "ae", "ö": "oe", "ü": "ue",
-		"і": "i", "ї": "yi", "є": "ye",
-		"а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g",
-		"д": "d", "е": "e", "ж": "zh", "з": "z", "и": "y",
-		"й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
-		"о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
-		"у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch",
-		"ш": "sh", "щ": "shch", "ь": "", "ю": "yu", "я": "ya",
-	}
-
-	for from, to := range replacements {
-		title = strings.ReplaceAll(title, from, to)
-	}
-
-	// Remove non-alphanumeric characters (keep spaces and hyphens)
-	var result strings.Builder
-	for _, r := range title {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			result.WriteRune(r)
-		} else if r == ' ' || r == '-' {
-			result.WriteRune('-')
-		}
-	}
-
-	slug := result.String()
-
-	// Replace multiple hyphens with single hyphen
-	re := regexp.MustCompile(`-+`)
-	slug = re.ReplaceAllString(slug, "-")
-
-	// Trim hyphens from start and end
-	slug = strings.Trim(slug, "-")
-
-	// Limit length
-	if len(slug) > 60 {
-		slug = slug[:60]
-		// Don't cut in the middle of a word
-		if lastHyphen := strings.LastIndex(slug, "-"); lastHyphen > 30 {
-			slug = slug[:lastHyphen]
-		}
-	}
-
-	return slug
-}
-
-// escapeYAML escapes special characters for YAML strings
+// escapeYAML escapes a string for safe embedding inside YAML double-quoted scalars.
+// Handles: backslash, double-quote, newline, carriage return, tab, and all
+// Unicode control characters (U+0000–U+001F, U+007F) which are illegal in YAML.
 func escapeYAML(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\\", "\\\\") // must be first
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+
+	// Strip remaining ASCII control characters (U+0000–U+001F and U+007F)
+	var b strings.Builder
+	for _, r := range s {
+		if r < 0x20 || r == 0x7F {
+			continue // drop illegal control char
+		}
+		b.WriteRune(r)
+	}
+
+	// Collapse multiple spaces that may have appeared after replacements
+	result := b.String()
+	for strings.Contains(result, "  ") {
+		result = strings.ReplaceAll(result, "  ", " ")
+	}
+
+	return strings.TrimSpace(result)
 }
 
 // getFirstSentence extracts the first sentence from text
@@ -284,4 +246,39 @@ func getFirstSentence(text string) string {
 	}
 
 	return strings.TrimSpace(text)
+}
+
+// sanitizeMarkdownContent removes HTML tags and potentially dangerous content
+// from AI-generated text before embedding it in Hugo markdown files.
+//
+// Why: if AI returns text containing <script>, <iframe> or raw HTML, and Hugo
+// templates use {{ .Content | safeHTML }}, that content would render as-is.
+// Stripping tags at generation time is the safest defence regardless of template config.
+func sanitizeMarkdownContent(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	// Strip HTML tags (goquery is not available here; simple regex is fine
+	// because we only need to remove AI-introduced tags, not full HTML parsing)
+	var b strings.Builder
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	result := b.String()
+
+	// Collapse multiple blank lines that might appear after tag removal
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(result)
 }

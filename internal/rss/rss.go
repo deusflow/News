@@ -1,6 +1,7 @@
 package rss
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -52,8 +53,13 @@ func LoadFeeds(path string) ([]FeedSource, error) {
 	return cfg.Feeds, nil
 }
 
-// FetchAllFeeds downloads and parses all feeds, returns news list with source metadata
-func FetchAllFeeds(sources []FeedSource) ([]*FeedItem, error) {
+// rssHTTPClient is shared across all feed fetches to reuse connections.
+var rssHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// FetchAllFeeds downloads and parses all active feeds concurrently.
+// The context is forwarded to every HTTP request — cancelling it (e.g. on
+// SIGTERM) will stop in-flight feed fetches immediately.
+func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, error) {
 	var allItems []*FeedItem
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -68,37 +74,36 @@ func FetchAllFeeds(sources []FeedSource) ([]*FeedItem, error) {
 			continue
 		}
 
+		// Don't start new fetches if context is already cancelled
+		if ctx.Err() != nil {
+			break
+		}
+
 		wg.Add(1)
 		go func(s FeedSource) {
 			defer wg.Done()
 
-			// Acquire semaphore
 			sem <- struct{}{}
-			defer func() { <-sem }() // Release semaphore
+			defer func() { <-sem }()
 
-			// Create a new parser for each goroutine to ensure thread safety
 			parser := gofeed.NewParser()
-			// Set a timeout to prevent hanging if a feed is slow
-			parser.Client = &http.Client{
-				Timeout: 30 * time.Second,
-			}
+			parser.Client = rssHTTPClient
 
-			feed, err := parser.ParseURL(s.URL)
+			feed, err := parser.ParseURLWithContext(s.URL, ctx)
 			if err != nil {
-				log.Printf("Error parsing RSS %s (%s): %v", s.URL, s.Name, err)
+				if ctx.Err() != nil {
+					log.Printf("Feed fetch cancelled for %s: %v", s.Name, ctx.Err())
+				} else {
+					log.Printf("Error parsing RSS %s (%s): %v", s.URL, s.Name, err)
+				}
 				return
 			}
 
 			mu.Lock()
 			defer mu.Unlock()
 			successCount++
-			// Wrap each item with source metadata
 			for _, item := range feed.Items {
-				feedItem := &FeedItem{
-					Item:   item,
-					Source: &s,
-				}
-				allItems = append(allItems, feedItem)
+				allItems = append(allItems, &FeedItem{Item: item, Source: &s})
 			}
 			log.Printf("Loaded %d news from %s (%s)", len(feed.Items), s.Name, s.URL)
 		}(source)

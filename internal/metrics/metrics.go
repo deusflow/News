@@ -15,6 +15,9 @@ type Metrics struct {
 	DuplicatesFiltered     int64
 	TelegramMessagesSent   int64
 
+	// AI retry counter (new)
+	AIRetries int64
+
 	// Timings
 	LastProcessingTime    time.Duration
 	AverageProcessingTime time.Duration
@@ -62,6 +65,13 @@ func (m *Metrics) IncrementTelegramMessagesSent() {
 	m.TelegramMessagesSent++
 }
 
+// IncrementAIRetry increases the AI retry counter (e.g., when we wait due to rate limit)
+func (m *Metrics) IncrementAIRetry() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AIRetries++
+}
+
 func (m *Metrics) RecordProcessingTime(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -100,6 +110,7 @@ func (m *Metrics) GetStats() map[string]interface{} {
 		"failed_translations":        m.FailedTranslations,
 		"duplicates_filtered":        m.DuplicatesFiltered,
 		"telegram_messages_sent":     m.TelegramMessagesSent,
+		"ai_retries":                 m.AIRetries,
 		"last_processing_time_ms":    m.LastProcessingTime.Milliseconds(),
 		"average_processing_time_ms": m.AverageProcessingTime.Milliseconds(),
 		"last_run_time":              m.LastRunTime.Format(time.RFC3339),

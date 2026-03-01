@@ -1,32 +1,43 @@
 # Binaries for programs and plugins
 *.exe
 *.exe~
+## ── Go ──────────────────────────────────────────────────────────────────────
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
 go.work
+go.work.sum
 
-# Environment variables
+## ── Build artifacts & binaries ──────────────────────────────────────────────
+# Compiled binaries — never commit these
+/dknews
+bin/
+/bin/dknews
+docs/
+content_hash_test.go
+## ── Hugo generated output ───────────────────────────────────────────────────
+# Run `hugo` locally to regenerate; do not commit build output
+website/public/
+website/resources/_gen/
+
+## ── Environment & secrets ───────────────────────────────────────────────────
 .env
+.env.local
+.env.*.local
 
-# IDE files
+## ── Logs & temp ─────────────────────────────────────────────────────────────
+*.log
+output.log
+
+## ── IDE ─────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS generated files
+## ── OS ──────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*
@@ -35,23 +46,6 @@ go.work
 ehthumbs.db
 Thumbs.db
 
-# Local documentation (not for GitHub)
-docs/BUGFIX_AND_FEATURES_PLAN.md
-docs/CONFIG_CHEATSHEET.md
-docs/MIGRATION_GUIDE.md
-docs/READ_ONLY_ARCHITECTURE.md
-docs/
+## ── Vendor (uncomment if using vendoring) ───────────────────────────────────
+# vendor/
 
-# Build artifacts and binaries
-/dknews
-bin/
-*.log
-output.log
-# build artifacts
-/dknews
-
-/docs
-# build artifacts
-/dknews
-
-output.log

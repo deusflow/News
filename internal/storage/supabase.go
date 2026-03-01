@@ -2,18 +2,21 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
-	"golang.org/x/text/unicode/norm"
+	"github.com/deusflow/News/internal/logger"
+	"github.com/deusflow/News/internal/slugify"
 )
 
 // Retry configuration for Supabase requests
@@ -32,24 +35,28 @@ func isRetryableError(statusCode int) bool {
 		statusCode == 500 // Internal Server Error
 }
 
-// retryableRequest executes an HTTP request with retry logic for transient errors
-func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*http.Response, error) {
+// retryableRequest executes an HTTP request with retry logic for transient errors.
+// ctx is forwarded to every request so SIGTERM cancels in-flight Supabase calls.
+func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url string, body []byte) (*http.Response, error) {
 	var lastErr error
 	var resp *http.Response
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Create new request for each attempt (body reader needs to be fresh)
+		// Bail out immediately if context is already cancelled
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		var reqBody io.Reader
 		if body != nil {
 			reqBody = bytes.NewBuffer(body)
 		}
 
-		req, err := http.NewRequest(method, url, reqBody)
+		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		// Set headers
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("apikey", c.serviceKey)
 		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
@@ -57,18 +64,24 @@ func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*htt
 			req.Header.Set("Prefer", "return=minimal")
 		}
 
-		// Execute request
 		resp, err = c.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
 			log.Printf("⚠️ Supabase request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
 
-			// Wait before retry with exponential backoff
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
 				delay = retryMaxDelay
 			}
-			time.Sleep(delay)
+
+			// Context-aware sleep: stop waiting if shutdown is signalled
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
 			continue
 		}
 
@@ -79,12 +92,18 @@ func (c *SupabaseClient) retryableRequest(method, url string, body []byte) (*htt
 			lastErr = fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 			log.Printf("⚠️ Supabase returned %d (attempt %d/%d): %s", resp.StatusCode, attempt+1, maxRetries, string(respBody))
 
-			// Wait before retry with exponential backoff
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
 				delay = retryMaxDelay
 			}
-			time.Sleep(delay)
+
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
 			continue
 		}
 
@@ -141,18 +160,11 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 	}, nil
 }
 
-// SaveNews saves a news item to Supabase with retry logic for transient errors
-func (c *SupabaseClient) SaveNews(news NewsArchive) error {
-	// Check by source_url (most reliable duplicate detection)
-	isDuplicateURL, err := c.IsDuplicateBySourceURL(news.SourceURL)
-	if err != nil {
-		log.Printf("Warning: source_url duplicate check failed: %v", err)
-	}
-	if isDuplicateURL {
-		log.Printf("⏭️ Skipping duplicate (same source_url): %s", news.SourceURL)
-		return nil
-	}
-
+// SaveNews saves a news item to Supabase.
+// Duplicate check is NOT performed here — the caller is responsible for ensuring
+// this news was not already sent (use PostgresCache.IsSourceURLSent before calling).
+// On slug conflict Supabase returns 409 / "duplicate" which we treat as success.
+func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 	// Set default category
 	if news.Category == "" {
 		news.Category = "News"
@@ -166,7 +178,7 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 
 	// Execute request with retry logic
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive", c.url)
-	resp, err := c.retryableRequest("POST", reqURL, body)
+	resp, err := c.retryableRequest(ctx, "POST", reqURL, body)
 	if err != nil {
 		return fmt.Errorf("failed to save news after retries: %w", err)
 	}
@@ -175,9 +187,9 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 	// Check response
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		// Check if it's a duplicate (slug already exists)
+		// Slug conflict is fine — idempotent, the record is already there.
 		if resp.StatusCode == http.StatusConflict || strings.Contains(string(respBody), "duplicate") {
-			return nil // Duplicate is OK, just skip
+			return nil
 		}
 		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 	}
@@ -186,43 +198,24 @@ func (c *SupabaseClient) SaveNews(news NewsArchive) error {
 	return nil
 }
 
-// IsDuplicateNews checks if a similar news already exists in Supabase
-// Has a 2 second timeout to prevent blocking the bot
+// IsDuplicateNews checks if a similar news already exists in Supabase.
+// Uses a 2-second context timeout so the bot is never blocked by a slow Supabase response.
+// The HTTP request is cancelled when the timeout fires — no goroutine leak.
 func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
-	// Create a channel for the result
-	type result struct {
-		isDuplicate bool
-		err         error
-	}
-	resultChan := make(chan result, 1)
-
-	go func() {
-		isDup, err := c.checkDuplicateInternal(title)
-		resultChan <- result{isDup, err}
-	}()
-
-	// Wait for result with 2 second timeout
-	select {
-	case res := <-resultChan:
-		return res.isDuplicate, res.err
-	case <-time.After(2 * time.Second):
-		fmt.Println("⚠️ Supabase duplicate check timeout (2s), skipping check")
-		return false, nil // On timeout, allow the news (don't block)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return c.checkDuplicateInternal(ctx, title)
 }
 
-// checkDuplicateInternal performs the actual duplicate check
-func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
-	// Normalize title for comparison
+// checkDuplicateInternal performs the actual duplicate check with a cancellable context.
+func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title string) (bool, error) {
 	normalizedTitle := normalizeTitle(title)
 
-	// Get recent news (last 24 hours) to check for duplicates
 	oneDayAgo := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
-
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?published_at=gte.%s&select=title",
 		c.url, oneDayAgo)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -232,6 +225,10 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			logger.Warn("supabase duplicate check timeout", "duration_sec", 2)
+			return false, nil // timeout → allow the news through
+		}
 		return false, err
 	}
 	defer resp.Body.Close()
@@ -243,15 +240,12 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 	var existingNews []struct {
 		Title string `json:"title"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&existingNews); err != nil {
 		return false, err
 	}
 
-	// Check if any existing title is similar (>70% match)
 	for _, existing := range existingNews {
-		existingNormalized := normalizeTitle(existing.Title)
-		if isSimilarTitle(normalizedTitle, existingNormalized) {
+		if isSimilarTitle(normalizedTitle, normalizeTitle(existing.Title)) {
 			return true, nil
 		}
 	}
@@ -259,68 +253,45 @@ func (c *SupabaseClient) checkDuplicateInternal(title string) (bool, error) {
 	return false, nil
 }
 
-// IsDuplicateBySourceURL checks if news with the same source_url already exists
-// This is more reliable than title comparison because URLs are unique per news
-func (c *SupabaseClient) IsDuplicateBySourceURL(sourceURL string) (bool, error) {
-	// Validate input
+// IsDuplicateBySourceURL checks if news with the same source_url already exists.
+// Uses a 2-second context timeout — no goroutine leak on slow responses.
+func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL string) (bool, error) {
 	if sourceURL == "" {
-		return false, nil // No URL to check, allow the news
-	}
-
-	// Create result channel for timeout handling
-	type result struct {
-		isDuplicate bool
-		err         error
-	}
-	resultChan := make(chan result, 1)
-
-	// Run check in goroutine (for timeout)
-	go func() {
-		// Build request URL with filter
-		// eq. means "equals" in Supabase query language
-		reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
-			c.url,
-			url.QueryEscape(sourceURL)) // Escape special characters in URL
-
-		req, err := http.NewRequest("GET", reqURL, nil)
-		if err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-
-		// Add authentication headers
-		req.Header.Set("apikey", c.serviceKey)
-		req.Header.Set("Authorization", "Bearer "+c.serviceKey)
-
-		// Execute request
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-		defer resp.Body.Close()
-
-		// Parse response
-		var existing []struct {
-			ID int `json:"id"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&existing); err != nil {
-			resultChan <- result{false, err}
-			return
-		}
-
-		// If we found any records, it's a duplicate
-		resultChan <- result{len(existing) > 0, nil}
-	}()
-
-	// Wait with 2 second timeout
-	select {
-	case res := <-resultChan:
-		return res.isDuplicate, res.err
-	case <-time.After(2 * time.Second):
-		log.Println("⚠️ Source URL duplicate check timeout (2s), allowing news")
 		return false, nil
 	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
+		c.url, url.QueryEscape(sourceURL))
+
+	req, err := http.NewRequestWithContext(checkCtx, "GET", reqURL, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("apikey", c.serviceKey)
+	req.Header.Set("Authorization", "Bearer "+c.serviceKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(checkCtx.Err(), context.DeadlineExceeded) {
+			log.Printf("⚠️ Supabase source_url duplicate check timeout (2s), allowing news")
+			return false, nil
+		}
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	var existing []struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&existing); err != nil {
+		return false, err
+	}
+
+	return len(existing) > 0, nil
 }
 
 // normalizeTitle removes common variations to compare titles
@@ -494,11 +465,39 @@ func (c *SupabaseClient) GetArchivedNews(limit, offset int) ([]NewsArchive, erro
 	return c.fetchNews(reqURL)
 }
 
-// GetCarouselNews retrieves random news for the carousel
+// GetCarouselNews retrieves random news for the carousel.
+// Supabase REST API does not support ORDER BY RANDOM(), so we fetch a larger
+// pool (3× limit, capped at 30) and shuffle it in Go before returning limit items.
 func (c *SupabaseClient) GetCarouselNews(limit int) ([]NewsArchive, error) {
-	// Supabase doesn't support ORDER BY RANDOM(), so we fetch more and randomize in Go
-	// Or use the active news endpoint
-	return c.GetActiveNews(limit)
+	if limit <= 0 {
+		limit = 6
+	}
+
+	// Fetch a larger pool so the shuffle produces meaningful variety
+	poolSize := limit * 3
+	if poolSize > 30 {
+		poolSize = 30
+	}
+
+	pool, err := c.GetActiveNews(poolSize)
+	if err != nil {
+		return nil, err
+	}
+	if len(pool) == 0 {
+		return pool, nil
+	}
+
+	// Fisher-Yates shuffle
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := len(pool) - 1; i > 0; i-- {
+		j := r.Intn(i + 1)
+		pool[i], pool[j] = pool[j], pool[i]
+	}
+
+	if len(pool) > limit {
+		pool = pool[:limit]
+	}
+	return pool, nil
 }
 
 // GetTrendingNews retrieves the latest N news items
@@ -596,70 +595,8 @@ func (c *SupabaseClient) Ping() error {
 	return nil
 }
 
-// GenerateSlug creates a URL-friendly slug from title
-// Uses published date for uniqueness instead of current time
-func GenerateSlug(title string) string {
-	return GenerateSlugWithDate(title, time.Now())
-}
-
-// GenerateSlugWithDate creates a URL-friendly slug from title with specific date
+// GenerateSlugWithDate creates a URL-friendly slug from title with a date suffix.
+// Delegates to the canonical slugify package — single source of truth for all slug logic.
 func GenerateSlugWithDate(title string, publishedAt time.Time) string {
-	// Normalize unicode
-	title = norm.NFC.String(title)
-
-	// Convert to lowercase
-	title = strings.ToLower(title)
-
-	// Replace special characters with transliterations
-	replacements := map[string]string{
-		"æ": "ae", "ø": "oe", "å": "aa",
-		"ä": "ae", "ö": "oe", "ü": "ue",
-		"і": "i", "ї": "yi", "є": "ye",
-		"а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g",
-		"д": "d", "е": "e", "ж": "zh", "з": "z", "и": "y",
-		"й": "y", "к": "k", "л": "l", "м": "m", "н": "n",
-		"о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
-		"у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch",
-		"ш": "sh", "щ": "shch", "ь": "", "ю": "yu", "я": "ya",
-		"ё": "yo", "э": "e", "ы": "y",
-	}
-
-	for from, to := range replacements {
-		title = strings.ReplaceAll(title, from, to)
-	}
-
-	// Remove non-alphanumeric characters (keep spaces and hyphens)
-	var result strings.Builder
-	for _, r := range title {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			result.WriteRune(r)
-		} else if r == ' ' || r == '-' {
-			result.WriteRune('-')
-		}
-	}
-
-	slug := result.String()
-
-	// Replace multiple hyphens with single hyphen
-	re := regexp.MustCompile(`-+`)
-	slug = re.ReplaceAllString(slug, "-")
-
-	// Trim hyphens from start and end
-	slug = strings.Trim(slug, "-")
-
-	// Limit length
-	if len(slug) > 60 {
-		slug = slug[:60]
-		// Don't cut in the middle of a word
-		if lastHyphen := strings.LastIndex(slug, "-"); lastHyphen > 30 {
-			slug = slug[:lastHyphen]
-		}
-	}
-
-	// Add date suffix based on PUBLISHED date (not current time!)
-	// This ensures the same news always gets the same slug
-	dateSuffix := publishedAt.Format("20060102")
-	slug = fmt.Sprintf("%s-%s", slug, dateSuffix)
-
-	return slug
+	return slugify.SlugWithDate(title, publishedAt)
 }

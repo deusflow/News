@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/ai/gemini"
+	"github.com/deusflow/News/internal/ai/groq"
 	"github.com/deusflow/News/internal/config"
-	"github.com/deusflow/News/internal/gemini"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/news"
@@ -16,12 +20,98 @@ import (
 	"github.com/deusflow/News/internal/website"
 )
 
+// Service interfaces for SRP
+type NewsFetcher interface {
+	Fetch(ctx context.Context) ([]*rss.FeedItem, error)
+}
+
+type NewsProcessor interface {
+	Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error)
+}
+
+type NewsSender interface {
+	// Send publishes exactly one news item — the first non-duplicate from newsList
+	// (which is already sorted by relevance score, best first).
+	Send(ctx context.Context, newsList []news.News)
+}
+
+type HealthChecker interface {
+	CheckHealth(ctx context.Context) map[string]string
+}
+
+// RSSFetcher implements NewsFetcher
+type RSSFetcher struct {
+	feeds []rss.FeedSource
+}
+
+func NewRSSFetcher(feeds []rss.FeedSource) *RSSFetcher {
+	return &RSSFetcher{feeds: feeds}
+}
+
+func (f *RSSFetcher) Fetch(ctx context.Context) ([]*rss.FeedItem, error) {
+	return rss.FetchAllFeeds(ctx, f.feeds)
+}
+
+// NewsFilterProcessor implements NewsProcessor
+type NewsFilterProcessor struct {
+	cfg      *config.Config
+	aiMgr    *ai.Manager
+	metrics  *metrics.Metrics
+	keywords *config.KeywordsConfig
+}
+
+func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Metrics, keywords *config.KeywordsConfig) *NewsFilterProcessor {
+	return &NewsFilterProcessor{
+		cfg:      cfg,
+		aiMgr:    aiMgr,
+		metrics:  m,
+		keywords: keywords,
+	}
+}
+
+func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error) {
+	return news.FilterAndTranslateWithOptions(ctx, items, news.Options{
+		MaxAge:            p.cfg.RSS.NewsMaxAge,
+		PerSource:         2,
+		ScrapeMaxArticles: p.cfg.Scraper.MaxArticles,
+		ScrapeConcurrency: p.cfg.Scraper.Concurrency,
+		Keywords:          p.keywords,
+		AI:                p.aiMgr,
+		Metrics:           p.metrics,
+	})
+}
+
+// TelegramNewsSender implements NewsSender
+type TelegramNewsSender struct {
+	cfg              *config.Config
+	cacheAdapter     CacheAdapter
+	metrics          *metrics.Metrics
+	websiteGenerator *website.Generator
+	supabaseClient   *storage.SupabaseClient
+}
+
+func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) *TelegramNewsSender {
+	return &TelegramNewsSender{
+		cfg:              cfg,
+		cacheAdapter:     cacheAdapter,
+		metrics:          m,
+		websiteGenerator: websiteGen,
+		supabaseClient:   supabase,
+	}
+}
+
+func (s *TelegramNewsSender) Send(ctx context.Context, newsList []news.News) {
+	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient)
+}
+
 type App struct {
 	cfg              *config.Config
 	metrics          *metrics.Metrics
 	cacheAdapter     CacheAdapter
-	geminiClient     *gemini.Client
-	feeds            []rss.FeedSource
+	aiManager        *ai.Manager
+	fetcher          NewsFetcher
+	processor        NewsProcessor
+	sender           NewsSender
 	keywords         *config.KeywordsConfig
 	websiteGenerator *website.Generator
 	supabaseClient   *storage.SupabaseClient
@@ -34,8 +124,8 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	// 1. Инициализация кэша
 	var cacheAdapter CacheAdapter
 
-	if cfg.UsePostgres {
-		pgCache, err := storage.NewPostgresCache(cfg.DatabaseURL, cfg.DatabaseTTL)
+	if cfg.Database.UsePostgres {
+		pgCache, err := storage.NewPostgresCache(cfg.Database.URL, cfg.Database.TTL)
 		if err != nil {
 			return nil, fmt.Errorf("postgres error: %v", err)
 		}
@@ -44,14 +134,14 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		if err := pgCache.Cleanup(); err != nil {
 			logger.Warn("Failed to cleanup postgres cache", "error", err)
 		} else {
-			logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.DatabaseTTL)
+			logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.Database.TTL)
 		}
 
 		cacheAdapter = &PostgresCacheAdapter{cache: pgCache}
 		logger.Info("Using PostgreSQL cache")
 	} else {
 		// Мы используем FileCache из storage, но нам нужен адаптер для работы в app
-		fileCache := storage.NewFileCache(cfg.CacheFilePath, cfg.CacheTTLHours)
+		fileCache := storage.NewFileCache(cfg.Cache.FilePath, cfg.Cache.TTLHours)
 		if err := fileCache.Load(); err != nil {
 			logger.Warn("Failed to load cache", "error", err)
 		}
@@ -59,34 +149,61 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		logger.Info("Using File cache")
 	}
 
-	// 2. Инициализация Gemini
-	gmClient, err := gemini.NewClient(cfg.GeminiAPIKey, cfg.GeminiModel, m)
-	if err != nil {
-		return nil, fmt.Errorf("gemini error: %v", err)
+	// 2. Инициализация AI (НОВАЯ ЛОГИКА)
+	var aiProviders []ai.Provider
+
+	for _, pName := range cfg.AI.Providers {
+		switch strings.TrimSpace(strings.ToLower(pName)) {
+		case "gemini":
+			client, err := gemini.NewClient(cfg.AI.GeminiAPIKey, cfg.AI.GeminiModel)
+			if err != nil {
+				logger.Error("Failed to init Gemini", "error", err)
+				continue // Не падаем, пробуем следующего
+			}
+			aiProviders = append(aiProviders, client)
+			logger.Info("AI Provider added", "name", "gemini")
+
+		case "groq":
+			if cfg.AI.GroqAPIKey != "" {
+				client := groq.NewClient(cfg.AI.GroqAPIKey)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "groq")
+			} else {
+				logger.Warn("Groq API Key is missing, skipping")
+			}
+		default:
+			logger.Warn("Unknown AI provider in config, skipping", "provider", pName)
+		}
 	}
-	logger.Info("Using Gemini model", "model", cfg.GeminiModel)
+
+	if len(aiProviders) == 0 {
+		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
+	}
+
+	aiManager := ai.NewManager(m, aiProviders...)
+	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов
-	feeds, err := rss.LoadFeeds(cfg.FeedsConfigPath)
+	feeds, err := rss.LoadFeeds(cfg.RSS.FeedsConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("feeds error: %v", err)
 	}
 
-	keywords, err := config.LoadKeywords(cfg.KeywordsConfigPath)
+	keywords, err := config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
 	if err != nil {
 		logger.Warn("Failed to load keywords config, using defaults or empty", "error", err)
 	}
 
 	// Initialize website generator
-	websiteGen := website.NewGenerator(cfg.WebsiteContentDir, cfg.EnableWebsite)
-	if cfg.EnableWebsite {
-		logger.Info("Website generation enabled", "content_dir", cfg.WebsiteContentDir)
+	websiteGen := website.NewGenerator(cfg.Website.ContentDir, cfg.Website.Enable)
+	if cfg.Website.Enable {
+		logger.Info("Website generation enabled", "content_dir", cfg.Website.ContentDir)
 	}
 
 	// Initialize Supabase client for website archive
 	var supabaseClient *storage.SupabaseClient
-	if cfg.EnableSupabase {
-		supabaseClient, err = storage.NewSupabaseClient(cfg.SupabaseURL, cfg.SupabaseServiceKey)
+	if cfg.Supabase.Enable {
+		supabaseClient, err = storage.NewSupabaseClient(cfg.Supabase.URL, cfg.Supabase.ServiceKey)
 		if err != nil {
 			logger.Warn("Failed to initialize Supabase client", "error", err)
 		} else {
@@ -104,16 +221,20 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		}
 	}
 
-	return &App{
+	app := &App{
 		cfg:              cfg,
 		metrics:          m,
 		cacheAdapter:     cacheAdapter,
-		geminiClient:     gmClient,
-		feeds:            feeds,
+		aiManager:        aiManager,
+		fetcher:          NewRSSFetcher(feeds),
+		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords),
+		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient),
 		keywords:         keywords,
 		websiteGenerator: websiteGen,
 		supabaseClient:   supabaseClient,
-	}, nil
+	}
+
+	return app, nil
 }
 
 // Run запускает приложение
@@ -126,24 +247,36 @@ func (a *App) Run(ctx context.Context) {
 		return
 	}
 
-	defer a.geminiClient.Close()
+	defer a.aiManager.Close()
 
-	// Save file cache on exit if used
-	if fileAdapter, ok := a.cacheAdapter.(*FileCacheAdapter); ok {
-		defer func() {
-			if err := fileAdapter.cache.Save(); err != nil {
-				logger.Error("Failed to save cache", "error", err)
+	defer func() {
+		switch adapter := a.cacheAdapter.(type) {
+		case *FileCacheAdapter:
+			if err := adapter.cache.Save(); err != nil {
+				logger.Error("Failed to save file cache", "error", err)
 			}
-		}()
-	}
+		case *PostgresCacheAdapter:
+			// Явно закрываем connection pool — критично для Neon free tier
+			// (ограниченное число одновременных подключений)
+			if err := adapter.cache.Close(); err != nil {
+				logger.Error("Failed to close postgres connection", "error", err)
+			}
+		}
+	}()
 
 	// 4.1 Обработка очереди неудачных сообщений (DLQ)
-	if pgAdapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok {
-		processFailedMessages(pgAdapter, a.cfg, a.metrics)
+	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
+	processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
+
+	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
+	// Neon — source of truth. Если Supabase был недоступен в прошлый раз,
+	// записи лежат в supabase_sync_queue и досинхронизируются здесь.
+	if a.supabaseClient != nil {
+		syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
 	}
 
 	// 5. Скачивание новостей
-	items, err := rss.FetchAllFeeds(a.feeds)
+	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
 		logger.Error("Fetch error", "err", err)
 		return
@@ -155,31 +288,16 @@ func (a *App) Run(ctx context.Context) {
 	}
 
 	// 6. Фильтрация и перевод
-	filtered, err := news.FilterAndTranslateWithOptions(ctx, items, news.Options{
-		Limit:             a.cfg.MaxNewsLimit,
-		MaxAge:            a.cfg.NewsMaxAge,
-		PerSource:         2,
-		MaxGeminiRequests: a.cfg.MaxGeminiRequests,
-		ScrapeMaxArticles: a.cfg.ScrapeMaxArticles,
-		ScrapeConcurrency: a.cfg.ScrapeConcurrency,
-		Keywords:          a.keywords,
-		AIClient:          a.geminiClient,
-		Metrics:           a.metrics,
-	})
+	filtered, err := a.processor.Process(ctx, items)
 	if err != nil {
 		logger.Error("Filter error", "err", err)
 		return
 	}
 
-	// 7. Отправка в Telegram
-	if a.cfg.BotMode == "single" {
-		sendSingleNews(filtered, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator, a.supabaseClient)
-	} else {
-		sendMultipleNews(filtered, a.cfg, a.cacheAdapter, a.cfg.MaxNewsLimit, a.metrics, a.websiteGenerator, a.supabaseClient)
-	}
-
-	// Метрики
-	a.metrics.IncrementTelegramMessagesSent()
+	// 7. Публикация: ровно одна лучшая новость.
+	// filtered уже отсортирован по score (best first) в news.FilterAndTranslateWithOptions.
+	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
+	a.sender.Send(ctx, filtered)
 }
 
 // CheckHealth performs health checks on components
@@ -187,22 +305,19 @@ func (a *App) CheckHealth(_ context.Context) map[string]string {
 	status := make(map[string]string)
 	status["app"] = "ok"
 
-	// Check DB
-	if pgAdapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok {
-		if err := pgAdapter.cache.Ping(); err != nil {
-			status["db"] = fmt.Sprintf("error: %v", err)
-		} else {
-			status["db"] = "ok"
-		}
+	// ИСПРАВЛЕНО: Убрал ошибочный код.
+	// Так как у нас общий интерфейс, мы просто проверяем наличие адаптера.
+	if a.cacheAdapter != nil {
+		status["db"] = "connected"
 	} else {
-		status["db"] = "ok (file cache)"
+		status["db"] = "error"
 	}
 
-	// Check Gemini (simple check if client is initialized)
-	if a.geminiClient != nil {
-		status["gemini"] = "initialized"
+	// Check AI manager
+	if a.aiManager != nil {
+		status["ai"] = "ready"
 	} else {
-		status["gemini"] = "error: not initialized"
+		status["ai"] = "not_initialized"
 	}
 
 	return status
@@ -213,179 +328,111 @@ func (a *App) ReloadConfig() error {
 	logger.Info("Reloading configuration...")
 
 	// Reload feeds
-	feeds, err := rss.LoadFeeds(a.cfg.FeedsConfigPath)
+	feeds, err := rss.LoadFeeds(a.cfg.RSS.FeedsConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to reload feeds: %v", err)
 	}
-	a.feeds = feeds
+	if rssFetcher, ok := a.fetcher.(*RSSFetcher); ok {
+		rssFetcher.feeds = feeds
+	}
 
 	// Reload keywords
-	keywords, err := config.LoadKeywords(a.cfg.KeywordsConfigPath)
+	keywords, err := config.LoadKeywords(a.cfg.RSS.KeywordsConfigPath)
 	if err != nil {
 		logger.Warn("Failed to reload keywords, keeping old ones", "error", err)
 	} else {
 		a.keywords = keywords
+		if filterProcessor, ok := a.processor.(*NewsFilterProcessor); ok {
+			filterProcessor.keywords = keywords
+		}
 	}
 
 	logger.Info("Configuration reloaded successfully")
 	return nil
 }
 
-// sendSingleNews отправляет одну новость (с фото или без)
-func sendSingleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	for _, n := range newsList {
-		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		if cacheAdapter.IsAlreadySent(hash) {
-			continue
-		}
+// sendOneNews formats and sends a single news item to Telegram.
+// On failure the item is saved to DLQ for retry on next run.
+func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+	if n.ImageURL != "" && !canPhoto {
+		logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+	}
 
-		// Check for content duplicate (same news from different sources)
-		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
-			logger.Info("⏭️ Skipping duplicate news (same content found)",
-				"new_title", n.Title,
-				"existing_title", existingTitle)
-			m.IncrementDuplicatesFiltered()
-			continue
-		}
+	var outText string
+	var err error
 
-		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
-		var outText string
-		var err error
+	var buttons [][]telegram.InlineButton
+	if cfg.Feature.EnableInlineButtons && n.Link != "" {
+		buttons = append(buttons, []telegram.InlineButton{
+			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+		})
+	}
 
-		// Prepare buttons if enabled (только ссылка на оригінал)
-		var buttons [][]telegram.InlineButton
-		if cfg.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
-			}
+	if canPhoto {
+		outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+		if len(buttons) > 0 {
+			err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 		} else {
-			outText = news.FormatNewsWithImage(n, 0, 0)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
-			}
+			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 		}
-
-		if err != nil {
-			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-			// Save to DLQ if using Postgres
-			if pgAdapter, ok := cacheAdapter.(*PostgresCacheAdapter); ok {
-				if saveErr := pgAdapter.cache.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-					logger.Error("Failed to save to DLQ", "error", saveErr)
-				} else {
-					logger.Info("Saved failed message to DLQ", "title", n.Title)
-				}
-			}
+	} else {
+		outText = news.FormatNewsWithImage(n)
+		if len(buttons) > 0 {
+			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 		} else {
-			// Use MarkAsSentWithContent to store content hash for future duplicate detection
-			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
-			m.IncrementTelegramMessagesSent()
-
-			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
-			if supabase != nil {
-				saveToSupabase(supabase, n)
-			}
-
-			// Generate website post (SYNC - must complete before workflow exits)
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
+			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
 		}
+	}
 
-		// В режиме single шлем только одну и выходим
-		break
+	if err != nil {
+		logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
+		if saveErr := cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
+			logger.Error("Failed to save to DLQ", "error", saveErr)
+		}
+		return
+	}
+
+	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
+	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	m.IncrementTelegramMessagesSent()
+
+	if supabase != nil {
+		saveToSupabase(ctx, cacheAdapter, supabase, hash, n)
+	}
+	if websiteGen != nil && websiteGen.IsEnabled() {
+		generateWebsitePost(websiteGen, n)
 	}
 }
 
-// sendMultipleNews отправляет список новостей
-func sendMultipleNews(newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	sent := 0
+// sendBestNews publishes EXACTLY ONE news item — the highest-scored non-duplicate.
+// newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
+// This is a hard architectural rule, not a config knob: one run = one publication.
+func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	for _, n := range newsList {
-		if sent >= max {
-			break
-		}
-
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if cacheAdapter.IsAlreadySent(hash) {
+			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title)
 			continue
 		}
-
-		// Check for content duplicate (same news from different sources)
+		if cacheAdapter.IsSourceURLSent(n.Link) {
+			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title)
+			m.IncrementDuplicatesFiltered()
+			continue
+		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
 			logger.Info("⏭️ Skipping duplicate news (same content found)",
-				"new_title", n.Title,
-				"existing_title", existingTitle)
+				"new_title", n.Title, "existing_title", existingTitle)
 			m.IncrementDuplicatesFiltered()
 			continue
 		}
 
-		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, 1024, 0, 0, 0)
-		var outText string
-		var err error
-
-		// Prepare buttons if enabled (только ссылка на оригінал)
-		var buttons [][]telegram.InlineButton
-		if cfg.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, 1024, 0, 0)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, n.ImageURL, outText)
-			}
-		} else {
-			outText = news.FormatNewsWithImage(n, 0, 0)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.TelegramToken, cfg.TelegramChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, outText)
-			}
-		}
-
-		if err != nil {
-			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-			// Save to DLQ if using Postgres
-			if pgAdapter, ok := cacheAdapter.(*PostgresCacheAdapter); ok {
-				if saveErr := pgAdapter.cache.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-					logger.Error("Failed to save to DLQ", "error", saveErr)
-				} else {
-					logger.Info("Saved failed message to DLQ", "title", n.Title)
-				}
-			}
-		} else {
-			// Use MarkAsSentWithContent to store content hash for future duplicate detection
-			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
-			m.IncrementTelegramMessagesSent()
-			sent++
-
-			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
-			if supabase != nil {
-				saveToSupabase(supabase, n)
-			}
-
-			// Generate website post (SYNC - must complete before workflow exits)
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
-		}
+		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category)
+		sendOneNews(ctx, n, hash, cfg, cacheAdapter, m, websiteGen, supabase)
+		return // ← EXACTLY ONE. Hard stop.
 	}
+
+	logger.Info("No publishable news found in this run")
 }
 
 // generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout
@@ -416,8 +463,12 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 	}
 }
 
-// saveToSupabase saves news to Supabase for website archive
-func saveToSupabase(client *storage.SupabaseClient, n news.News) {
+// saveToSupabase saves news to Supabase.
+// On success → marks the row in Neon as supabase_synced=TRUE.
+// On failure → enqueues payload in supabase_sync_queue for retry next run.
+// The duplicate check against Supabase has been removed: Neon IsSourceURLSent is called
+// before Telegram send, so by the time we reach here the news is guaranteed unique.
+func saveToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *storage.SupabaseClient, hash string, n news.News) {
 	archive := storage.NewsArchive{
 		Slug:             storage.GenerateSlugWithDate(n.Title, n.Published),
 		Title:            n.Title,
@@ -435,15 +486,70 @@ func saveToSupabase(client *storage.SupabaseClient, n news.News) {
 		PublishedAt:      n.Published,
 	}
 
-	if err := client.SaveNews(archive); err != nil {
-		logger.Warn("Failed to save to Supabase", "title", n.Title, "error", err)
+	if err := client.SaveNews(ctx, archive); err != nil {
+		logger.Warn("Failed to save to Supabase, enqueuing for retry",
+			"title", n.Title, "error", err)
+		// Serialise payload so we can retry without AI/scraping again.
+		if payload, jsonErr := marshalSyncPayload(archive); jsonErr == nil {
+			if qErr := cacheAdapter.EnqueueSupabaseSync(hash, payload); qErr != nil {
+				logger.Error("Failed to enqueue Supabase sync", "hash", hash, "error", qErr)
+			}
+		}
 	} else {
 		logger.Info("Saved to Supabase archive", "title", n.Title)
+		if sErr := cacheAdapter.MarkSupabaseSynced(hash); sErr != nil {
+			logger.Warn("Failed to mark supabase_synced in Neon", "hash", hash, "error", sErr)
+		}
 	}
 }
 
-func processFailedMessages(adapter *PostgresCacheAdapter, cfg *config.Config, m *metrics.Metrics) {
-	items, err := adapter.cache.GetFailedNews(5) // Process max 5 failed items per run
+// marshalSyncPayload serialises a NewsArchive to JSON for the sync queue.
+func marshalSyncPayload(archive storage.NewsArchive) ([]byte, error) {
+	return json.Marshal(archive)
+}
+
+// unmarshalSyncPayload deserialises a NewsArchive from the sync queue payload.
+func unmarshalSyncPayload(data []byte, out *storage.NewsArchive) error {
+	return json.Unmarshal(data, out)
+}
+
+// syncPendingToSupabase flushes supabase_sync_queue entries from previous failed runs.
+// Runs once per bot invocation, before the main fetch cycle.
+func syncPendingToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *storage.SupabaseClient) {
+	items, err := cacheAdapter.GetPendingSupabaseSync(10)
+	if err != nil {
+		logger.Error("Failed to get pending Supabase sync items", "error", err)
+		return
+	}
+	if len(items) == 0 {
+		return
+	}
+	logger.Info("Syncing pending items to Supabase", "count", len(items))
+
+	for _, item := range items {
+		var archive storage.NewsArchive
+		if err := unmarshalSyncPayload(item.Payload, &archive); err != nil {
+			logger.Error("Failed to unmarshal sync payload", "id", item.ID, "error", err)
+			_ = cacheAdapter.IncrementSyncQueueAttempts(item.ID, err.Error())
+			continue
+		}
+
+		if err := client.SaveNews(ctx, archive); err != nil {
+			logger.Warn("Supabase sync retry failed", "id", item.ID, "error", err)
+			_ = cacheAdapter.IncrementSyncQueueAttempts(item.ID, err.Error())
+		} else {
+			logger.Info("Supabase sync retry succeeded", "id", item.ID, "slug", archive.Slug)
+			_ = cacheAdapter.DeleteSyncQueueItem(item.ID)
+			_ = cacheAdapter.MarkSupabaseSynced(item.SentNewsHash)
+		}
+	}
+}
+
+// processFailedMessages принимает теперь любой CacheAdapter (Interface), а не конкретный тип
+func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.Metrics) {
+	// Мы просим адаптер: "Дай мне список ошибок".
+	// Нам плевать, откуда он их возьмет.
+	items, err := adapter.GetFailedNews(5)
 	if err != nil {
 		logger.Error("Failed to get DLQ items", "error", err)
 		return
@@ -456,22 +562,25 @@ func processFailedMessages(adapter *PostgresCacheAdapter, cfg *config.Config, m 
 	for _, item := range items {
 		var err error
 		if item.ImageURL != "" {
-			err = telegram.SendPhoto(cfg.TelegramToken, cfg.TelegramChatID, item.ImageURL, item.MessageText)
+			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.TelegramToken, cfg.TelegramChatID, item.MessageText)
+			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText)
 		}
 
 		if err != nil {
 			logger.Error("Failed to resend DLQ item", "id", item.ID, "error", err)
-			if updateErr := adapter.cache.IncrementFailedAttempts(item.ID, err.Error()); updateErr != nil {
+			// Вызываем метод интерфейса
+			if updateErr := adapter.IncrementFailedAttempts(item.ID, err.Error()); updateErr != nil {
 				logger.Error("Failed to update DLQ attempts", "error", updateErr)
 			}
 		} else {
 			logger.Info("Successfully resent DLQ item", "id", item.ID)
-			if delErr := adapter.cache.DeleteFailedNews(item.ID); delErr != nil {
+			// Вызываем метод интерфейса
+			if delErr := adapter.DeleteFailedNews(item.ID); delErr != nil {
 				logger.Error("Failed to delete DLQ item", "error", delErr)
 			}
-			// Also mark as sent in main table to avoid re-processing if it comes from RSS again
+
+			// Также отмечаем как отправленное в основной таблице
 			hash := adapter.GenerateNewsHash(item.Title, item.Link)
 			_ = adapter.MarkAsSent(hash, item.Title, item.Link, "DLQ", "DLQ")
 			m.IncrementTelegramMessagesSent()

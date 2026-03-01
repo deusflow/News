@@ -256,7 +256,7 @@ keywords:
     weight: 25
 
   # =======================================================
-  # ЭКОНОМИКА (Weight 5)
+  # ЭКОНОМИКА (Weight 5-25)
   # =======================================================
   - word: "løn"
     category: "economy"
@@ -276,6 +276,85 @@ keywords:
   - word: "inflation"
     category: "economy"
     weight: 10
+
+  # Крупнейшие датские компании и торговля (BUG-3 fix)
+  # Новости про Mærsk, Novo, Vestas — это экономика Дании первого уровня.
+  # Без этих ключевых слов статьи о них не проходят keyword pre-filter.
+  - word: "mærsk"
+    category: "economy"
+    weight: 25
+  - word: "maersk"           # английское написание
+    category: "economy"
+    weight: 25
+  - word: "novo nordisk"
+    category: "economy"
+    weight: 20
+  - word: "vestas"
+    category: "economy"
+    weight: 15
+  - word: "danske bank"
+    category: "economy"
+    weight: 15
+  - word: "ørsted"
+    category: "economy"
+    weight: 15
+  - word: "shipping"
+    category: "economy"
+    weight: 15
+  - word: "sejlads"          # мореплавание / судоходство
+    category: "economy"
+    weight: 12
+  - word: "containerskib"
+    category: "economy"
+    weight: 12
+  - word: "fragtskib"
+    category: "economy"
+    weight: 12
+  - word: "verdenshandel"    # мировая торговля
+    category: "economy"
+    weight: 15
+  - word: "handel"
+    category: "economy"
+    weight: 10
+  - word: "eksport"
+    category: "economy"
+    weight: 12
+  - word: "import"
+    category: "economy"
+    weight: 10
+  - word: "erhvervsliv"      # деловая жизнь / бизнес
+    category: "economy"
+    weight: 15
+  - word: "virksomhed"       # компания / предприятие
+    category: "economy"
+    weight: 8
+  - word: "økonomi"
+    category: "economy"
+    weight: 12
+  - word: "vækst"            # рост
+    category: "economy"
+    weight: 10
+  - word: "recession"
+    category: "economy"
+    weight: 15
+  - word: "arbejdsløshed"    # безработица
+    category: "economy"
+    weight: 15
+  - word: "ledighed"         # безработица (разговорн.)
+    category: "economy"
+    weight: 12
+  - word: "rente"            # процентная ставка
+    category: "economy"
+    weight: 12
+  - word: "nationalbanken"   # Центробанк Дании
+    category: "economy"
+    weight: 18
+  - word: "aktier"           # акции
+    category: "economy"
+    weight: 10
+  - word: "børsen"           # биржа
+    category: "economy"
+    weight: 12
 
   # =======================================================
   # ВОЙНА (НИЗКИЙ ПРИОРИТЕТ, КАК ПРОСИЛ) (Weight 3-5)
