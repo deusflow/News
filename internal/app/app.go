@@ -253,9 +253,16 @@ func (a *App) Run(ctx context.Context) {
 	defer a.aiManager.Close()
 
 	defer func() {
-		if fileAdapter, ok := a.cacheAdapter.(*FileCacheAdapter); ok {
-			if err := fileAdapter.cache.Save(); err != nil {
-				logger.Error("Failed to save cache", "error", err)
+		switch adapter := a.cacheAdapter.(type) {
+		case *FileCacheAdapter:
+			if err := adapter.cache.Save(); err != nil {
+				logger.Error("Failed to save file cache", "error", err)
+			}
+		case *PostgresCacheAdapter:
+			// Явно закрываем connection pool — критично для Neon free tier
+			// (ограниченное число одновременных подключений)
+			if err := adapter.cache.Close(); err != nil {
+				logger.Error("Failed to close postgres connection", "error", err)
 			}
 		}
 	}()
@@ -362,12 +369,10 @@ func sendSingleNews(ctx context.Context, newsList []news.News, cfg *config.Confi
 			continue
 		}
 
-		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit, 0, 0, 0)
+		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
 		var outText string
 		var err error
 
-		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
 		if cfg.Feature.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
@@ -376,14 +381,14 @@ func sendSingleNews(ctx context.Context, newsList []news.News, cfg *config.Confi
 		}
 
 		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit, 0, 0)
+			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 			if len(buttons) > 0 {
 				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 			} else {
 				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 			}
 		} else {
-			outText = news.FormatNewsWithImage(n, 0, 0)
+			outText = news.FormatNewsWithImage(n)
 			if len(buttons) > 0 {
 				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 			} else {
@@ -445,12 +450,10 @@ func sendMultipleNews(ctx context.Context, newsList []news.News, cfg *config.Con
 			continue
 		}
 
-		// Решаем, использовать ли фото (если есть URL и текст влезает в лимит 1024)
-		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit, 0, 0, 0)
+		canPhoto := n.ImageURL != "" && news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
 		var outText string
 		var err error
 
-		// Prepare buttons if enabled (только ссылка на оригінал)
 		var buttons [][]telegram.InlineButton
 		if cfg.Feature.EnableInlineButtons && n.Link != "" {
 			buttons = append(buttons, []telegram.InlineButton{
@@ -459,14 +462,14 @@ func sendMultipleNews(ctx context.Context, newsList []news.News, cfg *config.Con
 		}
 
 		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit, 0, 0)
+			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 			if len(buttons) > 0 {
 				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 			} else {
 				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 			}
 		} else {
-			outText = news.FormatNewsWithImage(n, 0, 0)
+			outText = news.FormatNewsWithImage(n)
 			if len(buttons) > 0 {
 				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 			} else {

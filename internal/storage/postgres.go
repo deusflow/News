@@ -226,35 +226,43 @@ func (pc *PostgresCache) IsContentDuplicate(content string) (bool, string) {
 	return false, ""
 }
 
-// generateContentHash creates a signature based on significant numbers in the content
-// News about the same event typically contains the same key statistics/numbers
-// This catches cases like "55000 soldiers killed" from different sources
+// generateContentHash creates a signature based on significant numbers in the content.
+// News about the same event typically contains the same key statistics/numbers.
+// This catches cases like "55000 soldiers killed" from different sources.
+//
+// Number separator fix: dots and commas are treated as part of a number ONLY when
+// the previous character was a digit (i.e. "12.50" or "1,000"). In all other
+// positions ("Mr. Smith", "abc, def") they flush the current buffer so we don't
+// accidentally join unrelated digit sequences.
 func generateContentHash(content string) string {
-	// Extract all numbers from content, removing separators (dots, commas, spaces)
 	normalized := strings.ToLower(content)
 
 	var numbers []string
 	var currentNum strings.Builder
+	prevWasDigit := false
 
 	for _, r := range normalized {
 		if r >= '0' && r <= '9' {
 			currentNum.WriteRune(r)
-		} else if r == '.' || r == ',' || r == ' ' {
-			// Check if this is a number separator (next char is also digit)
-			// For now, just continue accumulating
-			continue
+			prevWasDigit = true
+		} else if (r == '.' || r == ',') && prevWasDigit {
+			// Separator inside a number (e.g. "55.000" or "1,234") — keep accumulating.
+			// We intentionally swallow the separator so "55.000" becomes "55000".
+			// prevWasDigit stays true.
 		} else {
+			// Any non-digit, non-separator character (or separator after non-digit)
+			// flushes the current number buffer.
 			if currentNum.Len() > 0 {
 				num := currentNum.String()
-				// Only keep significant numbers (4+ digits like 1000, 55000)
 				if len(num) >= 4 {
 					numbers = append(numbers, num)
 				}
 				currentNum.Reset()
 			}
+			prevWasDigit = false
 		}
 	}
-	// Don't forget last number
+	// Flush last number
 	if currentNum.Len() >= 4 {
 		numbers = append(numbers, currentNum.String())
 	}

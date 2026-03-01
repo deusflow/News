@@ -6,52 +6,60 @@ import (
 	"unicode/utf8"
 )
 
-// GetMoodEmoji подбирает правильный эмодзи
-func GetMoodEmoji(mood string) string {
-	if strings.TrimSpace(mood) == "" {
-		return "🔵"
-	}
-	switch strings.ToLower(mood) {
-	case "positive":
-		return "🟢"
-	case "negative":
-		return "🔴"
-	case "shocking":
-		return "⚡"
-	case "urgent":
-		return "🚨"
-	default:
-		return "🔵"
-	}
+// moodEmoji maps validated mood values to their display emoji.
+var moodEmoji = map[string]string{
+	"positive": "🟢",
+	"negative": "🔴",
+	"shocking": "⚡",
+	"urgent":   "🚨",
+	"neutral":  "🔵",
 }
 
-// formatHeader создает красивую шапку с категорией
-func formatHeader(n News) string {
-	moodEmoji := GetMoodEmoji(n.Mood)
-	cat := strings.ToUpper(n.Category)
+// GetMoodEmoji returns the display emoji for a mood string.
+func GetMoodEmoji(mood string) string {
+	if e, ok := moodEmoji[strings.ToLower(strings.TrimSpace(mood))]; ok {
+		return e
+	}
+	return "🔵"
+}
 
-	switch n.Category {
-	case "visas", "work", "money":
-		return "🇺🇦 <b>ВАЖЛИВО ДЛЯ УКРАЇНЦІВ</b>"
-	case "society":
-		return "📋 <b>ДЛЯ СОЦІАЛЬНОГО ЖИТТЯ</b>"
-	case "war":
-		return "⚔️ <b>ВІЙНА</b>"
-	case "local":
-		return "🏙️ <b>VIBORG</b>"
-	case "education":
-		return "🎓 <b>ОСВІТА</b>"
-	case "crime":
-		return "🚨 <b>CRIME</b>"
-	default:
-		if cat == "" {
-			cat = "NYHED"
+// ──────────────────────────────────────────────────────────────────────
+// formatHeader — строка ТЕМЫ (первая строка поста).
+//
+//	💻 ТЕХНОЛОГІЇ
+//	🏙️ VIBORG
+//	🇺🇦 ВАЖЛИВО ДЛЯ УКРАЇНЦІВ
+//
+// ──────────────────────────────────────────────────────────────────────
+func formatHeader(n News) string {
+	cat := ValidateCategory(n.Category)
+	return fmt.Sprintf("%s <b>%s</b>", CategoryEmoji(cat), CategoryLabel(cat))
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// formatTags — хештеги одной строкой.
+//
+//	#оборона #Данія #рекрутинг
+//
+// ──────────────────────────────────────────────────────────────────────
+func formatTags(tags []string) string {
+	var out []string
+	for _, t := range tags {
+		t = strings.TrimSpace(strings.TrimPrefix(t, "#"))
+		if t != "" {
+			out = append(out, "#"+strings.ReplaceAll(t, " ", "_"))
 		}
 	}
-	return fmt.Sprintf("%s <b>%s</b>", moodEmoji, cat)
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, " ")
 }
 
-// removeTitleFromSummary удаляет заголовок из начала текста AI
+// ──────────────────────────────────────────────────────────────────────
+// removeTitleFromSummary — если AI повторил заголовок в начале body,
+// убираем его, чтобы не было дубля.
+// ──────────────────────────────────────────────────────────────────────
 func removeTitleFromSummary(summary, title string) string {
 	if summary == "" || title == "" {
 		return summary
@@ -75,64 +83,71 @@ func removeTitleFromSummary(summary, title string) string {
 	return summary
 }
 
-// formatSmartBlock собирает текстовый блок с флагом
-func formatSmartBlock(flag, title, summary string) string {
-	var sb strings.Builder
-	t := strings.TrimSpace(title)
-	if t != "" && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, "!") && !strings.HasSuffix(t, "?") {
-		t += "."
-	}
-	sb.WriteString(fmt.Sprintf("%s <b>%s</b>", flag, t))
-
-	if summary != "" {
-		cleanSummary := removeTitleFromSummary(summary, title)
-		if cleanSummary != "" {
-			sb.WriteString(" " + strings.TrimSpace(cleanSummary))
-		}
-	}
-	return sb.String()
-}
-
-// FormatNewsWithImage - формирует длинный пост (лимит 4096)
-func FormatNewsWithImage(n News, _, _ int) string {
+// ──────────────────────────────────────────────────────────────────────
+// FormatNewsWithImage — длинный пост без фото (лимит 4096 символов).
+// Используется когда фото нет или текст не влезает в caption.
+//
+// Формат:
+//
+//	💻 ТЕХНОЛОГІЇ
+//	🏙️ VIBORG
+//	🇺🇦 ВАЖЛИВО ДЛЯ УКРАЇНЦІВ
+//
+//	💬 TLDR-заголовок на украинском
+//
+//	🇩🇰 Заголовок на датском.
+//	Текст новости 2-4 предложения.
+//
+//	🇺🇦 Заголовок на украинском.
+//	Текст новости 2-4 предложения.
+//
+//	#тег1 #тег2 #тег3
+//
+//	━━━━━━━━━━━━━━━
+//	💡 Цікавий факт
+//
+// Ссылка "🔗 Читати оригінал" вынесена в inline-кнопку (app.go),
+// поэтому в тексте её нет.
+// ──────────────────────────────────────────────────────────────────────
+func FormatNewsWithImage(n News) string {
 	var b strings.Builder
-	b.WriteString(formatHeader(n) + "\n")
 
-	tldr := strings.TrimSpace(n.TLDR)
-	if tldr != "" {
-		b.WriteString("💬 <b>" + tldr + "</b>\n")
-	}
-	b.WriteString("\n")
-
-	b.WriteString(formatSmartBlock("🇩🇰", n.Title, n.SummaryDanish))
+	// 1. Тема
+	b.WriteString(formatHeader(n))
 	b.WriteString("\n\n")
 
-	ukTitle := n.TitleUkrainian
+	// 2. TLDR-заголовок
+	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
+		b.WriteString("💬 <b>" + tldr + "</b>")
+		b.WriteString("\n\n")
+	}
+
+	// 3. Датская версия: заголовок + body
+	b.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
+	if dk := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title)); dk != "" {
+		b.WriteString("\n" + dk)
+	}
+	b.WriteString("\n\n")
+
+	// 4. Украинская версия: заголовок + body
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
 	if ukTitle == "" {
-		ukTitle = n.Title
+		ukTitle = strings.TrimSpace(n.Title)
 	}
-	b.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.SummaryUkrainian))
+	b.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	if ua := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)); ua != "" {
+		b.WriteString("\n" + ua)
+	}
 	b.WriteString("\n\n")
 
-	if n.Link != "" {
-		b.WriteString("🔗 <a href=\"" + n.Link + "\">Læs mere / Читати оригінал</a>\n")
+	// 5. Теги
+	if tags := formatTags(n.Tags); tags != "" {
+		b.WriteString(tags)
+		b.WriteString("\n")
 	}
 
-	if len(n.Tags) > 0 {
-		var tags []string
-		for _, t := range n.Tags {
-			t = strings.TrimSpace(strings.TrimPrefix(t, "#"))
-			if t != "" {
-				tags = append(tags, "#"+strings.ReplaceAll(t, " ", "_"))
-			}
-		}
-		if len(tags) > 0 {
-			b.WriteString("<i>" + strings.Join(tags, " ") + "</i>\n")
-		}
-	}
-
-	fact := strings.TrimSpace(n.FunFact)
-	if fact != "" {
+	// 6. Факт (через разделитель)
+	if fact := strings.TrimSpace(n.FunFact); fact != "" {
 		b.WriteString("\n━━━━━━━━━━━━━━━\n")
 		b.WriteString("💡 <i>" + fact + "</i>")
 	}
@@ -140,60 +155,89 @@ func FormatNewsWithImage(n News, _, _ int) string {
 	return b.String()
 }
 
-// FormatCaptionForPhoto - формирует короткую подпись под фото (лимит 1024)
-func FormatCaptionForPhoto(n News, maxLen int, _, _ int) string {
-	if maxLen > 1024 {
+// ──────────────────────────────────────────────────────────────────────
+// FormatCaptionForPhoto — подпись под фото (лимит 1024 символа Telegram).
+//
+// Тот же формат что FormatNewsWithImage, но с жёсткой обрезкой.
+// Если не влезает — сначала убираем факт, потом теги, потом обрезаем.
+// ──────────────────────────────────────────────────────────────────────
+func FormatCaptionForPhoto(n News, maxLen int) string {
+	if maxLen <= 0 || maxLen > 1024 {
 		maxLen = 1024
 	}
 
-	ukTitle := n.TitleUkrainian
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
 	if ukTitle == "" {
-		ukTitle = n.Title
+		ukTitle = strings.TrimSpace(n.Title)
 	}
 
 	var sb strings.Builder
 
-	sb.WriteString(formatHeader(n) + "\n")
-	if n.TLDR != "" {
-		sb.WriteString("💬 <b>" + n.TLDR + "</b>\n")
-	}
-	sb.WriteString("\n")
-
-	sb.WriteString(formatSmartBlock("🇩🇰", n.Title, n.SummaryDanish))
+	// 1. Тема
+	sb.WriteString(formatHeader(n))
 	sb.WriteString("\n\n")
-	sb.WriteString(formatSmartBlock("🇺🇦", ukTitle, n.SummaryUkrainian))
 
-	if len(n.Tags) > 0 {
-		var tags []string
-		for _, t := range n.Tags {
-			t = strings.TrimSpace(strings.TrimPrefix(t, "#"))
-			if t != "" {
-				tags = append(tags, "#"+strings.ReplaceAll(t, " ", "_"))
-			}
-		}
-		if len(tags) > 0 {
-			sb.WriteString("\n\n" + strings.Join(tags, " "))
-		}
+	// 2. TLDR
+	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
+		sb.WriteString("💬 <b>" + tldr + "</b>")
+		sb.WriteString("\n\n")
 	}
 
-	if n.FunFact != "" {
-		sb.WriteString("\n\n━━━━━━━━━━━━━━━\n💡 <i>" + n.FunFact + "</i>")
+	// 3. Датская
+	sb.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
+	if dk := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title)); dk != "" {
+		sb.WriteString("\n" + dk)
+	}
+	sb.WriteString("\n\n")
+
+	// 4. Украинская
+	sb.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	if ua := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)); ua != "" {
+		sb.WriteString("\n" + ua)
 	}
 
-	result := sb.String()
+	// Основной контент готов — проверяем сколько осталось места
+	core := sb.String()
+	coreLen := utf8.RuneCountInString(core)
 
-	// Защита: жесткая обрезка, если не влезает
-	if utf8.RuneCountInString(result) > maxLen {
-		runes := []rune(result)
-		return string(runes[:maxLen-3]) + "..."
+	// 5. Теги (добавляем если есть место)
+	tags := formatTags(n.Tags)
+	tagsBlock := ""
+	if tags != "" {
+		tagsBlock = "\n\n" + tags
 	}
 
-	return result
+	// 6. Факт (добавляем если есть место)
+	factBlock := ""
+	if fact := strings.TrimSpace(n.FunFact); fact != "" {
+		factBlock = "\n\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
+	}
+
+	// Пробуем полную версию (core + tags + fact)
+	full := core + tagsBlock + factBlock
+	if utf8.RuneCountInString(full) <= maxLen {
+		return full
+	}
+
+	// Не влезает — убираем факт
+	withTags := core + tagsBlock
+	if utf8.RuneCountInString(withTags) <= maxLen {
+		return withTags
+	}
+
+	// Не влезает даже без факта — убираем теги тоже
+	if coreLen <= maxLen {
+		return core
+	}
+
+	// Даже core не влезает — жёсткая обрезка
+	runes := []rune(core)
+	return string(runes[:maxLen-3]) + "..."
 }
 
-// ShouldUsePhoto проверяет, помещается ли текст под фото
-func ShouldUsePhoto(n News, maxLen int, _, _, _ int) bool {
-	caption := FormatCaptionForPhoto(n, maxLen, 0, 0)
+// ShouldUsePhoto проверяет, помещается ли контент под фото (caption ≤ maxLen).
+func ShouldUsePhoto(n News, maxLen int) bool {
+	caption := FormatCaptionForPhoto(n, maxLen)
 	count := utf8.RuneCountInString(caption)
 	return count <= maxLen && count > 100
 }

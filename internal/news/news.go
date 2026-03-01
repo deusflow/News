@@ -58,14 +58,20 @@ type Options struct {
 	Keywords *config.KeywordsConfig
 }
 
+// scrapedItem хранит результат первого этапа — параллельного скрейпинга.
+// AI-обработка происходит только на втором этапе, строго последовательно.
+type scrapedItem struct {
+	index          int
+	item           *rss.FeedItem
+	content        string // итоговый контент: scraper → description → ""
+	scrapeImageURL string // og:image из скрапера (может быть "")
+}
+
 func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, opts Options) ([]News, error) {
 	log.Printf("🚀 Starting news fetch cycle...")
-
-	// 1. Получаем RSS
-	// Используем items, которые были переданы в параметрах
 	log.Printf("📥 Received %d raw items from RSS", len(items))
 
-	// 2. Фильтруем по дате
+	// ── Шаг 1: фильтрация по дате ────────────────────────────────────────────
 	var recent []*rss.FeedItem
 	cutoff := time.Now().Add(-opts.MaxAge)
 	for _, item := range items {
@@ -74,99 +80,144 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 	}
 
-	// 3. Удаляем дубликаты ссылок
+	// ── Шаг 2: дедупликация ссылок ───────────────────────────────────────────
 	unique := make(map[string]*rss.FeedItem)
 	for _, item := range recent {
 		unique[item.Link] = item
 	}
-
-	var candidates []*rss.FeedItem
+	candidates := make([]*rss.FeedItem, 0, len(unique))
 	for _, item := range unique {
 		candidates = append(candidates, item)
 	}
 
-	// Сортируем: свежие сначала
+	// Сортируем: свежие сначала (стабильный порядок для AI-очереди)
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].PublishedParsed == nil || candidates[j].PublishedParsed == nil {
 			return false
 		}
 		return candidates[i].PublishedParsed.After(*candidates[j].PublishedParsed)
 	})
+	log.Printf("🔍 Unique items after dedup: %d", len(candidates))
 
-	log.Printf("🔍 Unique items to process: %d", len(candidates))
+	// ── Шаг 3: параллельный скрейпинг (ТОЛЬКО HTTP, без AI) ──────────────────
+	//
+	// Здесь допустим параллелизм: каждый воркер делает HTTP-запрос к источнику.
+	// AI в этом шаге не вызывается вообще — никакой очереди AI, никакого блока.
+	concurrency := opts.ScrapeConcurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	log.Printf("🌐 Phase 1 — parallel scraping (%d workers)...", concurrency)
 
-	var result []News
-
-	// 4. Concurrent processing with worker pool
-	log.Printf("🔄 Starting concurrent processing with %d workers", opts.ScrapeConcurrency)
-
-	type job struct {
+	type scrapeJob struct {
 		index int
 		item  *rss.FeedItem
 	}
-
-	type processingResult struct {
-		index int
-		news  *News
-		err   error
+	type scrapeResult struct {
+		index          int
+		item           *rss.FeedItem
+		content        string
+		scrapeImageURL string
 	}
 
-	jobs := make(chan job, len(candidates))
-	results := make(chan processingResult, len(candidates))
+	scrapeJobs := make(chan scrapeJob, len(candidates))
+	scrapeResults := make(chan scrapeResult, len(candidates))
 
-	// Start workers
-	var wg sync.WaitGroup
-	for w := 0; w < opts.ScrapeConcurrency; w++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			for j := range jobs {
-				news, err := processItem(ctx, j.item, j.index, opts)
-				results <- processingResult{index: j.index, news: news, err: err}
+	var scrapeWg sync.WaitGroup
+	for w := 0; w < concurrency; w++ {
+		scrapeWg.Add(1)
+		go func() {
+			defer scrapeWg.Done()
+			for j := range scrapeJobs {
+				if ctx.Err() != nil {
+					// контекст отменён — не начинаем новые запросы
+					scrapeResults <- scrapeResult{index: j.index, item: j.item, content: ""}
+					continue
+				}
+
+				scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				ac, err := scraper.ExtractFullArticle(scrapeCtx, j.item.Link)
+				cancel()
+
+				content := ""
+				imageURL := ""
+				switch {
+				case err == nil && ac != nil && ac.Content != "":
+					content = ac.Content
+					imageURL = ac.ImageURL
+				case j.item.Description != "":
+					content = j.item.Description
+					log.Printf("⚠️ Scrape failed for %s, using RSS description: %v", j.item.Link, err)
+				default:
+					log.Printf("⚠️ No content at all for %s: %v", j.item.Link, err)
+				}
+
+				scrapeResults <- scrapeResult{index: j.index, item: j.item, content: content, scrapeImageURL: imageURL}
 			}
-		}(w)
+		}()
 	}
 
-	// Send jobs
 	for i, item := range candidates {
-		jobs <- job{index: i, item: item}
+		scrapeJobs <- scrapeJob{index: i, item: item}
 	}
-	close(jobs)
+	close(scrapeJobs)
 
-	// Wait for workers to finish
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	scrapeWg.Wait()
+	close(scrapeResults)
 
-	// Collect results in order
-	var mu sync.Mutex
-	var resultMap = make(map[int]*News)
-	var errors []error
-	for r := range results {
-		mu.Lock()
-		if r.err != nil {
-			log.Printf("❌ Error processing item %d: %v", r.index, r.err)
-			errors = append(errors, r.err)
-		} else if r.news != nil {
-			resultMap[r.index] = r.news
-		}
-		mu.Unlock()
+	// Собираем и сортируем по индексу — порядок = по свежести
+	scrapeMap := make(map[int]scrapeResult, len(candidates))
+	for r := range scrapeResults {
+		scrapeMap[r.index] = r
 	}
-
-	// Sort results by index to maintain order
+	scraped := make([]scrapedItem, 0, len(scrapeMap))
 	for i := 0; i < len(candidates); i++ {
-		if news, ok := resultMap[i]; ok {
-			result = append(result, *news)
-			if opts.Limit > 0 && len(result) >= opts.Limit {
-				break
-			}
+		if r, ok := scrapeMap[i]; ok {
+			scraped = append(scraped, scrapedItem{
+				index:          r.index,
+				item:           r.item,
+				content:        r.content,
+				scrapeImageURL: r.scrapeImageURL,
+			})
+		}
+	}
+	log.Printf("✅ Phase 1 done: %d items scraped", len(scraped))
+
+	// ── Шаг 4: последовательные AI-вызовы (строго один за одним) ────────────
+	//
+	// AI Manager уже обеспечивает паузу между запросами (defaultDelay).
+	// Здесь мы просто идём по списку — никакого параллелизма, никакой очереди,
+	// никакого риска потерять контент, который уже scrape-нут.
+	//
+	// Если контекст отменяется в середине — обрабатываем только то, что успели.
+	log.Printf("🤖 Phase 2 — sequential AI processing (%d items)...", len(scraped))
+
+	var result []News
+	aiErrors := 0
+
+	for _, s := range scraped {
+		if ctx.Err() != nil {
+			log.Printf("⚠️ Context cancelled after %d AI calls, stopping early", len(result)+aiErrors)
+			break
+		}
+		if opts.Limit > 0 && len(result) >= opts.Limit {
+			break
+		}
+
+		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
+		if err != nil {
+			log.Printf("❌ AI failed for item %d ('%s'): %v", s.index+1, s.item.Title, err)
+			aiErrors++
+			continue
+		}
+		if n != nil {
+			result = append(result, *n)
 		}
 	}
 
-	log.Printf("✅ Processed %d items successfully, %d errors", len(result), len(errors))
+	log.Printf("✅ Phase 2 done: %d news ready, %d AI errors", len(result), aiErrors)
 
-	// 5. Сортировка (Оставляем как было)
+	// ── Шаг 5: сортировка по score ───────────────────────────────────────────
 	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].Score > result[j].Score
 	})
@@ -174,95 +225,108 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	return result, nil
 }
 
-// Вспомогательная функция (если удалил старый calculateScore, можно оставить упрощенную версию или удалить, если используешь KeywordsConfig)
+// Веса для mood-based fallback scoring.
+// Используется ТОЛЬКО когда Keywords config недоступен.
+// При наличии Keywords — scoring идёт через CalculateScore() из YAML.
+const (
+	scoreMoodUrgent   = 50 // Срочные новости — максимальный приоритет
+	scoreMoodShocking = 30 // Шокирующие новости — высокий приоритет
+	scoreMoodNegative = 20 // Негативные новости важнее позитивных (влияют на жизнь)
+	scoreMoodPositive = 10 // Позитивные новости — базовый приоритет
+	// neutral = 0 — нейтральные не получают бонуса, но и не фильтруются
+	scoreFreshNews  = 10 // Бонус за свежесть: опубликована менее чем scoreFreshHours назад
+	scoreFreshHours = 4  // Порог "свежей" новости в часах
+)
+
+// calculateScore — fallback scoring по mood и свежести.
+// Применяется только если Keywords config не задан.
+// Картинка намеренно НЕ влияет на score — наличие фото не делает новость важнее.
 func calculateScore(n News) int {
-	// ... (старая логика) ...
 	score := 0
-	switch strings.ToLower(n.Mood) {
+	switch n.Mood { // Mood уже нормализован в Validate() → всегда lowercase
 	case "urgent":
-		score += 50
+		score += scoreMoodUrgent
 	case "shocking":
-		score += 30
+		score += scoreMoodShocking
+	case "negative":
+		score += scoreMoodNegative
 	case "positive":
-		score += 10
+		score += scoreMoodPositive
+		// "neutral" → 0, без бонуса
 	}
-	if time.Since(n.Published).Hours() < 4 {
-		score += 10
-	}
-	if n.ImageURL != "" {
-		score += 5
+	if time.Since(n.Published).Hours() < scoreFreshHours {
+		score += scoreFreshNews
 	}
 	return score
 }
 
-func processItem(ctx context.Context, item *rss.FeedItem, index int, opts Options) (*News, error) {
+// processItemWithContent вызывается на втором этапе (строго последовательно).
+// Контент и картинка уже получены на этапе параллельного скрейпинга — здесь только AI + маппинг.
+func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, content, scrapeImageURL string, opts Options) (*News, error) {
 	title := item.Title
 	link := item.Link
-	log.Printf("🤖 Processing item %d: %s", index+1, title)
+	log.Printf("🤖 AI processing item %d: %s", index+1, title)
 
-	// Scrape full article (if available)
-	scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	ac, err := scraper.ExtractFullArticle(scrapeCtx, link)
-	cancel()
-	if err != nil {
-		log.Printf("⚠️ Scrape failed for %s: %v", link, err)
+	// HIGH-3 guard: если контент пустой и заголовок слишком короткий —
+	// AI получит практически нулевой input и начнёт галлюцинировать.
+	// Минимальный полезный заголовок: 30 символов (~5-6 слов на датском).
+	const minTitleLen = 30
+	if content == "" && len([]rune(strings.TrimSpace(title))) < minTitleLen {
+		log.Printf("⚠️ Skipping item %d — no content and title too short (%d chars): %q",
+			index+1, len([]rune(strings.TrimSpace(title))), title)
+		return nil, nil
+	}
+	if content == "" {
+		log.Printf("⚠️ Item %d has no scraped content, AI will work from title only: %q", index+1, title)
 	}
 
-	content := ""
-	if err == nil && ac != nil && ac.Content != "" {
-		content = ac.Content
-	} else if item.Description != "" {
-		// Fallback to description
-		content = item.Description
-	}
-
-	// --- AI GENERATION (ГЛАВНОЕ ИЗМЕНЕНИЕ) ---
 	prompt := GenerateNewsPrompt(title, content)
 
-	// Вызов AI через Менеджер
-	resp, err := opts.AI.Generate(ctx, title, content, prompt)
-	if err != nil {
-		log.Printf("❌ All AI providers failed for '%s': %v", title, err)
-		return nil, err // Пропускаем новость, если никто не смог перевести
+	resp, aiErr := opts.AI.Generate(ctx, title, content, prompt)
+	if aiErr != nil {
+		log.Printf("❌ All AI providers failed for '%s': %v", title, aiErr)
+		return nil, aiErr
 	}
 
-	// Маппинг ответа AI в структуру новости
+	// Валидация AI ответа: проверяем обязательные поля и нормализуем mood
+	if err := resp.Validate(); err != nil {
+		log.Printf("❌ AI response validation failed for '%s': %v", title, err)
+		return nil, err
+	}
+
 	published := time.Now()
 	if item.PublishedParsed != nil {
 		published = *item.PublishedParsed
 	}
 
+	// Категорию из AI валидируем через whitelist — галлюцинации не пройдут
+	aiCategory := ValidateCategory(resp.Category)
+
 	n := News{
 		Title:      title,
 		Link:       link,
 		Published:  published,
-		Category:   "", // Будет заполнено ниже
+		Category:   string(aiCategory),
 		SourceName: item.Source.Name,
 		SourceLang: item.Source.Lang,
+		Content:    content,
 
-		// Маппинг полей из ai.Response
 		Summary:          resp.Summary,
-		SummaryDanish:    resp.Danish,    // В ai.Response поле называется Danish
-		SummaryUkrainian: resp.Ukrainian, // В ai.Response поле называется Ukrainian
+		SummaryDanish:    resp.Danish,
+		SummaryUkrainian: resp.Ukrainian,
 		TitleUkrainian:   resp.TitleUkrainian,
-		Mood:             resp.Mood,
+		Mood:             resp.Mood, // уже нормализован в Validate()
 		Tags:             resp.Tags,
 		TLDR:             resp.TLDR,
 		FunFact:          resp.FunFact,
-
-		ImageURL: "", // Будет заполнено скрапером или RSS
 	}
 
-	// Картинка из скрапера или RSS или Enclosures
-	// ИСПРАВЛЕННАЯ ЛОГИКА КАРТИНОК:
-	// 1. Сначала пробуем картинку из скрапера (обычно лучшее качество)
-	if err == nil && ac != nil && ac.ImageURL != "" {
-		n.ImageURL = ac.ImageURL
+	// Картинка: скрапер (фаза 1) → RSS image → Enclosures
+	if scrapeImageURL != "" {
+		n.ImageURL = scrapeImageURL
 	} else if item.Image != nil {
-		// 2. Если нет, пробуем из RSS (стандартное поле image)
 		n.ImageURL = item.Image.URL
 	} else if len(item.Enclosures) > 0 {
-		// 3. Иногда картинки бывают в Enclosures
 		for _, enc := range item.Enclosures {
 			if strings.HasPrefix(enc.Type, "image/") {
 				n.ImageURL = enc.URL
@@ -271,26 +335,26 @@ func processItem(ctx context.Context, item *rss.FeedItem, index int, opts Option
 		}
 	}
 
-	if len(item.Source.Categories) > 0 {
-		n.Category = item.Source.Categories[0]
-	}
-
 	// Clean tags
 	for j, t := range n.Tags {
 		n.Tags[j] = strings.TrimPrefix(t, "#")
 	}
 
-	// Подсчет очков (если есть Keywords)
+	// Скоринг и финальная категория.
+	// Keywords могут перезаписать категорию AI если нашлось точное совпадение.
+	// Категория из keywords тоже проходит через ValidateCategory — "spam" и
+	// неизвестные значения откатятся к CategoryDefault.
 	if opts.Keywords != nil {
-		// ... логика скоринга ...
-		score, cat := opts.Keywords.CalculateScore(title + " " + content)
+		score, kwCat := opts.Keywords.CalculateScore(title + " " + content)
 		n.Score = score
-		if cat != "" {
-			n.Category = cat
+		if kwCat != "" && kwCat != "spam" {
+			n.Category = string(ValidateCategory(kwCat))
 		}
 	} else {
-		n.Score = calculateScore(n) // Старый метод, если нет кейвордов
+		n.Score = calculateScore(n)
 	}
+
+	log.Printf("📂 Category for '%s': %s (score: %d)", title, n.Category, n.Score)
 
 	// Фильтр мусора (score < 0)
 	if n.Score < 0 {

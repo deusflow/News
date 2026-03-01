@@ -23,22 +23,19 @@ type ArticleContent struct {
 	ImageURL string
 }
 
-// ExtractFullArticle gets full text of article by URL
-func ExtractFullArticle(ctx context.Context, url string) (*ArticleContent, error) {
-	// Make HTTP client with timeout
+// ExtractFullArticle gets full text and og:image of article by URL.
+// Uses a single HTTP request — image extraction reuses the same parsed document.
+func ExtractFullArticle(ctx context.Context, articleURL string) (*ArticleContent, error) {
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 	}
 
-	// Create request with context
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", articleURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-
-	// В scraper.go перед resp, err := client.Do(req)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	// Get HTML page
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error loading page: %v", err)
@@ -49,31 +46,25 @@ func ExtractFullArticle(ctx context.Context, url string) (*ArticleContent, error
 		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
 
-	// Parse HTML
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing HTML: %v", err)
 	}
 
-	// Get content by site
-	content := extractContentBySource(doc, url)
+	content := extractContentBySource(doc, articleURL)
 	title := extractTitle(doc)
 
 	if content == "" {
 		return nil, fmt.Errorf("can't get content")
 	}
 
-	// Try to extract representative image from the page (non-fatal)
-	imgURL, imgErr := ExtractImageURL(url)
-	if imgErr != nil {
-		// log but continue
-		log.Printf("Warning: failed to extract image from %s: %v", url, imgErr)
-	}
+	// Extract og:image from the SAME document — no second HTTP request needed.
+	imgURL := extractImageFromDoc(doc, articleURL)
 
 	return &ArticleContent{
 		Title:    title,
 		Content:  content,
-		URL:      url,
+		URL:      articleURL,
 		ImageURL: imgURL,
 	}, nil
 }
@@ -598,35 +589,10 @@ func ExtractArticlesInBackgroundWithLimits(ctx context.Context, urls []string, m
 	return result
 }
 
-// ExtractImageURL fetches a page and tries to detect a representative image (og:image/twitter:image)
-func ExtractImageURL(pageURL string) (string, error) {
-	if strings.TrimSpace(pageURL) == "" {
-		return "", fmt.Errorf("empty url")
-	}
-
-	client := &http.Client{Timeout: 12 * time.Second}
-
-	req, err := http.NewRequest("GET", pageURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating request: %v", err)
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-	resp, err := client.Do(req)
-
-	if err != nil {
-		return "", fmt.Errorf("error loading page: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http status %d", resp.StatusCode)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error parsing HTML: %v", err)
-	}
-
+// extractImageFromDoc extracts the best representative image URL from an
+// already-parsed goquery document. Called by ExtractFullArticle so we never
+// make a second HTTP request just for the image.
+func extractImageFromDoc(doc *goquery.Document, pageURL string) string {
 	resolve := func(src string) string {
 		src = strings.TrimSpace(src)
 		if src == "" {
@@ -646,70 +612,89 @@ func ExtractImageURL(pageURL string) (string, error) {
 		return base.ResolveReference(u).String()
 	}
 
-	// Priority 1: og:image variants (return as-is if http/https)
-	if v, ok := doc.Find(`meta[property="og:image"]`).Attr("content"); ok {
-		img := resolve(v)
-		if strings.HasPrefix(img, "http") {
-			return img, nil
-		}
-	}
-	if v, ok := doc.Find(`meta[property="og:image:url"]`).Attr("content"); ok {
-		img := resolve(v)
-		if strings.HasPrefix(img, "http") {
-			return img, nil
-		}
-	}
-	if v, ok := doc.Find(`meta[property="og:image:secure_url"]`).Attr("content"); ok {
-		img := resolve(v)
-		if strings.HasPrefix(img, "http") {
-			return img, nil
+	// Priority 1: og:image variants
+	for _, attr := range []string{
+		`meta[property="og:image"]`,
+		`meta[property="og:image:url"]`,
+		`meta[property="og:image:secure_url"]`,
+	} {
+		if v, ok := doc.Find(attr).Attr("content"); ok {
+			if img := resolve(v); strings.HasPrefix(img, "http") {
+				return img
+			}
 		}
 	}
 
 	// Priority 2: twitter:image
 	if v, ok := doc.Find(`meta[name="twitter:image"], meta[name="twitter:image:src"]`).Attr("content"); ok {
-		img := resolve(v)
-		if strings.HasPrefix(img, "http") {
-			return img, nil
+		if img := resolve(v); strings.HasPrefix(img, "http") {
+			return img
 		}
 	}
 
 	// Priority 3: link rel=image_src
 	if v, ok := doc.Find(`link[rel="image_src"]`).Attr("href"); ok {
-		img := resolve(v)
-		if strings.HasPrefix(img, "http") {
-			return img, nil
+		if img := resolve(v); strings.HasPrefix(img, "http") {
+			return img
 		}
 	}
 
-	// Fallback: first <img> in main/article, prefer srcset largest
-	sel := []string{"article img", "main img", "img"}
-	for _, s := range sel {
-		if n := doc.Find(s).First(); n != nil && n.Length() > 0 {
-			// Prefer srcset
-			if v, ok := n.Attr("srcset"); ok {
-				best := pickLargestFromSrcset(v)
-				img := resolve(best)
-				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
-					return img, nil
-				}
+	// Fallback: first <img> in article/main
+	for _, sel := range []string{"article img", "main img", "img"} {
+		n := doc.Find(sel).First()
+		if n == nil || n.Length() == 0 {
+			continue
+		}
+		if v, ok := n.Attr("srcset"); ok {
+			if img := resolve(pickLargestFromSrcset(v)); strings.HasPrefix(img, "http") && isLikelyImage(img) {
+				return img
 			}
-			if v, ok := n.Attr("data-src"); ok {
-				img := resolve(v)
-				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
-					return img, nil
-				}
+		}
+		if v, ok := n.Attr("data-src"); ok {
+			if img := resolve(v); strings.HasPrefix(img, "http") && isLikelyImage(img) {
+				return img
 			}
-			if v, ok := n.Attr("src"); ok {
-				img := resolve(v)
-				if strings.HasPrefix(img, "http") && isLikelyImage(img) {
-					return img, nil
-				}
+		}
+		if v, ok := n.Attr("src"); ok {
+			if img := resolve(v); strings.HasPrefix(img, "http") && isLikelyImage(img) {
+				return img
 			}
 		}
 	}
 
-	return "", nil
+	return ""
+}
+
+// ExtractImageURL fetches a page and extracts its representative image.
+// Prefer using ExtractFullArticle which reuses the same HTTP request.
+// This function exists for callers that only need the image without content.
+func ExtractImageURL(pageURL string) (string, error) {
+	if strings.TrimSpace(pageURL) == "" {
+		return "", fmt.Errorf("empty url")
+	}
+
+	client := &http.Client{Timeout: 12 * time.Second}
+	req, err := http.NewRequest("GET", pageURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error loading page: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("http status %d", resp.StatusCode)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error parsing HTML: %v", err)
+	}
+
+	return extractImageFromDoc(doc, pageURL), nil
 }
 
 func isLikelyImage(u string) bool {

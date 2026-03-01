@@ -77,57 +77,76 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 	return err
 }
 
+// retryBaseDelay is the base sleep between network-error retries.
+const retryBaseDelay = 2 * time.Second
+
 func executeRequest(url string, body map[string]interface{}) (int, error) {
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return 0, err
 	}
 
-	for attempt := 0; attempt < 3; attempt++ {
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		resp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(jsonBody))
 		if err != nil {
-			time.Sleep(2 * time.Second)
+			// Network-level error — retry with backoff
+			if attempt < maxAttempts-1 {
+				time.Sleep(retryBaseDelay * time.Duration(attempt+1))
+			}
 			continue
 		}
 
-		// Обработка лимитов (429)
-		if resp.StatusCode == 429 {
+		switch resp.StatusCode {
+		case http.StatusOK:
+			// Success path
+			var response map[string]interface{}
+			if decErr := json.NewDecoder(resp.Body).Decode(&response); decErr != nil {
+				_ = resp.Body.Close()
+				return 0, decErr
+			}
 			_ = resp.Body.Close()
-			retryAfterStr := resp.Header.Get("Retry-After")
-			retryAfter, _ := strconv.Atoi(retryAfterStr)
-			if retryAfter == 0 {
-				retryAfter = 5
-			} // Дефолт
+			if result, ok := response["result"].(map[string]interface{}); ok {
+				if mid, ok := result["message_id"].(float64); ok {
+					return int(mid), nil
+				}
+			}
+			return 0, nil
 
-			logger.Warn("Telegram Rate Limit", "wait_seconds", retryAfter)
+		case http.StatusTooManyRequests: // 429 — rate limited
+			retryAfter := 5
+			if v := resp.Header.Get("Retry-After"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					retryAfter = n
+				}
+			}
+			_ = resp.Body.Close()
+			logger.Warn("Telegram rate limit", "wait_seconds", retryAfter, "attempt", attempt+1)
 			time.Sleep(time.Duration(retryAfter+1) * time.Second)
-			continue
-		}
+			// retry
 
-		if resp.StatusCode != http.StatusOK {
+		case http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout: // 5xx — server-side transient errors, retry
 			respBody, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			return 0, fmt.Errorf("telegram api error: %s", string(respBody))
-		}
-
-		var response map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			_ = resp.Body.Close()
-			return 0, err
-		}
-		_ = resp.Body.Close()
-
-		// Безопасное извлечение message_id
-		if result, ok := response["result"].(map[string]interface{}); ok {
-			if mid, ok := result["message_id"].(float64); ok {
-				return int(mid), nil
+			logger.Warn("Telegram server error, will retry", "status", resp.StatusCode, "attempt", attempt+1)
+			if attempt < maxAttempts-1 {
+				time.Sleep(retryBaseDelay * time.Duration(attempt+1))
+			} else {
+				return 0, fmt.Errorf("telegram server error %d: %s", resp.StatusCode, string(respBody))
 			}
-		}
 
-		return 0, nil
+		default:
+			// 4xx (400, 401, 403, 404 …) — client error, retrying won't help
+			respBody, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return 0, fmt.Errorf("telegram api error %d: %s", resp.StatusCode, string(respBody))
+		}
 	}
 
-	return 0, fmt.Errorf("failed after retries")
+	return 0, fmt.Errorf("telegram: failed after %d attempts", maxAttempts)
 }
 
 // InlineButton struct

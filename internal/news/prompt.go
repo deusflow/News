@@ -12,11 +12,15 @@ type NewsBudget struct {
 
 // DefaultBudget - стандартні налаштування
 var DefaultBudget = NewsBudget{
-	DanishChars:    600, // Трохи збільшив для запасу
+	DanishChars:    600,
 	UkrainianChars: 800,
 	TLDRChars:      150,
 	FunFactChars:   200,
 }
+
+// validCategoryList — строка со списком категорий для подстановки в промпт.
+// Генерируется из ValidCategories чтобы prompt и код всегда были синхронизированы.
+const validCategoryList = `"visas", "work", "money", "society", "war", "local", "education", "crime", "tech", "economy", "family", "lifestyle", "sport", "eu"`
 
 // GenerateNewsPrompt створює єдиний промт для всіх AI моделей (Gemini, Groq)
 func GenerateNewsPrompt(title, content string) string {
@@ -60,14 +64,32 @@ TASKS (return valid JSON only):
    - Proper nouns unchanged
    - Neutral newsroom headline style
 
-5) "mood": One of: "positive", "negative", "neutral", "shocking", "urgent"
+5) "mood": One of EXACTLY: "positive", "negative", "neutral", "shocking", "urgent"
+   - Choose the one that best fits the overall tone of the news
 
-6) "tags": 2-4 Ukrainian tags (short nouns, NO # symbol)
+6) "category": ONE value from EXACTLY this list (no other values allowed!):
+   %s
+   - "visas"     → news about residence permits, Ukrainian status, EU protection law, deportation
+   - "work"      → jobs, employment, work permits, labour market
+   - "money"     → benefits, taxes, cost of living, salaries, subsidies
+   - "society"   → social issues, integration, protests, public life (DEFAULT if unsure)
+   - "war"       → Ukraine war, military aid, NATO, defence
+   - "local"     → Viborg, Midtjylland, local Danish city news
+   - "education" → schools, universities, courses, training, EHF/erhvervsskole
+   - "crime"     → crime, police, court, prison
+   - "tech"      → AI, cybersecurity, IT, digitalisation, startups
+   - "economy"   → Danish economy, GDP, inflation, trade, business
+   - "family"    → children, daycare, parental leave, family benefits
+   - "lifestyle" → culture, festivals, food, travel, sports events
+   - "sport"     → competitive sports, leagues, athletes
+   - "eu"        → European Parliament, EU law, Brussels decisions
 
-7) "tldr": ONE Ukrainian TL;DR sentence (STRICT MAX %d chars) starting with ONE emoji
+7) "tags": 2-4 Ukrainian tags (short nouns, NO # symbol)
+
+8) "tldr": ONE Ukrainian TL;DR sentence (STRICT MAX %d chars) starting with ONE emoji
    - Captures the essence of the news
 
-8) "fun_fact": ONE interesting fact about Denmark (STRICT MAX %d chars)
+9) "fun_fact": ONE interesting fact about Denmark (STRICT MAX %d chars)
    - Ukrainian, start with ONE emoji
    - MUST be unrelated to this specific news topic
    - Prefer recent (after 2000), surprising, cultural, legal, tech, social or lifestyle facts
@@ -79,7 +101,8 @@ ABSOLUTE PROHIBITIONS:
 - No explanations like "це означає"
 - No hashtags in danish/ukrainian (tags field is separate)
 - DO NOT repeat or paraphrase the title in danish/ukrainian fields!
+- For "category": output ONLY the raw string value, e.g. "society" — never invent new values!
 
 Output valid JSON only.
-`, title, content, DefaultBudget.DanishChars, DefaultBudget.UkrainianChars, DefaultBudget.TLDRChars, DefaultBudget.FunFactChars)
+`, title, content, DefaultBudget.DanishChars, DefaultBudget.UkrainianChars, validCategoryList, DefaultBudget.TLDRChars, DefaultBudget.FunFactChars)
 }
