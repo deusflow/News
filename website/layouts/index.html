@@ -129,272 +129,304 @@
                         {{ end }}
                     {{ end }}
 
-                    <!-- Weather Widget — city selector + geolocation -->
+                    <!-- Weather Widget -->
                     <div class="weather-widget" id="weatherWidget">
 
-                        <!-- Header: flag + city label + geo button -->
-                        <div class="weather-widget__header">
-                            <span class="weather-widget__flag" id="weatherFlag">🇩🇰</span>
-                            <div class="weather-widget__location">
-                                <span class="weather-widget__city" id="weatherCity">Köppen...</span>
-                                <span class="weather-widget__country" id="weatherCountry">Denmark</span>
+                        <!-- Top bar: location name + geo button -->
+                        <div class="ww-topbar">
+                            <div class="ww-location">
+                                <span class="ww-flag" id="weatherFlag">🇩🇰</span>
+                                <div>
+                                    <span class="ww-city" id="weatherCity">København</span>
+                                    <span class="ww-country" id="weatherCountry">Danmark</span>
+                                </div>
                             </div>
-                            <!-- Geolocation button -->
-                            <button class="weather-widget__geo-btn"
-                                    id="weatherGeoBtn"
-                                    title="Визначити моє місцезнаходження"
-                                    aria-label="Використати геолокацію">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                            <button class="ww-geo-btn" id="weatherGeoBtn"
+                                    title="Brug min placering"
+                                    aria-label="Geo-lokation">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                     <circle cx="12" cy="12" r="3"/>
-                                    <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-                                    <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" opacity=".3"/>
+                                    <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+                                    <circle cx="12" cy="12" r="7" stroke-dasharray="3 2" opacity=".35"/>
                                 </svg>
+                                <span class="ww-geo-label" id="weatherGeoStatus"></span>
                             </button>
                         </div>
 
-                        <!-- City selector dropdown -->
-                        <div class="weather-widget__selector">
-                            <select class="weather-widget__select" id="weatherCitySelect"
-                                    aria-label="Оберіть місто">
-                                <option value="55.6761,12.5683,København,Denmark,🇩🇰" selected>🇩🇰 Копенгаген</option>
-                                <option value="56.1629,10.2039,Aarhus,Denmark,🇩🇰">🇩🇰 Орхус</option>
-                                <option value="56.4607,9.4018,Viborg,Denmark,🇩🇰">🇩🇰 Вібор</option>
-                                <option value="55.4038,10.4024,Odense,Denmark,🇩🇰">🇩🇰 Оденсе</option>
-                                <option value="57.0488,9.9217,Aalborg,Denmark,🇩🇰">🇩🇰 Ольборг</option>
-                                <option value="55.7167,12.3333,Frederiksberg,Denmark,🇩🇰">🇩🇰 Фредеріксберг</option>
-                                <option value="50.4501,30.5234,Kyiv,Ukraine,🇺🇦">🇺🇦 Київ</option>
-                                <option value="49.8397,24.0297,Lviv,Ukraine,🇺🇦">🇺🇦 Львів</option>
-                                <option value="geo,,,Моє місцезнаходження,📍">📍 Моє місцезнаходження</option>
-                            </select>
-                        </div>
-
-                        <!-- Main temp + icon -->
-                        <div class="weather-widget__main">
-                            <div class="weather-widget__icon" id="weatherIcon">
-                                <span class="weather-widget__icon-loading">⏳</span>
+                        <!-- Main: big temp + weather icon -->
+                        <div class="ww-main">
+                            <div class="ww-icon" id="weatherIcon">
+                                <span class="ww-icon-spin">⏳</span>
                             </div>
-                            <div class="weather-widget__temp">
-                                <span class="weather-widget__temp-value" id="weatherTemp">--</span>
-                                <span class="weather-widget__temp-unit">°C</span>
+                            <div class="ww-temp-block">
+                                <span class="ww-temp" id="weatherTemp">--</span>
+                                <span class="ww-unit">°C</span>
                             </div>
                         </div>
 
-                        <div class="weather-widget__desc" id="weatherDesc">Завантаження...</div>
+                        <!-- Condition description -->
+                        <div class="ww-desc" id="weatherDesc">Indlæser...</div>
 
-                        <div class="weather-widget__details">
-                            <div class="weather-widget__detail">
-                                <span class="weather-widget__detail-icon">💨</span>
-                                <span class="weather-widget__detail-value" id="weatherWind">--</span>
-                                <span class="weather-widget__detail-label">км/г</span>
+                        <!-- Stats row -->
+                        <div class="ww-stats">
+                            <div class="ww-stat">
+                                <span class="ww-stat-val" id="weatherWind">--</span>
+                                <span class="ww-stat-lbl">km/t vind</span>
                             </div>
-                            <div class="weather-widget__detail">
-                                <span class="weather-widget__detail-icon">💧</span>
-                                <span class="weather-widget__detail-value" id="weatherHumidity">--</span>
-                                <span class="weather-widget__detail-label">%</span>
+                            <div class="ww-stat-divider"></div>
+                            <div class="ww-stat">
+                                <span class="ww-stat-val" id="weatherHumidity">--</span>
+                                <span class="ww-stat-lbl">% fugt</span>
                             </div>
-                            <div class="weather-widget__detail">
-                                <span class="weather-widget__detail-icon">🌡️</span>
-                                <span class="weather-widget__detail-value" id="weatherFeels">--</span>
-                                <span class="weather-widget__detail-label">відч.</span>
+                            <div class="ww-stat-divider"></div>
+                            <div class="ww-stat">
+                                <span class="ww-stat-val" id="weatherFeels">--</span>
+                                <span class="ww-stat-lbl">føles som</span>
                             </div>
                         </div>
 
-                        <div class="weather-widget__footer">
-                            <span class="weather-widget__update" id="weatherUpdate">—</span>
-                            <span class="weather-widget__geo-status" id="weatherGeoStatus"></span>
+                        <!-- City pill picker -->
+                        <div class="ww-picker" id="wwPicker" role="group" aria-label="Vælg by">
+                            <button class="ww-pill active"
+                                    data-lat="55.6761" data-lon="12.5683"
+                                    data-city="København" data-country="Danmark" data-flag="🇩🇰">
+                                København
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="56.1629" data-lon="10.2039"
+                                    data-city="Aarhus" data-country="Danmark" data-flag="🇩🇰">
+                                Aarhus
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="56.4607" data-lon="9.4018"
+                                    data-city="Viborg" data-country="Danmark" data-flag="🇩🇰">
+                                Viborg
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="55.4038" data-lon="10.4024"
+                                    data-city="Odense" data-country="Danmark" data-flag="🇩🇰">
+                                Odense
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="57.0488" data-lon="9.9217"
+                                    data-city="Aalborg" data-country="Danmark" data-flag="🇩🇰">
+                                Aalborg
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="50.4501" data-lon="30.5234"
+                                    data-city="Kyiv" data-country="Ukraine" data-flag="🇺🇦">
+                                Kyiv
+                            </button>
+                            <button class="ww-pill"
+                                    data-lat="49.8397" data-lon="24.0297"
+                                    data-city="Lviv" data-country="Ukraine" data-flag="🇺🇦">
+                                Lviv
+                            </button>
+                        </div>
+
+                        <!-- Footer: updated time -->
+                        <div class="ww-footer">
+                            <span id="weatherUpdate">—</span>
                         </div>
                     </div>
 
                     <script>
                     (() => {
-                        // ── Weather code → emoji + Ukrainian description ──────────
                         const CODES = {
-                            0:{i:'☀️',d:'Ясно'},1:{i:'🌤️',d:'Переважно ясно'},
-                            2:{i:'⛅',d:'Хмарно з проясненнями'},3:{i:'☁️',d:'Хмарно'},
-                            45:{i:'🌫️',d:'Туман'},48:{i:'🌫️',d:'Туман з інеєм'},
-                            51:{i:'🌦️',d:'Легка мряка'},53:{i:'🌦️',d:'Мряка'},55:{i:'🌧️',d:'Сильна мряка'},
-                            61:{i:'🌧️',d:'Легкий дощ'},63:{i:'🌧️',d:'Дощ'},65:{i:'🌧️',d:'Сильний дощ'},
-                            66:{i:'🌨️',d:'Крижаний дощ'},67:{i:'🌨️',d:'Сильний крижаний дощ'},
-                            71:{i:'🌨️',d:'Легкий сніг'},73:{i:'🌨️',d:'Сніг'},75:{i:'❄️',d:'Сильний сніг'},
-                            77:{i:'❄️',d:'Снігові зерна'},
-                            80:{i:'🌦️',d:'Легкі зливи'},81:{i:'🌦️',d:'Зливи'},82:{i:'⛈️',d:'Сильні зливи'},
-                            85:{i:'🌨️',d:'Снігові зливи'},86:{i:'🌨️',d:'Сильні снігові зливи'},
-                            95:{i:'⛈️',d:'Гроза'},96:{i:'⛈️',d:'Гроза з градом'},99:{i:'⛈️',d:'Сильна гроза з градом'}
+                            0:{i:'☀️',d:'Klart'},1:{i:'🌤️',d:'Mest klart'},
+                            2:{i:'⛅',d:'Delvist skyet'},3:{i:'☁️',d:'Overskyet'},
+                            45:{i:'🌫️',d:'Tåge'},48:{i:'🌫️',d:'Rimtåge'},
+                            51:{i:'🌦️',d:'Let støvregn'},53:{i:'🌦️',d:'Støvregn'},55:{i:'🌧️',d:'Kraftig støvregn'},
+                            61:{i:'🌧️',d:'Let regn'},63:{i:'🌧️',d:'Regn'},65:{i:'🌧️',d:'Kraftig regn'},
+                            66:{i:'🌨️',d:'Isregn'},67:{i:'🌨️',d:'Kraftig isregn'},
+                            71:{i:'🌨️',d:'Let sne'},73:{i:'🌨️',d:'Sne'},75:{i:'❄️',d:'Kraftig sne'},
+                            77:{i:'❄️',d:'Snekorn'},
+                            80:{i:'🌦️',d:'Lette byger'},81:{i:'🌦️',d:'Byger'},82:{i:'⛈️',d:'Kraftige byger'},
+                            85:{i:'🌨️',d:'Snebyger'},86:{i:'🌨️',d:'Kraftige snebyger'},
+                            95:{i:'⛈️',d:'Tordenvejr'},96:{i:'⛈️',d:'Tordenvejr m. hagl'},
+                            99:{i:'⛈️',d:'Kraftigt tordenvejr'}
                         };
 
-                        const STORAGE_KEY = 'dknews_weather_city';
+                        const KEY = 'dknews_weather_v2';
+                        const GEO_OPT = { timeout: 8000, maximumAge: 5 * 60 * 1000 };
 
-                        // ── DOM refs ──────────────────────────────────────────────
-                        const $select   = document.getElementById('weatherCitySelect');
-                        const $flag     = document.getElementById('weatherFlag');
-                        const $city     = document.getElementById('weatherCity');
-                        const $country  = document.getElementById('weatherCountry');
-                        const $icon     = document.getElementById('weatherIcon');
-                        const $temp     = document.getElementById('weatherTemp');
-                        const $desc     = document.getElementById('weatherDesc');
-                        const $wind     = document.getElementById('weatherWind');
-                        const $hum      = document.getElementById('weatherHumidity');
-                        const $feels    = document.getElementById('weatherFeels');
-                        const $update   = document.getElementById('weatherUpdate');
-                        const $geoBtn   = document.getElementById('weatherGeoBtn');
-                        const $geoSt    = document.getElementById('weatherGeoStatus');
-                        const $widget   = document.getElementById('weatherWidget');
+                        const $ = id => document.getElementById(id);
+                        const $flag    = $('weatherFlag');
+                        const $city    = $('weatherCity');
+                        const $country = $('weatherCountry');
+                        const $icon    = $('weatherIcon');
+                        const $temp    = $('weatherTemp');
+                        const $desc    = $('weatherDesc');
+                        const $wind    = $('weatherWind');
+                        const $hum     = $('weatherHumidity');
+                        const $feels   = $('weatherFeels');
+                        const $update  = $('weatherUpdate');
+                        const $geoBtn  = $('weatherGeoBtn');
+                        const $geoSt   = $('weatherGeoStatus');
+                        const $widget  = $('weatherWidget');
+                        const $picker  = $('wwPicker');
 
-                        // ── Fetch & render ────────────────────────────────────────
+                        // ── Pill selection ────────────────────────────────────────
+                        function setActivePill(lat, lon) {
+                            $picker.querySelectorAll('.ww-pill').forEach(btn => {
+                                btn.classList.toggle('active',
+                                    btn.dataset.lat === String(lat) && btn.dataset.lon === String(lon));
+                            });
+                        }
+
+                        // ── Reverse geocode (Nominatim) ───────────────────────────
+                        async function reverseGeocode(lat, lon) {
+                            try {
+                                const r = await fetch(
+                                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`,
+                                    { headers: { 'Accept-Language': 'da,en' } }
+                                );
+                                if (!r.ok) return null;
+                                const d = await r.json();
+                                const a = d.address || {};
+                                const city = a.city || a.town || a.village || a.municipality || a.county || '—';
+                                const cc   = (a.country_code || '').toUpperCase();
+                                const flag = cc.length === 2
+                                    ? String.fromCodePoint(...cc.split('').map(c => 0x1F1E0 + c.charCodeAt(0) - 65))
+                                    : '📍';
+                                return { city, country: a.country || cc, flag };
+                            } catch { return null; }
+                        }
+
+                        // ── Fetch weather ─────────────────────────────────────────
                         async function fetchWeather(lat, lon, cityName, countryName, flag) {
-                            setLoading();
+                            $widget.classList.remove('loaded');
+                            $icon.innerHTML = '<span class="ww-icon-spin">⏳</span>';
+                            $temp.textContent = '--';
+                            $desc.textContent = 'Indlæser...';
+                            $wind.textContent = $hum.textContent = $feels.textContent = '--';
+
                             try {
                                 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen';
-                                const url = `https://api.open-meteo.com/v1/forecast`
+                                const res = await fetch(
+                                    `https://api.open-meteo.com/v1/forecast`
                                     + `?latitude=${lat}&longitude=${lon}`
                                     + `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m`
-                                    + `&timezone=${encodeURIComponent(tz)}`;
-
-                                const res = await fetch(url);
-                                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                    + `&timezone=${encodeURIComponent(tz)}`
+                                );
+                                if (!res.ok) throw new Error(res.status);
                                 const data = await res.json();
                                 const c = data.current;
-                                const w = CODES[c.weather_code] || {i:'🌡️', d:'Невідомо'};
+                                const w = CODES[c.weather_code] || { i: '🌡️', d: 'Ukendt' };
 
                                 $flag.textContent    = flag;
                                 $city.textContent    = cityName;
                                 $country.textContent = countryName;
-                                $icon.innerHTML      = `<span class="weather-widget__icon-emoji">${w.i}</span>`;
+                                $icon.innerHTML      = `<span class="ww-icon-float">${w.i}</span>`;
                                 $temp.textContent    = Math.round(c.temperature_2m);
                                 $desc.textContent    = w.d;
                                 $wind.textContent    = Math.round(c.wind_speed_10m);
                                 $hum.textContent     = c.relative_humidity_2m;
                                 $feels.textContent   = Math.round(c.apparent_temperature) + '°';
-
-                                const now = new Date();
-                                $update.textContent  = `Оновлено: ${now.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})}`;
+                                $update.textContent  = 'Opdateret ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
                                 $widget.classList.add('loaded');
-                                $geoSt.textContent   = '';
                             } catch (e) {
-                                $desc.textContent = 'Не вдалося завантажити';
-                                $icon.innerHTML   = '<span class="weather-widget__icon-emoji">❓</span>';
-                                console.warn('Weather error:', e);
+                                $desc.textContent = 'Kunne ikke indlæse';
+                                $icon.innerHTML   = '<span>❓</span>';
                             }
-                        }
-
-                        function setLoading() {
-                            $icon.innerHTML   = '<span class="weather-widget__icon-loading">⏳</span>';
-                            $temp.textContent = '--';
-                            $desc.textContent = 'Завантаження...';
-                            $wind.textContent = $hum.textContent = $feels.textContent = '--';
-                            $widget.classList.remove('loaded');
-                        }
-
-                        // ── Parse city option value ───────────────────────────────
-                        // Format: "lat,lon,City,Country,flag"  OR  "geo,,,label,flag"
-                        function parseOption(val) {
-                            const parts = val.split(',');
-                            return {
-                                lat:     parts[0],
-                                lon:     parts[1],
-                                city:    parts[2],
-                                country: parts[3],
-                                flag:    parts[4]
-                            };
                         }
 
                         // ── Geolocation ───────────────────────────────────────────
-                        function useGeolocation() {
+                        function requestGeo(silent) {
                             if (!navigator.geolocation) {
-                                $geoSt.textContent = '⚠️ Геолокація недоступна';
+                                if (!silent) $geoSt.textContent = '—';
                                 return;
                             }
-                            $geoSt.textContent = '📍 Визначаємо...';
-                            $geoBtn.disabled   = true;
+                            $geoBtn.disabled = true;
+                            $geoBtn.classList.add('spinning');
+                            $geoSt.textContent = '';
+
                             navigator.geolocation.getCurrentPosition(
-                                pos => {
-                                    const {latitude: lat, longitude: lon} = pos.coords;
+                                async pos => {
+                                    const lat = pos.coords.latitude.toFixed(4);
+                                    const lon = pos.coords.longitude.toFixed(4);
+                                    const geo = await reverseGeocode(lat, lon);
+                                    const city    = geo?.city    ?? `${parseFloat(lat).toFixed(1)}°N`;
+                                    const country = geo?.country ?? `${parseFloat(lon).toFixed(1)}°E`;
+                                    const flag    = geo?.flag    ?? '📍';
+
+                                    localStorage.setItem(KEY, `geo:${lat},${lon},${city},${country},${flag}`);
+                                    setActivePill(null, null); // deselect all pills
                                     $geoBtn.disabled = false;
-                                    $geoSt.textContent = '📍 Ваше місце';
-                                    // Reverse-geocode via open-meteo elevation (free, no key)
-                                    // We don't have a reverse-geocoder on free tier,
-                                    // so just show coordinates as label.
-                                    fetchWeather(lat.toFixed(4), lon.toFixed(4),
-                                        `${lat.toFixed(2)}°N`, `${lon.toFixed(2)}°E`, '📍');
-                                    // Save to localStorage so it persists
-                                    localStorage.setItem(STORAGE_KEY, `geo:${lat.toFixed(4)},${lon.toFixed(4)}`);
-                                    // Select the "Моє місцезнаходження" option visually
-                                    $select.value = 'geo,,,Моє місцезнаходження,📍';
+                                    $geoBtn.classList.remove('spinning');
+                                    $geoSt.textContent = city;
+                                    fetchWeather(lat, lon, city, country, flag);
                                 },
                                 err => {
-                                    $geoBtn.disabled  = false;
-                                    $geoSt.textContent = err.code === 1
-                                        ? '🚫 Доступ заборонено' : '⚠️ Помилка геолокації';
+                                    $geoBtn.disabled = false;
+                                    $geoBtn.classList.remove('spinning');
+                                    $geoSt.textContent = err.code === 1 ? 'Nægtet' : '';
+                                    if (silent) {
+                                        // auto-init fallback → København
+                                        const btn = $picker.querySelector('.ww-pill');
+                                        loadPill(btn);
+                                    }
                                 },
-                                {timeout: 8000, maximumAge: 60000}
+                                GEO_OPT
                             );
                         }
 
-                        // ── City select change ────────────────────────────────────
-                        function onSelectChange() {
-                            const val = $select.value;
-                            if (val.startsWith('geo,')) {
-                                useGeolocation();
-                                return;
-                            }
-                            const p = parseOption(val);
-                            localStorage.setItem(STORAGE_KEY, val);
-                            fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                        // ── Load from pill button ─────────────────────────────────
+                        function loadPill(btn) {
+                            const { lat, lon, city, country, flag } = btn.dataset;
+                            setActivePill(lat, lon);
+                            $geoSt.textContent = '';
+                            localStorage.setItem(KEY, `city:${lat},${lon},${city},${country},${flag}`);
+                            fetchWeather(lat, lon, city, country, flag);
                         }
 
-                        // ── Restore saved city on load ────────────────────────────
+                        // ── Pill click handler ────────────────────────────────────
+                        $picker.addEventListener('click', e => {
+                            const btn = e.target.closest('.ww-pill');
+                            if (btn) loadPill(btn);
+                        });
+
+                        // ── Geo button click ──────────────────────────────────────
+                        $geoBtn.addEventListener('click', () => requestGeo(false));
+
+                        // ── Init ──────────────────────────────────────────────────
                         function init() {
-                            const saved = localStorage.getItem(STORAGE_KEY);
+                            const saved = localStorage.getItem(KEY);
 
                             if (saved && saved.startsWith('geo:')) {
-                                // Was using geolocation last time
-                                const coords = saved.slice(4).split(',');
-                                $select.value = 'geo,,,Моє місцезнаходження,📍';
-                                fetchWeather(coords[0], coords[1], `${parseFloat(coords[0]).toFixed(2)}°N`,
-                                    `${parseFloat(coords[1]).toFixed(2)}°E`, '📍');
+                                const [lat, lon, city, country, flag] = saved.slice(4).split(',');
+                                $geoSt.textContent = city || '';
+                                setActivePill(null, null);
+                                fetchWeather(lat, lon, city || '📍', country || '', flag || '📍');
                                 return;
                             }
-
-                            if (saved) {
-                                // Restore dropdown selection (validate option exists)
-                                const opt = Array.from($select.options).find(o => o.value === saved);
-                                if (opt) {
-                                    $select.value = saved;
-                                    const p = parseOption(saved);
-                                    fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
-                                    return;
-                                }
+                            if (saved && saved.startsWith('city:')) {
+                                const [lat, lon, city, country, flag] = saved.slice(5).split(',');
+                                const btn = [...$picker.querySelectorAll('.ww-pill')]
+                                    .find(b => b.dataset.lat === lat && b.dataset.lon === lon);
+                                if (btn) { loadPill(btn); return; }
                             }
 
-                            // Default: Copenhagen
-                            const p = parseOption($select.options[0].value);
-                            fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                            // First visit → silently try geolocation
+                            if (navigator.geolocation) {
+                                requestGeo(true);
+                            } else {
+                                loadPill($picker.querySelector('.ww-pill'));
+                            }
                         }
 
-                        // ── Event listeners ───────────────────────────────────────
-                        $select.addEventListener('change', onSelectChange);
-                        $geoBtn.addEventListener('click', useGeolocation);
+                        // ── Auto-refresh every 30 min ─────────────────────────────
+                        function refresh() {
+                            const saved = localStorage.getItem(KEY);
+                            if (!saved) return;
+                            const parts = saved.startsWith('geo:') ? saved.slice(4).split(',') : saved.slice(5).split(',');
+                            fetchWeather(parts[0], parts[1], parts[2] || '—', parts[3] || '', parts[4] || '📍');
+                        }
 
-                        // ── Boot ──────────────────────────────────────────────────
                         document.addEventListener('DOMContentLoaded', () => {
                             init();
-                            // Auto-refresh every 30 min
-                            setInterval(() => {
-                                const val = $select.value;
-                                if (val.startsWith('geo,')) {
-                                    const saved = localStorage.getItem(STORAGE_KEY);
-                                    if (saved && saved.startsWith('geo:')) {
-                                        const coords = saved.slice(4).split(',');
-                                        fetchWeather(coords[0], coords[1],
-                                            `${parseFloat(coords[0]).toFixed(2)}°N`,
-                                            `${parseFloat(coords[1]).toFixed(2)}°E`, '📍');
-                                    }
-                                } else if (val) {
-                                    const p = parseOption(val);
-                                    fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
-                                }
-                            }, 30 * 60 * 1000);
+                            setInterval(refresh, 30 * 60 * 1000);
                         });
                     })();
                     </script>
