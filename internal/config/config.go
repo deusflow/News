@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -107,6 +108,13 @@ type Keyword struct {
 	Word     string `yaml:"word"`
 	Category string `yaml:"category"`
 	Weight   int    `yaml:"weight"`
+
+	// boundaryRe is pre-compiled at load time for short words (≤4 runes).
+	// Words like "ai"(2), "su"(2), "sl1"(3), "tog"(3), "data"(4) must match whole
+	// words only — otherwise "ai" fires inside "socialordfører", "data" fires inside
+	// "opdatering"/"database", etc. (BUG-1/BUG-2 from audit).
+	// Longer words are matched with strings.Contains (faster, no false positives).
+	boundaryRe *regexp.Regexp
 }
 
 // KeywordsConfig holds the keywords for filtering
@@ -115,7 +123,18 @@ type KeywordsConfig struct {
 }
 
 // CalculateScore calculates the total score for a given text based on keywords.
-// Returns the total score (sum of all matching keyword weights) and the category with highest weight.
+//
+// Two fixes vs the old implementation:
+//
+//  1. WORD BOUNDARY: short keywords (≤4 runes) use a pre-compiled \b regex so
+//     "ai" never fires inside "socialordfører", "data" never fires inside
+//     "opdatering"/"database", "su" never fires inside "resultat", etc.
+//     Longer keywords still use strings.Contains (fast path, no false positives
+//     at that length in Danish).
+//
+//  2. CATEGORY BY SUM: the returned category is the one whose keywords contributed
+//     the most *total* weight, not the one with the single heaviest keyword.
+//     Example: 5 "local" keywords × weight 10 = 50 beats 1 "visas" keyword × weight 20.
 func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 	if kc == nil || len(kc.Keywords) == 0 {
 		return 0, ""
@@ -123,17 +142,35 @@ func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 
 	lowerText := strings.ToLower(text)
 	totalScore := 0
-	maxWeight := 0
-	topCategory := ""
+	categoryWeights := make(map[string]int, 16) // category → accumulated weight
 
-	for _, kw := range kc.Keywords {
-		if strings.Contains(lowerText, strings.ToLower(kw.Word)) {
+	for i := range kc.Keywords {
+		kw := &kc.Keywords[i]
+		matched := false
+
+		if kw.boundaryRe != nil {
+			// Short word — must match at word boundary
+			matched = kw.boundaryRe.MatchString(lowerText)
+		} else {
+			matched = strings.Contains(lowerText, strings.ToLower(kw.Word))
+		}
+
+		if matched {
 			totalScore += kw.Weight
-			// Track the category with highest weight for primary classification
-			if kw.Weight > maxWeight {
-				maxWeight = kw.Weight
-				topCategory = kw.Category
-			}
+			categoryWeights[kw.Category] += kw.Weight
+		}
+	}
+
+	// Pick category with highest accumulated weight (ignore "spam" — it is a filter, not a label)
+	topCategory := ""
+	maxCatWeight := 0
+	for cat, w := range categoryWeights {
+		if cat == "spam" {
+			continue
+		}
+		if w > maxCatWeight {
+			maxCatWeight = w
+			topCategory = cat
 		}
 	}
 
@@ -147,7 +184,6 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
-			// log as warning to avoid silent failures
 			fmt.Printf("Warning: failed to close config file %s: %v\n", path, closeErr)
 		}
 	}()
@@ -162,9 +198,44 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 		return nil, fmt.Errorf("keywords array is empty in config")
 	}
 
+	// Pre-compile word-boundary regexes for short keywords (≤4 runes).
+	// \b in Go's RE2 works correctly for ASCII word chars ([0-9A-Za-z_]).
+	// Danish letters (æøå) are NOT word chars in RE2 — for Danish short words
+	// we fall back to space/punctuation boundary check which is Unicode-safe.
+	for i := range cfg.Keywords {
+		word := cfg.Keywords[i].Word
+		if len([]rune(word)) <= 4 {
+			lower := strings.ToLower(word)
+			// Use \b if word is pure ASCII (works for "ai", "su", "sl1", "tog" etc.)
+			// Use Unicode boundary for words with non-ASCII runes.
+			var pattern string
+			if isASCII(lower) {
+				pattern = `(?i)\b` + regexp.QuoteMeta(lower) + `\b`
+			} else {
+				pattern = `(?i)(?:^|[\s[:punct:]])` + regexp.QuoteMeta(lower) + `(?:[\s[:punct:]]|$)`
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				// Compilation failure is a bug in the pattern logic — fail fast at startup.
+				return nil, fmt.Errorf("failed to compile boundary regex for keyword %q: %w", word, err)
+			}
+			cfg.Keywords[i].boundaryRe = re
+		}
+	}
+
 	return &KeywordsConfig{
 		Keywords: cfg.Keywords,
 	}, nil
+}
+
+// isASCII reports whether s contains only ASCII characters.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func Load() (*Config, error) {
