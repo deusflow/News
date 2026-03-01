@@ -15,7 +15,8 @@ go.work.sum
 /dknews
 bin/
 /bin/dknews
-
+docs/
+content_hash_test.go
 ## ── Hugo generated output ───────────────────────────────────────────────────
 # Run `hugo` locally to regenerate; do not commit build output
 website/public/
