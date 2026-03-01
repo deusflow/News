@@ -12,9 +12,8 @@ import (
 )
 
 type TelegramConfig struct {
-	Token   string
-	ChatID  string
-	BotMode string // "single" or "multiple"
+	Token  string
+	ChatID string
 }
 
 type PostingConfig struct {
@@ -40,7 +39,6 @@ type AIConfig struct {
 type RSSConfig struct {
 	FeedsConfigPath    string
 	KeywordsConfigPath string
-	MaxNewsLimit       int
 	NewsMaxAge         time.Duration
 }
 
@@ -174,7 +172,6 @@ func Load() (*Config, error) {
 		RSS: RSSConfig{
 			FeedsConfigPath:    "configs/feeds.yaml",
 			KeywordsConfigPath: "configs/keywords.yaml",
-			MaxNewsLimit:       8,
 			NewsMaxAge:         24 * time.Hour,
 		},
 		AI: AIConfig{
@@ -185,9 +182,7 @@ func Load() (*Config, error) {
 			RetryAttempts:  3,
 			RetryDelay:     5 * time.Second,
 		},
-		Telegram: TelegramConfig{
-			BotMode: "multiple",
-		},
+		Telegram: TelegramConfig{},
 		Posting: PostingConfig{
 			Policy:                  "hybrid",
 			PhotoCaptionMaxRunes:    900,
@@ -233,10 +228,6 @@ func Load() (*Config, error) {
 
 	// Sync DatabaseTTL with CacheTTLHours if not explicitly set
 	cfg.Database.TTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", cfg.Cache.TTLHours)
-
-	if mode := os.Getenv("BOT_MODE"); mode != "" {
-		cfg.Telegram.BotMode = mode
-	}
 
 	if policy := os.Getenv("POSTING_POLICY"); policy != "" {
 		cfg.Posting.Policy = policy
@@ -285,12 +276,6 @@ func Load() (*Config, error) {
 
 	if debug := os.Getenv("DEBUG"); debug == "true" {
 		cfg.App.Debug = true
-	}
-
-	if limit := os.Getenv("MAX_NEWS_LIMIT"); limit != "" {
-		if val, err := strconv.Atoi(limit); err == nil && val > 0 {
-			cfg.RSS.MaxNewsLimit = val
-		}
 	}
 
 	// Read MAX_GEMINI_REQUESTS from env
@@ -372,9 +357,6 @@ func (c *Config) Validate() error {
 	}
 	if c.AI.GeminiAPIKey == "" {
 		return fmt.Errorf("GEMINI_API_KEY is required")
-	}
-	if c.Telegram.BotMode != "single" && c.Telegram.BotMode != "multiple" {
-		return fmt.Errorf("BOT_MODE must be 'single' or 'multiple'")
 	}
 	return nil
 }

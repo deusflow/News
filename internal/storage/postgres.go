@@ -130,7 +130,55 @@ func (pc *PostgresCache) initSchema() error {
 		return fmt.Errorf("failed to create content_hash index: %v", err)
 	}
 
-	// Step 4: Create additional tables
+	// Step 4: Migration — add source_url and supabase_synced columns to sent_news.
+	// source_url is the canonical dedup key (replaces the Supabase REST duplicate check).
+	// supabase_synced tracks whether this record has been successfully pushed to Supabase.
+	migration2 := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'source_url') THEN
+			ALTER TABLE sent_news ADD COLUMN source_url TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'supabase_synced') THEN
+			ALTER TABLE sent_news ADD COLUMN supabase_synced BOOLEAN NOT NULL DEFAULT FALSE;
+		END IF;
+	END $$;
+	`
+	if _, err = pc.db.Exec(migration2); err != nil {
+		return fmt.Errorf("failed to run migration2: %v", err)
+	}
+
+	// Step 4b: Index on source_url for fast dedup lookup.
+	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_source_url ON sent_news(source_url);`); err != nil {
+		return fmt.Errorf("failed to create source_url index: %v", err)
+	}
+	// Index on supabase_synced to efficiently query pending sync rows.
+	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_supabase_synced ON sent_news(supabase_synced) WHERE supabase_synced = FALSE;`); err != nil {
+		return fmt.Errorf("failed to create supabase_synced index: %v", err)
+	}
+
+	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
+	// Kept separate from sent_news to avoid bloating the dedup table with large JSON blobs.
+	syncQueueSchema := `
+	CREATE TABLE IF NOT EXISTS supabase_sync_queue (
+		id SERIAL PRIMARY KEY,
+		sent_news_hash VARCHAR(64) NOT NULL REFERENCES sent_news(hash) ON DELETE CASCADE,
+		payload JSONB NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_attempt_at TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_sync_queue_hash ON supabase_sync_queue(sent_news_hash);
+	CREATE INDEX IF NOT EXISTS idx_sync_queue_attempts ON supabase_sync_queue(attempts);
+	`
+	if _, err = pc.db.Exec(syncQueueSchema); err != nil {
+		return fmt.Errorf("failed to create supabase_sync_queue: %v", err)
+	}
+
+	// Step 6: Create additional tables
 	additionalSchema := `
 	-- Table for caching AI translations (saves tokens!)
 	CREATE TABLE IF NOT EXISTS translation_cache (
@@ -307,8 +355,8 @@ func generateContentHash(content string) string {
 func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) error {
 	// Use INSERT ON CONFLICT to handle race conditions
 	query := `
-		INSERT INTO sent_news (hash, title, link, category, source, sent_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+		INSERT INTO sent_news (hash, title, link, source_url, category, source, sent_at)
+		VALUES ($1, $2, $3, $3, $4, $5, NOW())
 		ON CONFLICT (hash) DO UPDATE SET sent_at = NOW()
 	`
 
@@ -320,7 +368,8 @@ func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) 
 	return nil
 }
 
-// MarkAsSentWithContent marks news as sent and stores content hash for cross-source duplicate detection
+// MarkAsSentWithContent marks news as sent and stores content hash + source_url for dedup.
+// supabase_synced is set to FALSE — caller must call MarkSupabaseSynced after successful push.
 func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
 	contentHash := ""
 	if len(content) >= 100 {
@@ -328,9 +377,12 @@ func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, categ
 	}
 
 	query := `
-		INSERT INTO sent_news (hash, title, link, content_hash, category, source, sent_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		ON CONFLICT (hash) DO UPDATE SET sent_at = NOW(), content_hash = EXCLUDED.content_hash
+		INSERT INTO sent_news (hash, title, link, source_url, content_hash, category, source, sent_at, supabase_synced)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, NOW(), FALSE)
+		ON CONFLICT (hash) DO UPDATE SET
+			sent_at = NOW(),
+			content_hash = EXCLUDED.content_hash,
+			source_url = EXCLUDED.source_url
 	`
 
 	_, err := pc.db.Exec(query, hash, title, link, contentHash, category, source)
@@ -339,6 +391,102 @@ func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, categ
 	}
 
 	return nil
+}
+
+// IsSourceURLSent checks whether a news item with this source_url was already sent.
+// Replaces the expensive Supabase REST duplicate check — this is a direct SQL lookup.
+func (pc *PostgresCache) IsSourceURLSent(sourceURL string) bool {
+	if sourceURL == "" {
+		return false
+	}
+	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
+	var count int
+	err := pc.db.QueryRow(
+		`SELECT COUNT(*) FROM sent_news WHERE source_url = $1 AND sent_at > $2`,
+		sourceURL, cutoffTime,
+	).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Error checking source_url duplicate: %v", err)
+		return false
+	}
+	return count > 0
+}
+
+// MarkSupabaseSynced marks a sent_news row as successfully pushed to Supabase.
+func (pc *PostgresCache) MarkSupabaseSynced(hash string) error {
+	_, err := pc.db.Exec(
+		`UPDATE sent_news SET supabase_synced = TRUE WHERE hash = $1`,
+		hash,
+	)
+	return err
+}
+
+// SyncQueueItem is a pending Supabase push stored in Neon.
+type SyncQueueItem struct {
+	ID           int
+	SentNewsHash string
+	Payload      []byte // raw JSON matching NewsArchive
+	Attempts     int
+}
+
+// EnqueueSupabaseSync stores the full news payload for later sync to Supabase.
+// Called immediately after a successful Telegram send when Supabase is unavailable or slow.
+func (pc *PostgresCache) EnqueueSupabaseSync(hash string, payload []byte) error {
+	_, err := pc.db.Exec(`
+		INSERT INTO supabase_sync_queue (sent_news_hash, payload, attempts, created_at)
+		VALUES ($1, $2, 0, NOW())
+		ON CONFLICT DO NOTHING
+	`, hash, payload)
+	return err
+}
+
+// GetPendingSupabaseSync returns up to limit items not yet pushed to Supabase (max 5 attempts).
+func (pc *PostgresCache) GetPendingSupabaseSync(limit int) ([]SyncQueueItem, error) {
+	rows, err := pc.db.Query(`
+		SELECT id, sent_news_hash, payload, attempts
+		FROM supabase_sync_queue
+		WHERE attempts < 5
+		ORDER BY created_at ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []SyncQueueItem
+	for rows.Next() {
+		var it SyncQueueItem
+		if err := rows.Scan(&it.ID, &it.SentNewsHash, &it.Payload, &it.Attempts); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+// DeleteSyncQueueItem removes a successfully synced item from the queue.
+func (pc *PostgresCache) DeleteSyncQueueItem(id int) error {
+	_, err := pc.db.Exec(`DELETE FROM supabase_sync_queue WHERE id = $1`, id)
+	return err
+}
+
+// IncrementSyncQueueAttempts bumps attempt counter + records error on failure.
+func (pc *PostgresCache) IncrementSyncQueueAttempts(id int, errMsg string) error {
+	_, err := pc.db.Exec(`
+		UPDATE supabase_sync_queue
+		SET attempts = attempts + 1, last_attempt_at = NOW(), last_error = $2
+		WHERE id = $1
+	`, id, errMsg)
+	return err
+}
+
+// GetUnsyncedCount returns the number of rows not yet pushed to Supabase.
+// Useful for health checks / metrics.
+func (pc *PostgresCache) GetUnsyncedCount() int {
+	var count int
+	_ = pc.db.QueryRow(`SELECT COUNT(*) FROM sent_news WHERE supabase_synced = FALSE`).Scan(&count)
+	return count
 }
 
 // Cleanup removes expired items from database

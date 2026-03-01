@@ -160,18 +160,11 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 	}, nil
 }
 
-// SaveNews saves a news item to Supabase with retry logic for transient errors
+// SaveNews saves a news item to Supabase.
+// Duplicate check is NOT performed here — the caller is responsible for ensuring
+// this news was not already sent (use PostgresCache.IsSourceURLSent before calling).
+// On slug conflict Supabase returns 409 / "duplicate" which we treat as success.
 func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
-	// Check by source_url (most reliable duplicate detection)
-	isDuplicateURL, err := c.IsDuplicateBySourceURL(ctx, news.SourceURL)
-	if err != nil {
-		return fmt.Errorf("source_url duplicate check failed: %w", err)
-	}
-	if isDuplicateURL {
-		log.Printf("⏭️ Skipping duplicate (same source_url): %s", news.SourceURL)
-		return nil
-	}
-
 	// Set default category
 	if news.Category == "" {
 		news.Category = "News"
@@ -194,9 +187,9 @@ func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 	// Check response
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		// Check if it's a duplicate (slug already exists)
+		// Slug conflict is fine — idempotent, the record is already there.
 		if resp.StatusCode == http.StatusConflict || strings.Contains(string(respBody), "duplicate") {
-			return nil // Duplicate is OK, just skip
+			return nil
 		}
 		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 	}

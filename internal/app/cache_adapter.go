@@ -10,11 +10,19 @@ type CacheAdapter interface {
 	GenerateNewsHash(title, link string) string
 	IsAlreadySent(hash string) bool
 	IsLinkAlreadySent(link string) bool
+	IsSourceURLSent(sourceURL string) bool // replaces Supabase REST duplicate check
 	IsContentDuplicate(content string) (bool, string)
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	MarkSupabaseSynced(hash string) error
 
-	// --- ВОТ ЭТИ МЕТОДЫ ТЫ ЗАБЫЛ ДОБАВИТЬ В ПРОШЛЫЙ РАЗ ---
+	// Supabase sync queue — Neon is source of truth, Supabase is secondary
+	EnqueueSupabaseSync(hash string, payload []byte) error
+	GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error)
+	DeleteSyncQueueItem(id int) error
+	IncrementSyncQueueAttempts(id int, errMsg string) error
+
+	// DLQ
 	SaveFailedNews(title, link, imageURL, messageText, errorMsg string) error
 	GetFailedNews(limit int) ([]storage.FailedItem, error)
 	DeleteFailedNews(id int) error
@@ -39,6 +47,10 @@ func (f *FileCacheAdapter) IsLinkAlreadySent(link string) bool {
 	return false
 }
 
+func (f *FileCacheAdapter) IsSourceURLSent(sourceURL string) bool {
+	return false
+}
+
 func (f *FileCacheAdapter) IsContentDuplicate(content string) (bool, string) {
 	return false, ""
 }
@@ -50,6 +62,28 @@ func (f *FileCacheAdapter) MarkAsSent(hash, title, link, category, source string
 
 func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
 	f.cache.MarkAsSent(hash, title, link, category, source)
+	return nil
+}
+
+// --- SYNC QUEUE STUBS (file cache has no Supabase sync queue) ---
+
+func (f *FileCacheAdapter) MarkSupabaseSynced(hash string) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error) {
+	return nil, nil
+}
+
+func (f *FileCacheAdapter) DeleteSyncQueueItem(id int) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) IncrementSyncQueueAttempts(id int, errMsg string) error {
 	return nil
 }
 
@@ -90,6 +124,10 @@ func (p *PostgresCacheAdapter) IsLinkAlreadySent(link string) bool {
 	return p.cache.IsLinkAlreadySent(link)
 }
 
+func (p *PostgresCacheAdapter) IsSourceURLSent(sourceURL string) bool {
+	return p.cache.IsSourceURLSent(sourceURL)
+}
+
 func (p *PostgresCacheAdapter) IsContentDuplicate(content string) (bool, string) {
 	return p.cache.IsContentDuplicate(content)
 }
@@ -117,4 +155,26 @@ func (p *PostgresCacheAdapter) DeleteFailedNews(id int) error {
 
 func (p *PostgresCacheAdapter) IncrementFailedAttempts(id int, errorMsg string) error {
 	return p.cache.IncrementFailedAttempts(id, errorMsg)
+}
+
+// --- РЕАЛИЗАЦИЯ SUPABASE SYNC QUEUE ---
+
+func (p *PostgresCacheAdapter) MarkSupabaseSynced(hash string) error {
+	return p.cache.MarkSupabaseSynced(hash)
+}
+
+func (p *PostgresCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {
+	return p.cache.EnqueueSupabaseSync(hash, payload)
+}
+
+func (p *PostgresCacheAdapter) GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error) {
+	return p.cache.GetPendingSupabaseSync(limit)
+}
+
+func (p *PostgresCacheAdapter) DeleteSyncQueueItem(id int) error {
+	return p.cache.DeleteSyncQueueItem(id)
+}
+
+func (p *PostgresCacheAdapter) IncrementSyncQueueAttempts(id int, errMsg string) error {
+	return p.cache.IncrementSyncQueueAttempts(id, errMsg)
 }

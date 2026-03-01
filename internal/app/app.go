@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -29,8 +30,9 @@ type NewsProcessor interface {
 }
 
 type NewsSender interface {
-	SendSingle(ctx context.Context, newsList []news.News)
-	SendMultiple(ctx context.Context, newsList []news.News, max int)
+	// Send publishes exactly one news item — the first non-duplicate from newsList
+	// (which is already sorted by relevance score, best first).
+	Send(ctx context.Context, newsList []news.News)
 }
 
 type HealthChecker interface {
@@ -69,7 +71,6 @@ func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Me
 
 func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error) {
 	return news.FilterAndTranslateWithOptions(ctx, items, news.Options{
-		Limit:             p.cfg.RSS.MaxNewsLimit,
 		MaxAge:            p.cfg.RSS.NewsMaxAge,
 		PerSource:         2,
 		ScrapeMaxArticles: p.cfg.Scraper.MaxArticles,
@@ -99,12 +100,8 @@ func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *met
 	}
 }
 
-func (s *TelegramNewsSender) SendSingle(ctx context.Context, newsList []news.News) {
-	sendSingleNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient)
-}
-
-func (s *TelegramNewsSender) SendMultiple(ctx context.Context, newsList []news.News, max int) {
-	sendMultipleNews(ctx, newsList, s.cfg, s.cacheAdapter, max, s.metrics, s.websiteGenerator, s.supabaseClient)
+func (s *TelegramNewsSender) Send(ctx context.Context, newsList []news.News) {
+	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient)
 }
 
 type App struct {
@@ -271,6 +268,13 @@ func (a *App) Run(ctx context.Context) {
 	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
 	processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
 
+	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
+	// Neon — source of truth. Если Supabase был недоступен в прошлый раз,
+	// записи лежат в supabase_sync_queue и досинхронизируются здесь.
+	if a.supabaseClient != nil {
+		syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
+	}
+
 	// 5. Скачивание новостей
 	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
@@ -290,12 +294,10 @@ func (a *App) Run(ctx context.Context) {
 		return
 	}
 
-	// 7. Отправка в Telegram
-	if a.cfg.Telegram.BotMode == "single" {
-		a.sender.SendSingle(ctx, filtered)
-	} else {
-		a.sender.SendMultiple(ctx, filtered, a.cfg.RSS.MaxNewsLimit)
-	}
+	// 7. Публикация: ровно одна лучшая новость.
+	// filtered уже отсортирован по score (best first) в news.FilterAndTranslateWithOptions.
+	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
+	a.sender.Send(ctx, filtered)
 }
 
 // CheckHealth performs health checks on components
@@ -349,166 +351,88 @@ func (a *App) ReloadConfig() error {
 	return nil
 }
 
-// sendSingleNews отправляет одну новость (с фото или без)
-func sendSingleNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	for _, n := range newsList {
-		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		if cacheAdapter.IsAlreadySent(hash) {
-			continue
-		}
+// sendOneNews formats and sends a single news item to Telegram.
+// On failure the item is saved to DLQ for retry on next run.
+func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+	if n.ImageURL != "" && !canPhoto {
+		logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+	}
 
-		// Check for content duplicate (same news from different sources)
-		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
-			logger.Info("⏭️ Skipping duplicate news (same content found)",
-				"new_title", n.Title,
-				"existing_title", existingTitle)
-			m.IncrementDuplicatesFiltered()
-			continue
-		}
+	var outText string
+	var err error
 
-		// ShouldUsePhoto returns false if: no ImageURL OR caption won't fit in 1024 chars.
-		// In the latter case we fall back to text mode (4096 limit) so the news is always shown complete.
-		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
-		if n.ImageURL != "" && !canPhoto {
-			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
-		}
-		var outText string
-		var err error
+	var buttons [][]telegram.InlineButton
+	if cfg.Feature.EnableInlineButtons && n.Link != "" {
+		buttons = append(buttons, []telegram.InlineButton{
+			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+		})
+	}
 
-		var buttons [][]telegram.InlineButton
-		if cfg.Feature.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
-			}
+	if canPhoto {
+		outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+		if len(buttons) > 0 {
+			err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 		} else {
-			outText = news.FormatNewsWithImage(n)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
-			}
+			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 		}
-
-		if err != nil {
-			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-
-			// ИСПРАВЛЕНО: Используем метод интерфейса напрямую, без проверки типа
-			if saveErr := cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-				logger.Error("Failed to save to DLQ", "error", saveErr)
-			} else {
-				// Если это FileCache, он просто вернет nil, и мы попадем сюда, но это нормально
-				logger.Info("News processing failed (DLQ check passed)", "title", n.Title)
-			}
-
+	} else {
+		outText = news.FormatNewsWithImage(n)
+		if len(buttons) > 0 {
+			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 		} else {
-			// Use MarkAsSentWithContent to store content hash for future duplicate detection
-			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
-			m.IncrementTelegramMessagesSent()
-
-			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
-			if supabase != nil {
-				saveToSupabase(ctx, supabase, n)
-			}
-
-			// Generate website post (SYNC - must complete before workflow exits)
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
+			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
 		}
+	}
 
-		// В режиме single шлем только одну и выходим
-		break
+	if err != nil {
+		logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
+		if saveErr := cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
+			logger.Error("Failed to save to DLQ", "error", saveErr)
+		}
+		return
+	}
+
+	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
+	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	m.IncrementTelegramMessagesSent()
+
+	if supabase != nil {
+		saveToSupabase(ctx, cacheAdapter, supabase, hash, n)
+	}
+	if websiteGen != nil && websiteGen.IsEnabled() {
+		generateWebsitePost(websiteGen, n)
 	}
 }
 
-// sendMultipleNews отправляет список новостей
-func sendMultipleNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, max int, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	sent := 0
+// sendBestNews publishes EXACTLY ONE news item — the highest-scored non-duplicate.
+// newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
+// This is a hard architectural rule, not a config knob: one run = one publication.
+func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	for _, n := range newsList {
-		if sent >= max {
-			break
-		}
-
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if cacheAdapter.IsAlreadySent(hash) {
+			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title)
 			continue
 		}
-
-		// Check for content duplicate (same news from different sources)
+		if cacheAdapter.IsSourceURLSent(n.Link) {
+			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title)
+			m.IncrementDuplicatesFiltered()
+			continue
+		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
 			logger.Info("⏭️ Skipping duplicate news (same content found)",
-				"new_title", n.Title,
-				"existing_title", existingTitle)
+				"new_title", n.Title, "existing_title", existingTitle)
 			m.IncrementDuplicatesFiltered()
 			continue
 		}
 
-		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
-		if n.ImageURL != "" && !canPhoto {
-			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
-		}
-		var outText string
-		var err error
-
-		var buttons [][]telegram.InlineButton
-		if cfg.Feature.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
-		}
-
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
-			}
-		} else {
-			outText = news.FormatNewsWithImage(n)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
-			}
-		}
-
-		if err != nil {
-			logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-
-			// ИСПРАВЛЕНО: Используем метод интерфейса напрямую, без проверки типа
-			if saveErr := cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-				logger.Error("Failed to save to DLQ", "error", saveErr)
-			} else {
-				logger.Info("News processing failed (DLQ check passed)", "title", n.Title)
-			}
-
-		} else {
-			// Use MarkAsSentWithContent to store content hash for future duplicate detection
-			_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
-			m.IncrementTelegramMessagesSent()
-			sent++
-
-			// Save to Supabase ONLY after successful Telegram send (1:1 relationship)
-			if supabase != nil {
-				saveToSupabase(ctx, supabase, n)
-			}
-
-			// Generate website post (SYNC - must complete before workflow exits)
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
-		}
+		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category)
+		sendOneNews(ctx, n, hash, cfg, cacheAdapter, m, websiteGen, supabase)
+		return // ← EXACTLY ONE. Hard stop.
 	}
+
+	logger.Info("No publishable news found in this run")
 }
 
 // generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout
@@ -539,8 +463,12 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 	}
 }
 
-// saveToSupabase saves news to Supabase for website archive
-func saveToSupabase(ctx context.Context, client *storage.SupabaseClient, n news.News) {
+// saveToSupabase saves news to Supabase.
+// On success → marks the row in Neon as supabase_synced=TRUE.
+// On failure → enqueues payload in supabase_sync_queue for retry next run.
+// The duplicate check against Supabase has been removed: Neon IsSourceURLSent is called
+// before Telegram send, so by the time we reach here the news is guaranteed unique.
+func saveToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *storage.SupabaseClient, hash string, n news.News) {
 	archive := storage.NewsArchive{
 		Slug:             storage.GenerateSlugWithDate(n.Title, n.Published),
 		Title:            n.Title,
@@ -559,9 +487,61 @@ func saveToSupabase(ctx context.Context, client *storage.SupabaseClient, n news.
 	}
 
 	if err := client.SaveNews(ctx, archive); err != nil {
-		logger.Warn("Failed to save to Supabase", "title", n.Title, "error", err)
+		logger.Warn("Failed to save to Supabase, enqueuing for retry",
+			"title", n.Title, "error", err)
+		// Serialise payload so we can retry without AI/scraping again.
+		if payload, jsonErr := marshalSyncPayload(archive); jsonErr == nil {
+			if qErr := cacheAdapter.EnqueueSupabaseSync(hash, payload); qErr != nil {
+				logger.Error("Failed to enqueue Supabase sync", "hash", hash, "error", qErr)
+			}
+		}
 	} else {
 		logger.Info("Saved to Supabase archive", "title", n.Title)
+		if sErr := cacheAdapter.MarkSupabaseSynced(hash); sErr != nil {
+			logger.Warn("Failed to mark supabase_synced in Neon", "hash", hash, "error", sErr)
+		}
+	}
+}
+
+// marshalSyncPayload serialises a NewsArchive to JSON for the sync queue.
+func marshalSyncPayload(archive storage.NewsArchive) ([]byte, error) {
+	return json.Marshal(archive)
+}
+
+// unmarshalSyncPayload deserialises a NewsArchive from the sync queue payload.
+func unmarshalSyncPayload(data []byte, out *storage.NewsArchive) error {
+	return json.Unmarshal(data, out)
+}
+
+// syncPendingToSupabase flushes supabase_sync_queue entries from previous failed runs.
+// Runs once per bot invocation, before the main fetch cycle.
+func syncPendingToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *storage.SupabaseClient) {
+	items, err := cacheAdapter.GetPendingSupabaseSync(10)
+	if err != nil {
+		logger.Error("Failed to get pending Supabase sync items", "error", err)
+		return
+	}
+	if len(items) == 0 {
+		return
+	}
+	logger.Info("Syncing pending items to Supabase", "count", len(items))
+
+	for _, item := range items {
+		var archive storage.NewsArchive
+		if err := unmarshalSyncPayload(item.Payload, &archive); err != nil {
+			logger.Error("Failed to unmarshal sync payload", "id", item.ID, "error", err)
+			_ = cacheAdapter.IncrementSyncQueueAttempts(item.ID, err.Error())
+			continue
+		}
+
+		if err := client.SaveNews(ctx, archive); err != nil {
+			logger.Warn("Supabase sync retry failed", "id", item.ID, "error", err)
+			_ = cacheAdapter.IncrementSyncQueueAttempts(item.ID, err.Error())
+		} else {
+			logger.Info("Supabase sync retry succeeded", "id", item.ID, "slug", archive.Slug)
+			_ = cacheAdapter.DeleteSyncQueueItem(item.ID)
+			_ = cacheAdapter.MarkSupabaseSynced(item.SentNewsHash)
+		}
 	}
 }
 

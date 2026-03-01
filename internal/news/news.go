@@ -45,11 +45,10 @@ type News struct {
 }
 
 type Options struct {
-	Limit             int
 	MaxAge            time.Duration
 	PerSource         int
 	ScrapeMaxArticles int
-	ScrapeConcurrency int // Добавили, так как было в app.go
+	ScrapeConcurrency int
 
 	// ГЛАВНОЕ ИЗМЕНЕНИЕ: Используем интерфейс, а не конкретные клиенты
 	AI       ai.Provider
@@ -91,7 +90,6 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	}
 
 	// Сортируем: свежие сначала; при равной свежести — выше приоритет источника.
-	// Source.Priority берётся из feeds.yaml (DR=95, Euractiv=90, TV2=50 и т.д.)
 	sort.Slice(candidates, func(i, j int) bool {
 		ti, tj := candidates[i].PublishedParsed, candidates[j].PublishedParsed
 		if ti == nil || tj == nil {
@@ -100,18 +98,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		if !ti.Equal(*tj) {
 			return ti.After(*tj)
 		}
-		// Одинаковое время — берём источник с большим приоритетом первым
 		return candidates[i].Source.Priority > candidates[j].Source.Priority
 	})
 	logger.Info("unique items after dedup", "count", len(candidates))
 
 	// ── Шаг 2б: лимит новостей с одного источника ────────────────────────────
-	//
-	// Без этого DR.dk (50+ новостей/день) мог монополизировать всю квоту Gemini.
-	// PerSource = 0 → лимит отключён (берём всё).
 	if opts.PerSource > 0 {
 		sourceCounts := make(map[string]int, len(candidates))
-		filtered := candidates[:0] // reuse backing array
+		filtered := candidates[:0]
 		for _, item := range candidates {
 			name := item.Source.Name
 			if sourceCounts[name] < opts.PerSource {
@@ -128,10 +122,73 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		candidates = filtered
 	}
 
-	// ── Шаг 3: параллельный скрейпинг (ТОЛЬКО HTTP, без AI) ──────────────────
+	// ── Шаг 3: KEYWORD PRE-SCORING — дешёвая фильтрация ДО AI ───────────────
 	//
-	// Здесь допустим параллелизм: каждый воркер делает HTTP-запрос к источнику.
-	// AI в этом шаге не вызывается вообще — никакой очереди AI, никакого блока.
+	// Ключевые слова — ГЛАВНЫЙ критерий релевантности.
+	// AI — дополнительная оценка (перевод + точная категоризация).
+	//
+	// Зачем: AI-вызов стоит ~7-16 сек на новость (Gemini Free Tier).
+	// Вызывать AI для всех 32 кандидатов — 3-8 минут + расход RPD лимита.
+	// Вместо этого: предварительно оцениваем ВСЕ кандидаты ключевыми словами
+	// (мгновенно), отсекаем мусор (score < 0), и отправляем в AI только
+	// топовых кандидатов (maxAICandidates).
+	//
+	// Количество AI-кандидатов: берём больше чем нужно для публикации,
+	// потому что AI может отвергнуть некоторые (пустой контент, валидация).
+	// 5 кандидатов достаточно, чтобы гарантировать хотя бы 1 качественную новость.
+	const maxAICandidates = 5
+
+	type preScored struct {
+		item    *rss.FeedItem
+		kwScore int
+		kwCat   string
+	}
+
+	var scored []preScored
+	for _, item := range candidates {
+		kwScore := 0
+		kwCat := ""
+		if opts.Keywords != nil {
+			// Pre-score по title + RSS description (контент ещё не скрейпнут)
+			text := item.Title
+			if item.Description != "" {
+				text += " " + item.Description
+			}
+			kwScore, kwCat = opts.Keywords.CalculateScore(text)
+		}
+		scored = append(scored, preScored{item: item, kwScore: kwScore, kwCat: kwCat})
+	}
+
+	// Сортируем по keyword score (лучшие первые)
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].kwScore > scored[j].kwScore
+	})
+
+	// Отсекаем явный мусор (score < 0) и берём топ maxAICandidates
+	var topCandidates []preScored
+	for _, s := range scored {
+		if s.kwScore < 0 {
+			logger.Info("pre-filter: skipping low keyword score",
+				"title", s.item.Title, "kw_score", s.kwScore)
+			continue
+		}
+		topCandidates = append(topCandidates, s)
+		if len(topCandidates) >= maxAICandidates {
+			break
+		}
+	}
+
+	logger.Info("keyword pre-filter done",
+		"total_candidates", len(candidates),
+		"passed_filter", len(topCandidates),
+		"rejected", len(candidates)-len(topCandidates))
+
+	if len(topCandidates) == 0 {
+		logger.Info("no candidates passed keyword pre-filter")
+		return nil, nil
+	}
+
+	// ── Шаг 4: параллельный скрейпинг (ТОЛЬКО HTTP, без AI) ──────────────────
 	concurrency := opts.ScrapeConcurrency
 	if concurrency <= 0 {
 		concurrency = 1
@@ -149,8 +206,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		scrapeImageURL string
 	}
 
-	scrapeJobs := make(chan scrapeJob, len(candidates))
-	scrapeResults := make(chan scrapeResult, len(candidates))
+	scrapeJobs := make(chan scrapeJob, len(topCandidates))
+	scrapeResults := make(chan scrapeResult, len(topCandidates))
 
 	var scrapeWg sync.WaitGroup
 	for w := 0; w < concurrency; w++ {
@@ -159,7 +216,6 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			defer scrapeWg.Done()
 			for j := range scrapeJobs {
 				if ctx.Err() != nil {
-					// контекст отменён — не начинаем новые запросы
 					scrapeResults <- scrapeResult{index: j.index, item: j.item, content: ""}
 					continue
 				}
@@ -186,24 +242,23 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}()
 	}
 
-	for i, item := range candidates {
-		scrapeJobs <- scrapeJob{index: i, item: item}
+	for i, tc := range topCandidates {
+		scrapeJobs <- scrapeJob{index: i, item: tc.item}
 	}
 	close(scrapeJobs)
 
 	scrapeWg.Wait()
 	close(scrapeResults)
 
-	// Собираем и сортируем по индексу — порядок = по свежести
-	scrapeMap := make(map[int]scrapeResult, len(candidates))
+	scrapeMap := make(map[int]scrapeResult, len(topCandidates))
 	for r := range scrapeResults {
 		scrapeMap[r.index] = r
 	}
 	scraped := make([]scrapedItem, 0, len(scrapeMap))
-	for i := 0; i < len(candidates); i++ {
+	for i := 0; i < len(topCandidates); i++ {
 		if r, ok := scrapeMap[i]; ok {
 			scraped = append(scraped, scrapedItem{
-				index:          r.index,
+				index:          i,
 				item:           r.item,
 				content:        r.content,
 				scrapeImageURL: r.scrapeImageURL,
@@ -212,24 +267,18 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	}
 	logger.Info("phase 1 done", "scraped", len(scraped))
 
-	// ── Шаг 4: последовательные AI-вызовы (строго один за одним) ────────────
+	// ── Шаг 5: последовательные AI-вызовы ────────────────────────────────────
 	//
-	// AI Manager уже обеспечивает паузу между запросами (defaultDelay).
-	// Здесь мы просто идём по списку — никакого параллелизма, никакой очереди,
-	// никакого риска потерять контент, который уже scrape-нут.
-	//
-	// Если контекст отменяется в середине — обрабатываем только то, что успели.
+	// AI вызывается ТОЛЬКО для topCandidates (max 5), не для всех 32.
+	// Это экономит 80%+ AI-лимита.
 	logger.Info("phase 2: sequential AI processing", "items", len(scraped))
 
 	var result []News
 	aiErrors := 0
 
-	for _, s := range scraped {
+	for idx, s := range scraped {
 		if ctx.Err() != nil {
 			logger.Warn("context cancelled, stopping early", "completed", len(result)+aiErrors)
-			break
-		}
-		if opts.Limit > 0 && len(result) >= opts.Limit {
 			break
 		}
 
@@ -240,13 +289,21 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			continue
 		}
 		if n != nil {
+			// Combine keyword pre-score with AI score.
+			// Keywords — primary signal, AI mood/freshness — secondary.
+			n.Score += topCandidates[idx].kwScore
+			// If keywords found a better category, override AI.
+			if kwCat := topCandidates[idx].kwCat; kwCat != "" && kwCat != "spam" {
+				n.Category = string(ValidateCategory(kwCat))
+			}
 			result = append(result, *n)
 		}
 	}
 
 	logger.Info("phase 2 done", "ready", len(result), "errors", aiErrors)
 
-	// ── Шаг 5: сортировка по score ───────────────────────────────────────────
+	// ── Шаг 6: финальная сортировка по combined score ─────────────────────────
+	// result[0] — самая релевантная новость, она будет опубликована.
 	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].Score > result[j].Score
 	})
@@ -371,27 +428,13 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		n.Tags[j] = strings.TrimPrefix(t, "#")
 	}
 
-	// Скоринг и финальная категория.
-	// Keywords могут перезаписать категорию AI если нашлось точное совпадение.
-	// Категория из keywords тоже проходит через ValidateCategory — "spam" и
-	// неизвестные значения откатятся к CategoryDefault.
-	if opts.Keywords != nil {
-		score, kwCat := opts.Keywords.CalculateScore(title + " " + content)
-		n.Score = score
-		if kwCat != "" && kwCat != "spam" {
-			n.Category = string(ValidateCategory(kwCat))
-		}
-	} else {
-		n.Score = calculateScore(n)
-	}
+	// Скоринг: mood-based fallback.
+	// Keyword score is added by the caller (FilterAndTranslateWithOptions)
+	// after combining with the pre-filter keyword score.
+	// Category override from keywords also happens in the caller.
+	n.Score = calculateScore(n)
 
 	logger.Info("category assigned", "title", title, "category", n.Category, "score", n.Score)
-
-	// Фильтр мусора (score < 0)
-	if n.Score < 0 {
-		logger.Info("skipping low score news", "title", n.Title, "score", n.Score)
-		return nil, nil
-	}
 
 	return &n, nil
 }
