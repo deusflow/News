@@ -129,16 +129,47 @@
                         {{ end }}
                     {{ end }}
 
-                    <!-- Copenhagen Weather Widget -->
+                    <!-- Weather Widget — city selector + geolocation -->
                     <div class="weather-widget" id="weatherWidget">
+
+                        <!-- Header: flag + city label + geo button -->
                         <div class="weather-widget__header">
-                            <span class="weather-widget__flag">🇩🇰</span>
+                            <span class="weather-widget__flag" id="weatherFlag">🇩🇰</span>
                             <div class="weather-widget__location">
-                                <span class="weather-widget__city">København</span>
-                                <span class="weather-widget__country">Denmark</span>
+                                <span class="weather-widget__city" id="weatherCity">Köppen...</span>
+                                <span class="weather-widget__country" id="weatherCountry">Denmark</span>
                             </div>
+                            <!-- Geolocation button -->
+                            <button class="weather-widget__geo-btn"
+                                    id="weatherGeoBtn"
+                                    title="Визначити моє місцезнаходження"
+                                    aria-label="Використати геолокацію">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                                    <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" opacity=".3"/>
+                                </svg>
+                            </button>
                         </div>
 
+                        <!-- City selector dropdown -->
+                        <div class="weather-widget__selector">
+                            <select class="weather-widget__select" id="weatherCitySelect"
+                                    aria-label="Оберіть місто">
+                                <option value="55.6761,12.5683,København,Denmark,🇩🇰" selected>🇩🇰 Копенгаген</option>
+                                <option value="56.1629,10.2039,Aarhus,Denmark,🇩🇰">🇩🇰 Орхус</option>
+                                <option value="56.4607,9.4018,Viborg,Denmark,🇩🇰">🇩🇰 Вібор</option>
+                                <option value="55.4038,10.4024,Odense,Denmark,🇩🇰">🇩🇰 Оденсе</option>
+                                <option value="57.0488,9.9217,Aalborg,Denmark,🇩🇰">🇩🇰 Ольборг</option>
+                                <option value="55.7167,12.3333,Frederiksberg,Denmark,🇩🇰">🇩🇰 Фредеріксберг</option>
+                                <option value="50.4501,30.5234,Kyiv,Ukraine,🇺🇦">🇺🇦 Київ</option>
+                                <option value="49.8397,24.0297,Lviv,Ukraine,🇺🇦">🇺🇦 Львів</option>
+                                <option value="geo,,,Моє місцезнаходження,📍">📍 Моє місцезнаходження</option>
+                            </select>
+                        </div>
+
+                        <!-- Main temp + icon -->
                         <div class="weather-widget__main">
                             <div class="weather-widget__icon" id="weatherIcon">
                                 <span class="weather-widget__icon-loading">⏳</span>
@@ -171,84 +202,201 @@
 
                         <div class="weather-widget__footer">
                             <span class="weather-widget__update" id="weatherUpdate">—</span>
+                            <span class="weather-widget__geo-status" id="weatherGeoStatus"></span>
                         </div>
                     </div>
 
                     <script>
-                    // Weather codes mapping
-                    const weatherCodes = {
-                        0: { icon: '☀️', desc: 'Ясно' },
-                        1: { icon: '🌤️', desc: 'Переважно ясно' },
-                        2: { icon: '⛅', desc: 'Хмарно з проясненнями' },
-                        3: { icon: '☁️', desc: 'Хмарно' },
-                        45: { icon: '🌫️', desc: 'Туман' },
-                        48: { icon: '🌫️', desc: 'Туман з інеєм' },
-                        51: { icon: '🌧️', desc: 'Легка мряка' },
-                        53: { icon: '🌧️', desc: 'Мряка' },
-                        55: { icon: '🌧️', desc: 'Сильна мряка' },
-                        61: { icon: '🌧️', desc: 'Легкий дощ' },
-                        63: { icon: '🌧️', desc: 'Дощ' },
-                        65: { icon: '🌧️', desc: 'Сильний дощ' },
-                        66: { icon: '🌨️', desc: 'Крижаний дощ' },
-                        67: { icon: '🌨️', desc: 'Сильний крижаний дощ' },
-                        71: { icon: '🌨️', desc: 'Легкий сніг' },
-                        73: { icon: '🌨️', desc: 'Сніг' },
-                        75: { icon: '❄️', desc: 'Сильний сніг' },
-                        77: { icon: '❄️', desc: 'Снігові зерна' },
-                        80: { icon: '🌦️', desc: 'Легкі зливи' },
-                        81: { icon: '🌦️', desc: 'Зливи' },
-                        82: { icon: '⛈️', desc: 'Сильні зливи' },
-                        85: { icon: '🌨️', desc: 'Снігові зливи' },
-                        86: { icon: '🌨️', desc: 'Сильні снігові зливи' },
-                        95: { icon: '⛈️', desc: 'Гроза' },
-                        96: { icon: '⛈️', desc: 'Гроза з градом' },
-                        99: { icon: '⛈️', desc: 'Сильна гроза з градом' }
-                    };
+                    (() => {
+                        // ── Weather code → emoji + Ukrainian description ──────────
+                        const CODES = {
+                            0:{i:'☀️',d:'Ясно'},1:{i:'🌤️',d:'Переважно ясно'},
+                            2:{i:'⛅',d:'Хмарно з проясненнями'},3:{i:'☁️',d:'Хмарно'},
+                            45:{i:'🌫️',d:'Туман'},48:{i:'🌫️',d:'Туман з інеєм'},
+                            51:{i:'🌦️',d:'Легка мряка'},53:{i:'🌦️',d:'Мряка'},55:{i:'🌧️',d:'Сильна мряка'},
+                            61:{i:'🌧️',d:'Легкий дощ'},63:{i:'🌧️',d:'Дощ'},65:{i:'🌧️',d:'Сильний дощ'},
+                            66:{i:'🌨️',d:'Крижаний дощ'},67:{i:'🌨️',d:'Сильний крижаний дощ'},
+                            71:{i:'🌨️',d:'Легкий сніг'},73:{i:'🌨️',d:'Сніг'},75:{i:'❄️',d:'Сильний сніг'},
+                            77:{i:'❄️',d:'Снігові зерна'},
+                            80:{i:'🌦️',d:'Легкі зливи'},81:{i:'🌦️',d:'Зливи'},82:{i:'⛈️',d:'Сильні зливи'},
+                            85:{i:'🌨️',d:'Снігові зливи'},86:{i:'🌨️',d:'Сильні снігові зливи'},
+                            95:{i:'⛈️',d:'Гроза'},96:{i:'⛈️',d:'Гроза з градом'},99:{i:'⛈️',d:'Сильна гроза з градом'}
+                        };
 
-                    async function fetchWeather() {
-                        try {
-                            // Copenhagen coordinates
-                            const lat = 55.6761;
-                            const lon = 12.5683;
+                        const STORAGE_KEY = 'dknews_weather_city';
 
-                            const response = await fetch(
-                                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Europe/Copenhagen`
-                            );
+                        // ── DOM refs ──────────────────────────────────────────────
+                        const $select   = document.getElementById('weatherCitySelect');
+                        const $flag     = document.getElementById('weatherFlag');
+                        const $city     = document.getElementById('weatherCity');
+                        const $country  = document.getElementById('weatherCountry');
+                        const $icon     = document.getElementById('weatherIcon');
+                        const $temp     = document.getElementById('weatherTemp');
+                        const $desc     = document.getElementById('weatherDesc');
+                        const $wind     = document.getElementById('weatherWind');
+                        const $hum      = document.getElementById('weatherHumidity');
+                        const $feels    = document.getElementById('weatherFeels');
+                        const $update   = document.getElementById('weatherUpdate');
+                        const $geoBtn   = document.getElementById('weatherGeoBtn');
+                        const $geoSt    = document.getElementById('weatherGeoStatus');
+                        const $widget   = document.getElementById('weatherWidget');
 
-                            if (!response.ok) throw new Error('Weather API error');
+                        // ── Fetch & render ────────────────────────────────────────
+                        async function fetchWeather(lat, lon, cityName, countryName, flag) {
+                            setLoading();
+                            try {
+                                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Copenhagen';
+                                const url = `https://api.open-meteo.com/v1/forecast`
+                                    + `?latitude=${lat}&longitude=${lon}`
+                                    + `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m`
+                                    + `&timezone=${encodeURIComponent(tz)}`;
 
-                            const data = await response.json();
-                            const current = data.current;
+                                const res = await fetch(url);
+                                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                                const data = await res.json();
+                                const c = data.current;
+                                const w = CODES[c.weather_code] || {i:'🌡️', d:'Невідомо'};
 
-                            // Update UI
-                            const weather = weatherCodes[current.weather_code] || { icon: '🌡️', desc: 'Невідомо' };
+                                $flag.textContent    = flag;
+                                $city.textContent    = cityName;
+                                $country.textContent = countryName;
+                                $icon.innerHTML      = `<span class="weather-widget__icon-emoji">${w.i}</span>`;
+                                $temp.textContent    = Math.round(c.temperature_2m);
+                                $desc.textContent    = w.d;
+                                $wind.textContent    = Math.round(c.wind_speed_10m);
+                                $hum.textContent     = c.relative_humidity_2m;
+                                $feels.textContent   = Math.round(c.apparent_temperature) + '°';
 
-                            document.getElementById('weatherIcon').innerHTML = `<span class="weather-widget__icon-emoji">${weather.icon}</span>`;
-                            document.getElementById('weatherTemp').textContent = Math.round(current.temperature_2m);
-                            document.getElementById('weatherDesc').textContent = weather.desc;
-                            document.getElementById('weatherWind').textContent = Math.round(current.wind_speed_10m);
-                            document.getElementById('weatherHumidity').textContent = current.relative_humidity_2m;
-                            document.getElementById('weatherFeels').textContent = Math.round(current.apparent_temperature) + '°';
-
-                            // Update time
-                            const now = new Date();
-                            document.getElementById('weatherUpdate').textContent = `Оновлено: ${now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}`;
-
-                            // Add loaded class for animation
-                            document.getElementById('weatherWidget').classList.add('loaded');
-
-                        } catch (error) {
-                            console.error('Weather fetch error:', error);
-                            document.getElementById('weatherDesc').textContent = 'Не вдалося завантажити';
-                            document.getElementById('weatherIcon').innerHTML = '<span class="weather-widget__icon-emoji">❓</span>';
+                                const now = new Date();
+                                $update.textContent  = `Оновлено: ${now.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'})}`;
+                                $widget.classList.add('loaded');
+                                $geoSt.textContent   = '';
+                            } catch (e) {
+                                $desc.textContent = 'Не вдалося завантажити';
+                                $icon.innerHTML   = '<span class="weather-widget__icon-emoji">❓</span>';
+                                console.warn('Weather error:', e);
+                            }
                         }
-                    }
 
-                    // Fetch weather on page load
-                    document.addEventListener('DOMContentLoaded', fetchWeather);
+                        function setLoading() {
+                            $icon.innerHTML   = '<span class="weather-widget__icon-loading">⏳</span>';
+                            $temp.textContent = '--';
+                            $desc.textContent = 'Завантаження...';
+                            $wind.textContent = $hum.textContent = $feels.textContent = '--';
+                            $widget.classList.remove('loaded');
+                        }
 
-                    // Refresh every 30 minutes
-                    setInterval(fetchWeather, 30 * 60 * 1000);
+                        // ── Parse city option value ───────────────────────────────
+                        // Format: "lat,lon,City,Country,flag"  OR  "geo,,,label,flag"
+                        function parseOption(val) {
+                            const parts = val.split(',');
+                            return {
+                                lat:     parts[0],
+                                lon:     parts[1],
+                                city:    parts[2],
+                                country: parts[3],
+                                flag:    parts[4]
+                            };
+                        }
+
+                        // ── Geolocation ───────────────────────────────────────────
+                        function useGeolocation() {
+                            if (!navigator.geolocation) {
+                                $geoSt.textContent = '⚠️ Геолокація недоступна';
+                                return;
+                            }
+                            $geoSt.textContent = '📍 Визначаємо...';
+                            $geoBtn.disabled   = true;
+                            navigator.geolocation.getCurrentPosition(
+                                pos => {
+                                    const {latitude: lat, longitude: lon} = pos.coords;
+                                    $geoBtn.disabled = false;
+                                    $geoSt.textContent = '📍 Ваше місце';
+                                    // Reverse-geocode via open-meteo elevation (free, no key)
+                                    // We don't have a reverse-geocoder on free tier,
+                                    // so just show coordinates as label.
+                                    fetchWeather(lat.toFixed(4), lon.toFixed(4),
+                                        `${lat.toFixed(2)}°N`, `${lon.toFixed(2)}°E`, '📍');
+                                    // Save to localStorage so it persists
+                                    localStorage.setItem(STORAGE_KEY, `geo:${lat.toFixed(4)},${lon.toFixed(4)}`);
+                                    // Select the "Моє місцезнаходження" option visually
+                                    $select.value = 'geo,,,Моє місцезнаходження,📍';
+                                },
+                                err => {
+                                    $geoBtn.disabled  = false;
+                                    $geoSt.textContent = err.code === 1
+                                        ? '🚫 Доступ заборонено' : '⚠️ Помилка геолокації';
+                                },
+                                {timeout: 8000, maximumAge: 60000}
+                            );
+                        }
+
+                        // ── City select change ────────────────────────────────────
+                        function onSelectChange() {
+                            const val = $select.value;
+                            if (val.startsWith('geo,')) {
+                                useGeolocation();
+                                return;
+                            }
+                            const p = parseOption(val);
+                            localStorage.setItem(STORAGE_KEY, val);
+                            fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                        }
+
+                        // ── Restore saved city on load ────────────────────────────
+                        function init() {
+                            const saved = localStorage.getItem(STORAGE_KEY);
+
+                            if (saved && saved.startsWith('geo:')) {
+                                // Was using geolocation last time
+                                const coords = saved.slice(4).split(',');
+                                $select.value = 'geo,,,Моє місцезнаходження,📍';
+                                fetchWeather(coords[0], coords[1], `${parseFloat(coords[0]).toFixed(2)}°N`,
+                                    `${parseFloat(coords[1]).toFixed(2)}°E`, '📍');
+                                return;
+                            }
+
+                            if (saved) {
+                                // Restore dropdown selection (validate option exists)
+                                const opt = Array.from($select.options).find(o => o.value === saved);
+                                if (opt) {
+                                    $select.value = saved;
+                                    const p = parseOption(saved);
+                                    fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                                    return;
+                                }
+                            }
+
+                            // Default: Copenhagen
+                            const p = parseOption($select.options[0].value);
+                            fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                        }
+
+                        // ── Event listeners ───────────────────────────────────────
+                        $select.addEventListener('change', onSelectChange);
+                        $geoBtn.addEventListener('click', useGeolocation);
+
+                        // ── Boot ──────────────────────────────────────────────────
+                        document.addEventListener('DOMContentLoaded', () => {
+                            init();
+                            // Auto-refresh every 30 min
+                            setInterval(() => {
+                                const val = $select.value;
+                                if (val.startsWith('geo,')) {
+                                    const saved = localStorage.getItem(STORAGE_KEY);
+                                    if (saved && saved.startsWith('geo:')) {
+                                        const coords = saved.slice(4).split(',');
+                                        fetchWeather(coords[0], coords[1],
+                                            `${parseFloat(coords[0]).toFixed(2)}°N`,
+                                            `${parseFloat(coords[1]).toFixed(2)}°E`, '📍');
+                                    }
+                                } else if (val) {
+                                    const p = parseOption(val);
+                                    fetchWeather(p.lat, p.lon, p.city, p.country, p.flag);
+                                }
+                            }, 30 * 60 * 1000);
+                        });
+                    })();
                     </script>
                     <!-- Telegram Subscribe Block -->
                     <div class="sidebar-cta">
