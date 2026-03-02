@@ -59,7 +59,6 @@ jobs:
 
       # Go settings
       GO111MODULE: 'on'
-      GOTOOLCHAIN: 'local'
 
     steps:
       - name: Checkout
@@ -68,10 +67,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.24.x'
+          cache: true
 
       - name: Go env (debug)
         run: |
+          go version
           go env GOMOD GOWORK GO111MODULE GOPATH GOTOOLCHAIN
           pwd
           ls -la
