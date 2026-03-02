@@ -53,7 +53,7 @@ var categoryEmoji = map[Category]string{
 // categoryLabel — текст header-а новости (украинский, заглавними літерами).
 // Всі лейбли — українською для консистентності.
 var categoryLabel = map[Category]string{
-	CategoryVisas:     "ВАЖЛИВО ДЛЯ УКРАЇНЦІВ",
+	CategoryVisas:     "ВАЖЛИВО",
 	CategoryWork:      "РОБОТА",
 	CategoryMoney:     "ГРОШІ",
 	CategorySociety:   "СУСПІЛЬСТВО",
