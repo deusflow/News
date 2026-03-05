@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DaUa NEWS">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B0E14"/>
+      <stop offset="1" stop-color="#171C25"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 90) rotate(140) scale(140 110)">
+      <stop stop-color="#FF0055" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FF0055" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="300" height="300" rx="16" fill="url(#bg)"/>
+  <rect width="300" height="300" rx="16" fill="url(#glow)"/>
+
+  <g transform="translate(46 118)">
+    <rect width="88" height="34" rx="6" fill="#FF0055"/>
+    <text x="44" y="24" text-anchor="middle" font-family="Lato, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="18" font-weight="900" fill="#FFFFFF">DaUa</text>
+    <text x="100" y="25" font-family="Lato, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="18" font-weight="900" fill="#FFFFFF">NEWS</text>
+  </g>
+
+  <g transform="translate(226 46)" opacity="0.9">
+    <circle cx="14" cy="14" r="12" stroke="#FF0055" stroke-width="2"/>
+    <path d="M14 6L18 16L14 20L10 16L14 6Z" fill="#FF0055"/>
+  </g>
+</svg>
+

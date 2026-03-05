@@ -22,6 +22,9 @@
     /* Layout */
     --max-width: 1152px;
     --radius: 8px;
+
+    /* Accent / focus ring */
+    --ring: rgba(255, 0, 85, 0.35);
 }
 
 /* Dark Theme */
@@ -29,9 +32,24 @@
     --bg-body: #1a1a1a;
     --bg-card: #23252b;
     --bg-dark: #0f0f0f;
-    --text-dark: #f3f4f6;
-    --text-gray: #d1d5db;
-    --text-light: #9ca3af;
+    --text-dark: #f8fafc;
+    --text-gray: #cbd5e1;
+    --text-light: #94a3b8;
+}
+
+/* Improve heading/link contrast in dark mode (fix: "can't see titles") */
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] .news-card__title a,
+[data-theme="dark"] .hero-main__title,
+[data-theme="dark"] .mini-card__title {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] a {
+    color: inherit;
 }
 
 * {

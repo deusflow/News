@@ -31,7 +31,8 @@
                         {{ range $index, $page := $carouselNews }}
                         <div class="carousel__slide {{ if eq $index 0 }}active{{ end }}" data-index="{{ $index }}">
                             <a href="{{ .Permalink }}" class="hero-main">
-                                {{ $img := .Params.image | default "https://placehold.co/800x600/23252b/FF0055?text=DK+News" }}
+                                {{/* Use local branded placeholder instead of placehold.co */}}
+                                {{ $img := .Params.image | default (print .Site.BaseURL "images/placeholder-news.svg") }}
                                 <img src="{{ $img }}" alt="{{ .Title }}" class="hero-main__image">
                                 <div class="hero-main__overlay">
                                     {{ $cat := "Новини" }}
@@ -42,7 +43,7 @@
                                     <p class="hero-main__excerpt">{{ . }}</p>
                                     {{ end }}
                                     <div class="hero-main__meta">
-                                        <span>{{ with .Params.source_name }}{{ . }}{{ else }}DK News{{ end }}</span>
+                                        <span>{{ with .Params.source_name }}{{ . }}{{ else }}DaUa NEWS{{ end }}</span>
                                         <span>•</span>
                                         <span>{{ .Date.Format "Jan 02, 2006" }}</span>
                                     </div>
@@ -54,10 +55,10 @@
                         <!-- Placeholder slide -->
                         <div class="carousel__slide active">
                             <div class="hero-main">
-                                <img src="https://placehold.co/800x600/23252b/FF0055?text=DK+News" alt="DK News" class="hero-main__image">
+                                <img src="{{ .Site.BaseURL }}images/placeholder-news.svg" alt="DaUa NEWS" class="hero-main__image">
                                 <div class="hero-main__overlay">
                                     <span class="hero-main__tag">Welcome</span>
-                                    <h1 class="hero-main__title">Denmark News Network</h1>
+                                    <h1 class="hero-main__title">DaUa NEWS</h1>
                                     <p class="hero-main__excerpt">Новини Данії українською та данською мовами. Очікуйте новини!</p>
                                 </div>
                             </div>
@@ -94,14 +95,19 @@
 
                 <!-- Trending Sidebar -->
                 <aside class="trending-sidebar">
-                    <h3 class="trending-sidebar__title">🔥 Trending Now</h3>
+                    <h3 class="trending-sidebar__title">
+                        <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M13 2s-2 2-2 5c0 1.5 1 2.5 1 4 0 2-2 3-2 6 0 3 2 5 5 5 4 0 7-3 7-7 0-5-4-7-4-13 0 0-1 3-3 4-1-2-2-4-2-4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        </svg>
+                        Trending
+                    </h3>
 
                     {{ $trending := first 3 .Site.RegularPages }}
                     {{ if $trending }}
                         {{ range $trending }}
                         <a href="{{ .Permalink }}" class="mini-card">
                             <div class="mini-card__image">
-                                {{ $img := .Params.image | default "https://placehold.co/150x150/FF0055/FFF?text=News" }}
+                                {{ $img := .Params.image | default (print $.Site.BaseURL "images/placeholder-thumb.svg") }}
                                 <img src="{{ $img }}" alt="{{ .Title }}">
                             </div>
                             <div class="mini-card__content">
@@ -135,7 +141,7 @@
                         <!-- Top bar: location name + geo button -->
                         <div class="ww-topbar">
                             <div class="ww-location">
-                                <span class="ww-flag" id="weatherFlag">🇩🇰</span>
+                                <span class="ww-flag" id="weatherFlag" aria-hidden="true"></span>
                                 <div>
                                     <span class="ww-city" id="weatherCity">København</span>
                                     <span class="ww-country" id="weatherCountry">Danmark</span>
@@ -145,7 +151,7 @@
                                     title="Brug min placering"
                                     aria-label="Geo-lokation">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                     <circle cx="12" cy="12" r="3"/>
                                     <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
                                     <circle cx="12" cy="12" r="7" stroke-dasharray="3 2" opacity=".35"/>
@@ -157,7 +163,7 @@
                         <!-- Main: big temp + weather icon -->
                         <div class="ww-main">
                             <div class="ww-icon" id="weatherIcon">
-                                <span class="ww-icon-spin">⏳</span>
+                                <span class="ww-icon-spin" aria-hidden="true"></span>
                             </div>
                             <div class="ww-temp-block">
                                 <span class="ww-temp" id="weatherTemp">--</span>
@@ -190,37 +196,37 @@
                         <div class="ww-picker" id="wwPicker" role="group" aria-label="Vælg by">
                             <button class="ww-pill active"
                                     data-lat="55.6761" data-lon="12.5683"
-                                    data-city="København" data-country="Danmark" data-flag="🇩🇰">
+                                    data-city="København" data-country="Danmark" data-cc="DK">
                                 København
                             </button>
                             <button class="ww-pill"
                                     data-lat="56.1629" data-lon="10.2039"
-                                    data-city="Aarhus" data-country="Danmark" data-flag="🇩🇰">
+                                    data-city="Aarhus" data-country="Danmark" data-cc="DK">
                                 Aarhus
                             </button>
                             <button class="ww-pill"
                                     data-lat="56.4607" data-lon="9.4018"
-                                    data-city="Viborg" data-country="Danmark" data-flag="🇩🇰">
+                                    data-city="Viborg" data-country="Danmark" data-cc="DK">
                                 Viborg
                             </button>
                             <button class="ww-pill"
                                     data-lat="55.4038" data-lon="10.4024"
-                                    data-city="Odense" data-country="Danmark" data-flag="🇩🇰">
+                                    data-city="Odense" data-country="Danmark" data-cc="DK">
                                 Odense
                             </button>
                             <button class="ww-pill"
                                     data-lat="57.0488" data-lon="9.9217"
-                                    data-city="Aalborg" data-country="Danmark" data-flag="🇩🇰">
+                                    data-city="Aalborg" data-country="Danmark" data-cc="DK">
                                 Aalborg
                             </button>
                             <button class="ww-pill"
                                     data-lat="50.4501" data-lon="30.5234"
-                                    data-city="Kyiv" data-country="Ukraine" data-flag="🇺🇦">
+                                    data-city="Kyiv" data-country="Ukraine" data-cc="UA">
                                 Kyiv
                             </button>
                             <button class="ww-pill"
                                     data-lat="49.8397" data-lon="24.0297"
-                                    data-city="Lviv" data-country="Ukraine" data-flag="🇺🇦">
+                                    data-city="Lviv" data-country="Ukraine" data-cc="UA">
                                 Lviv
                             </button>
                         </div>
@@ -233,19 +239,21 @@
 
                     <script>
                     (() => {
+                        // Emoji icons replaced with minimal theme SVGs.
+                        // We map open-meteo weather codes to symbolic icon names.
                         const CODES = {
-                            0:{i:'☀️',d:'Klart'},1:{i:'🌤️',d:'Mest klart'},
-                            2:{i:'⛅',d:'Delvist skyet'},3:{i:'☁️',d:'Overskyet'},
-                            45:{i:'🌫️',d:'Tåge'},48:{i:'🌫️',d:'Rimtåge'},
-                            51:{i:'🌦️',d:'Let støvregn'},53:{i:'🌦️',d:'Støvregn'},55:{i:'🌧️',d:'Kraftig støvregn'},
-                            61:{i:'🌧️',d:'Let regn'},63:{i:'🌧️',d:'Regn'},65:{i:'🌧️',d:'Kraftig regn'},
-                            66:{i:'🌨️',d:'Isregn'},67:{i:'🌨️',d:'Kraftig isregn'},
-                            71:{i:'🌨️',d:'Let sne'},73:{i:'🌨️',d:'Sne'},75:{i:'❄️',d:'Kraftig sne'},
-                            77:{i:'❄️',d:'Snekorn'},
-                            80:{i:'🌦️',d:'Lette byger'},81:{i:'🌦️',d:'Byger'},82:{i:'⛈️',d:'Kraftige byger'},
-                            85:{i:'🌨️',d:'Snebyger'},86:{i:'🌨️',d:'Kraftige snebyger'},
-                            95:{i:'⛈️',d:'Tordenvejr'},96:{i:'⛈️',d:'Tordenvejr m. hagl'},
-                            99:{i:'⛈️',d:'Kraftigt tordenvejr'}
+                            0:{i:'sun',d:'Klart'},1:{i:'sun',d:'Mest klart'},
+                            2:{i:'cloud-sun',d:'Delvist skyet'},3:{i:'cloud',d:'Overskyet'},
+                            45:{i:'fog',d:'Tåge'},48:{i:'fog',d:'Rimtåge'},
+                            51:{i:'drizzle',d:'Let støvregn'},53:{i:'drizzle',d:'Støvregn'},55:{i:'rain',d:'Kraftig støvregn'},
+                            61:{i:'rain',d:'Let regn'},63:{i:'rain',d:'Regn'},65:{i:'rain',d:'Kraftig regn'},
+                            66:{i:'snow',d:'Isregn'},67:{i:'snow',d:'Kraftig isregn'},
+                            71:{i:'snow',d:'Let sne'},73:{i:'snow',d:'Sne'},75:{i:'snow',d:'Kraftig sne'},
+                            77:{i:'snow',d:'Snekorn'},
+                            80:{i:'drizzle',d:'Lette byger'},81:{i:'drizzle',d:'Byger'},82:{i:'storm',d:'Kraftige byger'},
+                            85:{i:'snow',d:'Snebyger'},86:{i:'snow',d:'Kraftige snebyger'},
+                            95:{i:'storm',d:'Tordenvejr'},96:{i:'storm',d:'Tordenvejr m. hagl'},
+                            99:{i:'storm',d:'Kraftigt tordenvejr'}
                         };
 
                         const KEY = 'dknews_weather_v2';
@@ -267,6 +275,42 @@
                         const $widget  = $('weatherWidget');
                         const $picker  = $('wwPicker');
 
+                        function setFlagByCC(cc) {
+                            const code = (cc || '').toUpperCase();
+                            // Use CSS mask/circle flags (SVG) to avoid tofu squares.
+                            if (code === 'DK') {
+                                $flag.innerHTML = '<span class="flag flag--dk" aria-label="Danmark"></span>';
+                                return;
+                            }
+                            if (code === 'UA') {
+                                $flag.innerHTML = '<span class="flag flag--ua" aria-label="Ukraine"></span>';
+                                return;
+                            }
+                            $flag.innerHTML = '<span class="flag flag--pin" aria-label="Location"></span>';
+                        }
+
+                        function renderWeatherIcon(name) {
+                            const icon = name || 'thermo';
+                            $icon.innerHTML = `<svg class="ww-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">${ICONS[icon] || ICONS.thermo}</svg>`;
+                        }
+
+                        function renderSpinner() {
+                            $icon.innerHTML = `<div class="ww-spinner" aria-hidden="true"></div>`;
+                        }
+
+                        // Minimal inline SVG icon set.
+                        const ICONS = {
+                            thermo: '<path d="M10 14.5a2 2 0 1 0 4 0V6a2 2 0 0 0-4 0v8.5Z" stroke="currentColor" stroke-width="1.8"/><path d="M12 4a2 2 0 0 1 2 2v8.5" stroke="currentColor" stroke-width="1.8" opacity=".35"/>' ,
+                            sun: '<path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" stroke="currentColor" stroke-width="1.8" opacity=".55" stroke-linecap="round"/>' ,
+                            cloud: '<path d="M7.5 18h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 9.7 3.8 3.8 0 0 0 7.5 18Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>' ,
+                            'cloud-sun': '<path d="M8 8.5a4 4 0 0 1 7.7-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".7"/><path d="M7.5 18h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 9.7 3.8 3.8 0 0 0 7.5 18Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>' ,
+                            fog: '<path d="M5 12h14M7 16h10M6 20h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".8"/><path d="M7.5 10h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 1.7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" opacity=".25"/>' ,
+                            drizzle: '<path d="M7.5 16h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 7.7 3.8 3.8 0 0 0 7.5 16Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 18l-1 2M12 18l-1 2M15 18l-1 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".75"/>' ,
+                            rain: '<path d="M7.5 16h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 7.7 3.8 3.8 0 0 0 7.5 16Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 18l-1.2 3M14 18l-1.2 3M18 18l-1.2 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".8"/>' ,
+                            snow: '<path d="M7.5 16h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 7.7 3.8 3.8 0 0 0 7.5 16Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 18h0M14 19h0M16 18.5h0" stroke="currentColor" stroke-width="4" stroke-linecap="round" opacity=".85"/>' ,
+                            storm: '<path d="M7.5 15.5h9a4.5 4.5 0 0 0 .7-9A5.5 5.5 0 0 0 6.7 7.2 3.8 3.8 0 0 0 7.5 15.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 14l-2 4h2l-1 4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>'
+                        };
+
                         // ── Pill selection ────────────────────────────────────────
                         function setActivePill(lat, lon) {
                             $picker.querySelectorAll('.ww-pill').forEach(btn => {
@@ -287,28 +331,14 @@
                                 const a = d.address || {};
                                 const city = a.city || a.town || a.village || a.municipality || a.county || '—';
                                 const cc   = (a.country_code || '').toUpperCase();
-
-                                // IMPORTANT: some platforms (esp. older Android/Windows fonts) render
-                                // regional-indicator flags as tofu (two squares). Use a stable mapping.
-                                const flag = (cc === 'DK') ? '🇩🇰'
-                                    : (cc === 'UA') ? '🇺🇦'
-                                    : (cc === 'SE') ? '🇸🇪'
-                                    : (cc === 'NO') ? '🇳🇴'
-                                    : (cc === 'DE') ? '🇩🇪'
-                                    : (cc === 'NL') ? '🇳🇱'
-                                    : (cc === 'PL') ? '🇵🇱'
-                                    : (cc === 'GB') ? '🇬🇧'
-                                    : (cc === 'US') ? '🇺🇸'
-                                    : '📍';
-
-                                return { city, country: a.country || cc, flag };
+                                return { city, country: a.country || cc, cc };
                             } catch { return null; }
                         }
 
                         // ── Fetch weather ─────────────────────────────────────────
-                        async function fetchWeather(lat, lon, cityName, countryName, flag) {
+                        async function fetchWeather(lat, lon, cityName, countryName, cc) {
                             $widget.classList.remove('loaded');
-                            $icon.innerHTML = '<span class="ww-icon-spin">⏳</span>';
+                            renderSpinner();
                             $temp.textContent = '--';
                             $desc.textContent = 'Indlæser...';
                             $wind.textContent = $hum.textContent = $feels.textContent = '--';
@@ -324,12 +354,12 @@
                                 if (!res.ok) throw new Error(res.status);
                                 const data = await res.json();
                                 const c = data.current;
-                                const w = CODES[c.weather_code] || { i: '🌡️', d: 'Ukendt' };
+                                const w = CODES[c.weather_code] || { i: 'thermo', d: 'Ukendt' };
 
-                                $flag.textContent    = flag;
+                                setFlagByCC(cc);
                                 $city.textContent    = cityName;
                                 $country.textContent = countryName;
-                                $icon.innerHTML      = `<span class="ww-icon-float">${w.i}</span>`;
+                                renderWeatherIcon(w.i);
                                 $temp.textContent    = Math.round(c.temperature_2m);
                                 $desc.textContent    = w.d;
                                 $wind.textContent    = Math.round(c.wind_speed_10m);
@@ -339,7 +369,8 @@
                                 $widget.classList.add('loaded');
                             } catch (e) {
                                 $desc.textContent = 'Kunne ikke indlæse';
-                                $icon.innerHTML   = '<span>❓</span>';
+                                $icon.innerHTML   = `<svg class="ww-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 17h.01M9.1 9a3.5 3.5 0 0 1 6.8 1c0 2-2 2.5-2 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+                                $flag.innerHTML   = '<span class="flag flag--pin" aria-label="Location"></span>';
                             }
                         }
 
@@ -360,21 +391,20 @@
                                     const geo = await reverseGeocode(lat, lon);
                                     const city    = geo?.city    ?? `${parseFloat(lat).toFixed(1)}°N`;
                                     const country = geo?.country ?? `${parseFloat(lon).toFixed(1)}°E`;
-                                    const flag    = geo?.flag    ?? '📍';
+                                    const cc      = geo?.cc      ?? '';
 
-                                    localStorage.setItem(KEY, `geo:${lat},${lon},${city},${country},${flag}`);
+                                    localStorage.setItem(KEY, `geo:${lat},${lon},${city},${country},${cc}`);
                                     setActivePill(null, null); // deselect all pills
                                     $geoBtn.disabled = false;
                                     $geoBtn.classList.remove('spinning');
                                     $geoSt.textContent = city;
-                                    fetchWeather(lat, lon, city, country, flag);
+                                    fetchWeather(lat, lon, city, country, cc);
                                 },
                                 err => {
                                     $geoBtn.disabled = false;
                                     $geoBtn.classList.remove('spinning');
                                     $geoSt.textContent = err.code === 1 ? 'Nægtet' : '';
                                     if (silent) {
-                                        // auto-init fallback → København
                                         const btn = $picker.querySelector('.ww-pill');
                                         loadPill(btn);
                                     }
@@ -385,11 +415,11 @@
 
                         // ── Load from pill button ─────────────────────────────────
                         function loadPill(btn) {
-                            const { lat, lon, city, country, flag } = btn.dataset;
+                            const { lat, lon, city, country, cc } = btn.dataset;
                             setActivePill(lat, lon);
                             $geoSt.textContent = '';
-                            localStorage.setItem(KEY, `city:${lat},${lon},${city},${country},${flag}`);
-                            fetchWeather(lat, lon, city, country, flag);
+                            localStorage.setItem(KEY, `city:${lat},${lon},${city},${country},${cc}`);
+                            fetchWeather(lat, lon, city, country, cc);
                         }
 
                         // ── Pill click handler ────────────────────────────────────
@@ -406,14 +436,14 @@
                             const saved = localStorage.getItem(KEY);
 
                             if (saved && saved.startsWith('geo:')) {
-                                const [lat, lon, city, country, flag] = saved.slice(4).split(',');
+                                const [lat, lon, city, country, cc] = saved.slice(4).split(',');
                                 $geoSt.textContent = city || '';
                                 setActivePill(null, null);
-                                fetchWeather(lat, lon, city || '📍', country || '', flag || '📍');
+                                fetchWeather(lat, lon, city || '—', country || '', cc || '');
                                 return;
                             }
                             if (saved && saved.startsWith('city:')) {
-                                const [lat, lon, city, country, flag] = saved.slice(5).split(',');
+                                const [lat, lon, city, country, cc] = saved.slice(5).split(',');
                                 const btn = [...$picker.querySelectorAll('.ww-pill')]
                                     .find(b => b.dataset.lat === lat && b.dataset.lon === lon);
                                 if (btn) { loadPill(btn); return; }
@@ -432,7 +462,7 @@
                             const saved = localStorage.getItem(KEY);
                             if (!saved) return;
                             const parts = saved.startsWith('geo:') ? saved.slice(4).split(',') : saved.slice(5).split(',');
-                            fetchWeather(parts[0], parts[1], parts[2] || '—', parts[3] || '', parts[4] || '📍');
+                            fetchWeather(parts[0], parts[1], parts[2] || '—', parts[3] || '', parts[4] || '');
                         }
 
                         document.addEventListener('DOMContentLoaded', () => {
@@ -444,14 +474,14 @@
                     <!-- Telegram Subscribe Block -->
                     <div class="sidebar-cta">
                         <div class="sidebar-cta__icon">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
                             </svg>
                         </div>
-                        <h4 class="sidebar-cta__title">Підписуйтесь!</h4>
+                        <h4 class="sidebar-cta__title">Підписуйтесь</h4>
                         <p class="sidebar-cta__text">Отримуйте новини першими</p>
                         <a href="https://t.me/news_about_dk" target="_blank" class="sidebar-cta__btn">
-                            Telegram →
+                            Telegram
                         </a>
                     </div>
 
@@ -460,7 +490,7 @@
                 <!-- Today's News Grid -->
                 <div class="news-main">
                     <div class="news-section__header">
-                        <h2 class="news-section__title">📰 Сьогодні</h2>
+                        <h2 class="news-section__title">Сьогодні</h2>
                     </div>
 
                     <div class="news-grid">
@@ -470,7 +500,7 @@
                         {{ range $todayNews }}
                         <article class="news-card">
                             <div class="news-card__image-wrapper">
-                                {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
+                                {{ $img := .Params.image | default (print $.Site.BaseURL "images/placeholder-news.svg") }}
                                 <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
                                 {{ $cat := "Новини" }}
                                 {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
@@ -494,7 +524,7 @@
                             {{ range seq $emptySlots }}
                             <article class="news-card news-card--placeholder">
                                 <div class="news-card__image-wrapper">
-                                    <img src="https://placehold.co/400x250/1a1a1a/333?text=..." class="news-card__image" alt="Очікування">
+                                    <img src="{{ $.Site.BaseURL }}images/placeholder-news.svg" class="news-card__image" alt="Очікування">
                                     <span class="news-card__tag">—</span>
                                 </div>
                                 <div class="news-card__content">
@@ -514,7 +544,7 @@
 
         <!-- PAGINATION BY DAYS -->
         <section class="pagination-section">
-            <h3 class="pagination-section__title">📅 Архів по днях</h3>
+            <h3 class="pagination-section__title">Архів по днях</h3>
             <div class="day-pagination">
                 {{ $today := now }}
                 {{ range seq 10 }}
