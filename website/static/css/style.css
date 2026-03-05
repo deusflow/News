@@ -255,14 +255,31 @@ body {
     background: transparent;
     border: none;
     color: #d1d5db;
-    font-size: 1.25rem;
     cursor: pointer;
     padding: 8px;
     transition: color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
 
 .theme-toggle:hover {
     color: var(--cr-pink);
+}
+
+/* Theme icon SVG (replaces emoji). Ensure it is visible in header */
+.theme-icon {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+}
+
+.theme-icon__svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+    stroke: currentColor;
 }
 
 /* ============================================
