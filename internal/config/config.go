@@ -4,10 +4,10 @@ package config
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -109,12 +109,10 @@ type Keyword struct {
 	Category string `yaml:"category"`
 	Weight   int    `yaml:"weight"`
 
-	// boundaryRe is pre-compiled at load time for short words (≤4 runes).
-	// Words like "ai"(2), "su"(2), "sl1"(3), "tog"(3), "data"(4) must match whole
-	// words only — otherwise "ai" fires inside "socialordfører", "data" fires inside
-	// "opdatering"/"database", etc. (BUG-1/BUG-2 from audit).
-	// Longer words are matched with strings.Contains (faster, no false positives).
-	boundaryRe *regexp.Regexp
+	// normalizedWord stores lowercase/trimmed keyword for fast matching.
+	normalizedWord string
+	// wholeWordMatch is enabled for short keywords (<=4 runes) to avoid substring false positives.
+	wholeWordMatch bool
 }
 
 // KeywordsConfig holds the keywords for filtering
@@ -126,15 +124,14 @@ type KeywordsConfig struct {
 //
 // Two fixes vs the old implementation:
 //
-//  1. WORD BOUNDARY: short keywords (≤4 runes) use a pre-compiled \b regex so
-//     "ai" never fires inside "socialordfører", "data" never fires inside
-//     "opdatering"/"database", "su" never fires inside "resultat", etc.
-//     Longer keywords still use strings.Contains (fast path, no false positives
-//     at that length in Danish).
+//  1. WORD BOUNDARY: short keywords (<=4 runes) are matched as standalone
+//     Unicode-aware tokens, so "ai" never fires inside "socialordfører",
+//     "data" never fires inside "opdatering"/"database", etc.
+//     Longer keywords still use strings.Contains (fast path).
 //
 //  2. CATEGORY BY SUM: the returned category is the one whose keywords contributed
 //     the most *total* weight, not the one with the single heaviest keyword.
-//     Example: 5 "local" keywords × weight 10 = 50 beats 1 "visas" keyword × weight 20.
+//     Example: 5 "local" keywords x weight 10 = 50 beats 1 "visas" keyword x weight 20.
 func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 	if kc == nil || len(kc.Keywords) == 0 {
 		return 0, ""
@@ -146,13 +143,15 @@ func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 
 	for i := range kc.Keywords {
 		kw := &kc.Keywords[i]
-		matched := false
+		if kw.normalizedWord == "" {
+			continue
+		}
 
-		if kw.boundaryRe != nil {
-			// Short word — must match at word boundary
-			matched = kw.boundaryRe.MatchString(lowerText)
+		matched := false
+		if kw.wholeWordMatch {
+			matched = containsWholeWord(lowerText, kw.normalizedWord)
 		} else {
-			matched = strings.Contains(lowerText, strings.ToLower(kw.Word))
+			matched = strings.Contains(lowerText, kw.normalizedWord)
 		}
 
 		if matched {
@@ -198,29 +197,15 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 		return nil, fmt.Errorf("keywords array is empty in config")
 	}
 
-	// Pre-compile word-boundary regexes for short keywords (≤4 runes).
-	// \b in Go's RE2 works correctly for ASCII word chars ([0-9A-Za-z_]).
-	// Danish letters (æøå) are NOT word chars in RE2 — for Danish short words
-	// we fall back to space/punctuation boundary check which is Unicode-safe.
 	for i := range cfg.Keywords {
-		word := cfg.Keywords[i].Word
-		if len([]rune(word)) <= 4 {
-			lower := strings.ToLower(word)
-			// Use \b if word is pure ASCII (works for "ai", "su", "sl1", "tog" etc.)
-			// Use Unicode boundary for words with non-ASCII runes.
-			var pattern string
-			if isASCII(lower) {
-				pattern = `(?i)\b` + regexp.QuoteMeta(lower) + `\b`
-			} else {
-				pattern = `(?i)(?:^|[\s[:punct:]])` + regexp.QuoteMeta(lower) + `(?:[\s[:punct:]]|$)`
-			}
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				// Compilation failure is a bug in the pattern logic — fail fast at startup.
-				return nil, fmt.Errorf("failed to compile boundary regex for keyword %q: %w", word, err)
-			}
-			cfg.Keywords[i].boundaryRe = re
+		word := strings.TrimSpace(cfg.Keywords[i].Word)
+		if word == "" {
+			continue
 		}
+		cfg.Keywords[i].Word = word
+		cfg.Keywords[i].normalizedWord = strings.ToLower(word)
+		cfg.Keywords[i].Category = strings.ToLower(strings.TrimSpace(cfg.Keywords[i].Category))
+		cfg.Keywords[i].wholeWordMatch = len([]rune(cfg.Keywords[i].normalizedWord)) <= 4
 	}
 
 	return &KeywordsConfig{
@@ -228,14 +213,50 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 	}, nil
 }
 
-// isASCII reports whether s contains only ASCII characters.
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] > 127 {
-			return false
-		}
+// containsWholeWord checks whether token appears in text with non-word boundaries.
+// Word characters are letters/digits (Unicode-aware), so "ai" won't match
+// "socialordfører" or "said", but will match "AI" as a standalone token.
+func containsWholeWord(text, token string) bool {
+	if token == "" {
+		return false
 	}
-	return true
+	for start := strings.Index(text, token); start >= 0; {
+		end := start + len(token)
+		leftOK := start == 0 || !isWordRune(lastRune(text[:start]))
+		rightOK := end == len(text) || !isWordRune(firstRune(text[end:]))
+		if leftOK && rightOK {
+			return true
+		}
+		nextStart := start + len(token)
+		if nextStart >= len(text) {
+			break
+		}
+		offset := strings.Index(text[nextStart:], token)
+		if offset < 0 {
+			break
+		}
+		start = nextStart + offset
+	}
+	return false
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func firstRune(s string) rune {
+	for _, r := range s {
+		return r
+	}
+	return 0
+}
+
+func lastRune(s string) rune {
+	last := rune(0)
+	for _, r := range s {
+		last = r
+	}
+	return last
 }
 
 func Load() (*Config, error) {

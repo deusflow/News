@@ -70,6 +70,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("starting news fetch cycle")
 	logger.Info("received raw items from RSS", "count", len(items))
 
+	const minKeywordScoreForAI = 1
+
 	// ── Шаг 1: фильтрация по дате ────────────────────────────────────────────
 	var recent []*rss.FeedItem
 	cutoff := time.Now().Add(-opts.MaxAge)
@@ -167,8 +169,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	// Отсекаем явный мусор (score < 0) и берём топ maxAICandidates
 	var topCandidates []preScored
 	for _, s := range scored {
-		if s.kwScore < 0 {
-			logger.Info("pre-filter: skipping low keyword score",
+		if opts.Keywords != nil && s.kwScore < minKeywordScoreForAI {
+			logger.Info("pre-filter: skipping non-relevant keyword score",
 				"title", s.item.Title, "kw_score", s.kwScore)
 			continue
 		}
@@ -292,9 +294,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			// Combine keyword pre-score with AI score.
 			// Keywords — primary signal, AI mood/freshness — secondary.
 			n.Score += topCandidates[idx].kwScore
-			// If keywords found a better category, override AI.
+			// If keywords found a category, prefer it after strict normalization.
 			if kwCat := topCandidates[idx].kwCat; kwCat != "" && kwCat != "spam" {
-				n.Category = string(ValidateCategory(kwCat))
+				if coerced, ok := CoerceCategory(kwCat); ok {
+					n.Category = string(coerced)
+				}
 			}
 			result = append(result, *n)
 		}
@@ -387,8 +391,14 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		published = *item.PublishedParsed
 	}
 
-	// Категорию из AI валидируем через whitelist — галлюцинации не пройдут
-	aiCategory := ValidateCategory(resp.Category)
+	// Категорию из AI валидируем через whitelist/aliases — галлюцинации не пройдут.
+	aiCategory, aiCategoryValid := CoerceCategory(resp.Category)
+	if !aiCategoryValid {
+		logger.Warn("AI returned unknown category, using default",
+			"title", title,
+			"raw_category", resp.Category,
+			"fallback", CategoryDefault)
+	}
 
 	n := News{
 		Title:      title,

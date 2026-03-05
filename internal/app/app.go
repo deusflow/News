@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/deusflow/News/internal/telegram"
 	"github.com/deusflow/News/internal/website"
 )
+
+const publishPerRunLimit = 1
 
 // Service interfaces for SRP
 type NewsFetcher interface {
@@ -240,6 +243,18 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 // Run запускает приложение
 func (a *App) Run(ctx context.Context) {
 	logger.Info("Starting Danish News Bot Run")
+	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
+		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
+			"env", "MAX_NEWS_LIMIT",
+			"value", maxEnv,
+			"effective_publish_limit", publishPerRunLimit)
+	}
+	if modeEnv, ok := os.LookupEnv("BOT_MODE"); ok {
+		logger.Info("Ignoring legacy publish env in favor of hard architectural mode",
+			"env", "BOT_MODE",
+			"value", modeEnv,
+			"effective_mode", "single")
+	}
 
 	// Check for cancellation immediately
 	if ctx.Err() != nil {
@@ -297,6 +312,7 @@ func (a *App) Run(ctx context.Context) {
 	// 7. Публикация: ровно одна лучшая новость.
 	// filtered уже отсортирован по score (best first) в news.FilterAndTranslateWithOptions.
 	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
+	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", publishPerRunLimit)
 	a.sender.Send(ctx, filtered)
 }
 
@@ -429,7 +445,7 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 
 		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category)
 		sendOneNews(ctx, n, hash, cfg, cacheAdapter, m, websiteGen, supabase)
-		return // ← EXACTLY ONE. Hard stop.
+		return // EXACTLY ONE. Hard stop.
 	}
 
 	logger.Info("No publishable news found in this run")

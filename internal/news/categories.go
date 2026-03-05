@@ -95,11 +95,35 @@ func BuildValidCategoryList() string {
 // Если значение не входит в whitelist — возвращает CategoryDefault.
 // Никогда не паникует, всегда возвращает валидную категорию.
 func ValidateCategory(raw string) Category {
-	c := Category(strings.ToLower(strings.TrimSpace(raw)))
-	if _, ok := categoryEmoji[c]; ok {
-		return c
+	c, _ := CoerceCategory(raw)
+	return c
+}
+
+// CoerceCategory normalizes raw category into a valid canonical Category.
+// Returns (category, true) for direct/alias matches, or (CategoryDefault, false)
+// when input is unknown.
+func CoerceCategory(raw string) (Category, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		return CategoryDefault, false
 	}
-	return CategoryDefault
+
+	c := Category(normalized)
+	if _, ok := categoryEmoji[c]; ok {
+		return c, true
+	}
+	if alias, ok := categoryAliases[normalized]; ok {
+		return alias, true
+	}
+	return CategoryDefault, false
+}
+
+// categoryAliases maps non-canonical category names to supported canonical ones.
+// This keeps keywords.yaml expressive while preserving strict publish-time taxonomy.
+var categoryAliases = map[string]Category{
+	"housing":   CategorySociety,
+	"health":    CategorySociety,
+	"transport": CategoryLocal,
 }
 
 // CategoryEmoji возвращает emoji для категории (публичный accessor).
