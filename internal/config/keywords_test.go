@@ -280,6 +280,64 @@ func TestCalculateScore_Maersk_EnglishSpelling(t *testing.T) {
 	}
 }
 
+// ── Integration: real configs/keywords.yaml ──────────────────────────────────
+
+func TestLoadKeywords_RealFile_HasPolitics(t *testing.T) {
+	kc, err := LoadKeywords("../../configs/keywords.yaml")
+	if err != nil {
+		t.Fatalf("LoadKeywords real file: %v", err)
+	}
+	if len(kc.Keywords) < 200 {
+		t.Errorf("expected >=200 keywords, got %d", len(kc.Keywords))
+	}
+
+	cats := make(map[string]int)
+	for _, kw := range kc.Keywords {
+		cats[kw.Category]++
+	}
+
+	t.Logf("Total keywords: %d", len(kc.Keywords))
+	for c, n := range cats {
+		t.Logf("  %-15s %d", c, n)
+	}
+
+	required := []string{"politics", "visas", "work", "economy", "society", "education", "tech", "spam"}
+	for _, cat := range required {
+		if cats[cat] == 0 {
+			t.Errorf("category %q missing from keywords.yaml", cat)
+		}
+	}
+}
+
+func TestCalculateScore_PoliticsKeywords(t *testing.T) {
+	kc, err := LoadKeywords("../../configs/keywords.yaml")
+	if err != nil {
+		t.Fatalf("LoadKeywords: %v", err)
+	}
+
+	cases := []struct {
+		text     string
+		minScore int
+		wantCat  string
+		desc     string
+	}{
+		{"Folketing vedtog ny lovforslag om dagpenge", 30, "politics", "parliament law"},
+		{"Regeringen indfører reform af sundhedsvæsen", 25, "politics", "government reform"},
+		{"Statsminister fremlægger finanslov for 2027", 30, "politics", "state budget"},
+		{"Ny lov om pensionsalder træder i kraft", 40, "politics", "pension law"},
+	}
+
+	for _, tc := range cases {
+		score, cat := kc.CalculateScore(tc.text)
+		if score < tc.minScore {
+			t.Errorf("[%s] score=%d want>=%d cat=%q", tc.desc, score, tc.minScore, cat)
+		}
+		if cat != tc.wantCat {
+			t.Errorf("[%s] cat=%q want=%q (score=%d)", tc.desc, cat, tc.wantCat, score)
+		}
+	}
+}
+
 // ── Real-world cases from CI logs ────────────────────────────────────────────
 
 func TestCalculateScore_RealWorld_FootballNegativeScore(t *testing.T) {

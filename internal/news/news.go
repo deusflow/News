@@ -24,6 +24,11 @@ type News struct {
 	Category  string
 	Score     int
 
+	// KeywordScore and ImpactScore are explicit ranking signals.
+	// Score remains the final combined value used for ordering.
+	KeywordScore int
+	ImpactScore  int
+
 	SourceName string
 	SourceLang string
 
@@ -141,24 +146,31 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	const maxAICandidates = 5
 
 	type preScored struct {
-		item    *rss.FeedItem
-		kwScore int
-		kwCat   string
+		item              *rss.FeedItem
+		kwScore           int
+		kwCat             string
+		kwCategoryWeights map[string]int
 	}
 
 	var scored []preScored
 	for _, item := range candidates {
 		kwScore := 0
 		kwCat := ""
+		kwCategoryWeights := map[string]int{}
 		if opts.Keywords != nil {
 			// Pre-score по title + RSS description (контент ещё не скрейпнут)
 			text := item.Title
 			if item.Description != "" {
 				text += " " + item.Description
 			}
-			kwScore, kwCat = opts.Keywords.CalculateScore(text)
+			kwScore, kwCat, kwCategoryWeights = opts.Keywords.CalculateScoreDetailed(text)
 		}
-		scored = append(scored, preScored{item: item, kwScore: kwScore, kwCat: kwCat})
+		scored = append(scored, preScored{
+			item:              item,
+			kwScore:           kwScore,
+			kwCat:             kwCat,
+			kwCategoryWeights: kwCategoryWeights,
+		})
 	}
 
 	// Сортируем по keyword score (лучшие первые)
@@ -291,11 +303,35 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			continue
 		}
 		if n != nil {
-			// Combine keyword pre-score with AI score.
-			// Keywords — primary signal, AI mood/freshness — secondary.
-			n.Score += topCandidates[idx].kwScore
+			kwScore := topCandidates[idx].kwScore
+			kwCat := topCandidates[idx].kwCat
+			kwCategoryWeights := topCandidates[idx].kwCategoryWeights
+
+			// Re-score on full text (title + scraped content) for final ranking precision.
+			// Pre-score still controls the cheap pre-filter before AI.
+			if opts.Keywords != nil {
+				fullText := s.item.Title
+				if s.content != "" {
+					fullText += " " + s.content
+				}
+				fullKwScore, fullKwCat, fullKwWeights := opts.Keywords.CalculateScoreDetailed(fullText)
+				if fullKwScore > kwScore {
+					kwScore = fullKwScore
+					kwCat = fullKwCat
+					kwCategoryWeights = fullKwWeights
+				}
+			}
+
+			impactScore := calculateImpactScore(kwCategoryWeights)
+
+			// Keywords remain primary. Impact is a separate architectural signal.
+			// AI (mood/freshness) stays secondary via n.Score from processItemWithContent().
+			n.KeywordScore = kwScore
+			n.ImpactScore = impactScore
+			n.Score += kwScore + impactScore
+
 			// If keywords found a category, prefer it after strict normalization.
-			if kwCat := topCandidates[idx].kwCat; kwCat != "" && kwCat != "spam" {
+			if kwCat != "" && kwCat != "spam" {
 				if coerced, ok := CoerceCategory(kwCat); ok {
 					n.Category = string(coerced)
 				}
@@ -306,13 +342,74 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 	logger.Info("phase 2 done", "ready", len(result), "errors", aiErrors)
 
-	// ── Шаг 6: финальная сортировка по combined score ─────────────────────────
-	// result[0] — самая релевантная новость, она будет опубликована.
-	sort.SliceStable(result, func(i, j int) bool {
-		return result[i].Score > result[j].Score
-	})
+	// ── Шаг 6: финальная сортировка с impact-priority ─────────────────────────
+	// 1) Сильные public-impact новости идут выше остальных.
+	// 2) Внутри группы порядок по final score.
+	sortByPublishPriority(result)
 
 	return result, nil
+}
+
+const impactPriorityThreshold = 12
+
+// calculateImpactScore derives an explicit public-impact signal from keyword
+// category contributions. It is intentionally independent from AI.
+func calculateImpactScore(categoryWeights map[string]int) int {
+	if len(categoryWeights) == 0 {
+		return 0
+	}
+
+	impact := 0
+	impact += categoryWeights["politics"]
+	impact += categoryWeights["economy"] / 2
+	impact += categoryWeights["society"] / 2
+	impact += categoryWeights["visas"] / 2
+	impact += categoryWeights["work"] / 2
+	impact += categoryWeights["money"] / 2
+	impact += categoryWeights["housing"] / 2
+	impact += categoryWeights["health"] / 2
+	impact += categoryWeights["transport"] / 2
+
+	// Entertainment-only items get a small penalty when no public-impact signal exists.
+	if impact == 0 {
+		light := categoryWeights["lifestyle"] + categoryWeights["sport"]
+		if light > 0 {
+			impact -= min(6, light/3)
+		}
+	}
+
+	if impact > 40 {
+		impact = 40
+	}
+	if impact < -10 {
+		impact = -10
+	}
+	return impact
+}
+
+func isImpactCandidate(n News) bool {
+	return n.ImpactScore >= impactPriorityThreshold
+}
+
+func sortByPublishPriority(items []News) {
+	sort.SliceStable(items, func(i, j int) bool {
+		iImpact := isImpactCandidate(items[i])
+		jImpact := isImpactCandidate(items[j])
+		if iImpact != jImpact {
+			return iImpact
+		}
+		if iImpact && items[i].ImpactScore != items[j].ImpactScore {
+			return items[i].ImpactScore > items[j].ImpactScore
+		}
+		return items[i].Score > items[j].Score
+	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Веса для mood-based fallback scoring.

@@ -82,6 +82,14 @@ CONTENT: %s
                 ✓ EP votes on migration  ✓ EU sanctions Russia
                 ✗ DO NOT use for war news or general European politics.
 
+  "politics"  → Danish domestic politics and governance: parliament (Folketing), government
+                decisions, laws and reforms, party agreements, elections, defence policy,
+                welfare reform, public service, state budget (finanslov), pension reform,
+                climate policy. Use when a decision or change DIRECTLY affects life in Denmark.
+                ✓ New law on taxes  ✓ Folketing votes on defence spending
+                ✓ Government reform of healthcare  ✓ Party agreement on housing
+                ✗ DO NOT use for war/military (use "war") or EU institutions (use "eu").
+
   "society"   → Default for social topics: Danish public life, integration, protests,
                 immigration debate, Ukrainian refugees in Denmark.
                 Use this when no other category fits clearly.

@@ -122,24 +122,24 @@ type KeywordsConfig struct {
 
 // CalculateScore calculates the total score for a given text based on keywords.
 //
-// Two fixes vs the old implementation:
-//
-//  1. WORD BOUNDARY: short keywords (<=4 runes) are matched as standalone
-//     Unicode-aware tokens, so "ai" never fires inside "socialordfører",
-//     "data" never fires inside "opdatering"/"database", etc.
-//     Longer keywords still use strings.Contains (fast path).
-//
-//  2. CATEGORY BY SUM: the returned category is the one whose keywords contributed
-//     the most *total* weight, not the one with the single heaviest keyword.
-//     Example: 5 "local" keywords x weight 10 = 50 beats 1 "visas" keyword x weight 20.
+// Backward-compatible wrapper around CalculateScoreDetailed.
 func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
+	total, topCategory, _ := kc.CalculateScoreDetailed(text)
+	return total, topCategory
+}
+
+// CalculateScoreDetailed calculates keyword score and returns:
+//  1. total score
+//  2. top category by accumulated weight (excluding spam)
+//  3. per-category accumulated weights (for impact-aware ranking)
+func (kc *KeywordsConfig) CalculateScoreDetailed(text string) (int, string, map[string]int) {
 	if kc == nil || len(kc.Keywords) == 0 {
-		return 0, ""
+		return 0, "", map[string]int{}
 	}
 
 	lowerText := strings.ToLower(text)
 	totalScore := 0
-	categoryWeights := make(map[string]int, 16) // category → accumulated weight
+	categoryWeights := make(map[string]int, 16) // category -> accumulated weight
 
 	for i := range kc.Keywords {
 		kw := &kc.Keywords[i]
@@ -160,7 +160,7 @@ func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 		}
 	}
 
-	// Pick category with highest accumulated weight (ignore "spam" — it is a filter, not a label)
+	// Pick category with highest accumulated weight (ignore "spam" - it is a filter, not a label)
 	topCategory := ""
 	maxCatWeight := 0
 	for cat, w := range categoryWeights {
@@ -173,7 +173,7 @@ func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 		}
 	}
 
-	return totalScore, topCategory
+	return totalScore, topCategory, categoryWeights
 }
 
 func LoadKeywords(path string) (*KeywordsConfig, error) {

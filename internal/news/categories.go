@@ -24,6 +24,7 @@ const (
 	CategoryLifestyle Category = "lifestyle"
 	CategorySport     Category = "sport"
 	CategoryEU        Category = "eu"
+	CategoryPolitics  Category = "politics" // Державна/політична тематика: закони, реформи, уряд
 
 	// CategoryDefault используется когда AI или keywords не дали валидной категории.
 	CategoryDefault Category = "society"
@@ -41,13 +42,14 @@ var categoryEmoji = map[Category]string{
 	CategoryWar:       "⚔️",
 	CategoryLocal:     "🏙️",
 	CategoryEducation: "🎓",
-	CategoryCrime:     "🔍", // было 🚨 — конфликт с mood "urgent"
+	CategoryCrime:     "🔍",
 	CategoryTech:      "💻",
 	CategoryEconomy:   "📊",
 	CategoryFamily:    "👨‍👩‍👧‍👦",
 	CategoryLifestyle: "🎭",
 	CategorySport:     "⚽",
 	CategoryEU:        "🇪🇺",
+	CategoryPolitics:  "🏛️",
 }
 
 // categoryLabel — текст header-а новости (украинский, заглавними літерами).
@@ -60,13 +62,14 @@ var categoryLabel = map[Category]string{
 	CategoryWar:       "ВІЙНА",
 	CategoryLocal:     "МІСТО",
 	CategoryEducation: "ОСВІТА",
-	CategoryCrime:     "КРИМІНАЛ", // було "CRIME"
+	CategoryCrime:     "КРИМІНАЛ",
 	CategoryTech:      "ТЕХНОЛОГІЇ",
 	CategoryEconomy:   "ЕКОНОМІКА",
 	CategoryFamily:    "СІМ'Я",
-	CategoryLifestyle: "СТИЛЬ ЖИТТЯ", // було "LIFESTYLE"
-	CategorySport:     "СПОРТ",       // було "SPORT"
-	CategoryEU:        "ЄВРОСОЮЗ",    // було "EU"
+	CategoryLifestyle: "СТИЛЬ ЖИТТЯ",
+	CategorySport:     "СПОРТ",
+	CategoryEU:        "ЄВРОСОЮЗ",
+	CategoryPolitics:  "ПОЛІТИКА",
 }
 
 // ValidCategories — повний whitelist допустимих категорій.
@@ -121,9 +124,13 @@ func CoerceCategory(raw string) (Category, bool) {
 // categoryAliases maps non-canonical category names to supported canonical ones.
 // This keeps keywords.yaml expressive while preserving strict publish-time taxonomy.
 var categoryAliases = map[string]Category{
-	"housing":   CategorySociety,
-	"health":    CategorySociety,
-	"transport": CategoryLocal,
+	"housing":    CategorySociety,
+	"health":     CategorySociety,
+	"transport":  CategoryLocal,
+	"government": CategoryPolitics,
+	"policy":     CategoryPolitics,
+	"reform":     CategoryPolitics,
+	"law":        CategoryPolitics,
 }
 
 // CategoryEmoji возвращает emoji для категории (публичный accessor).

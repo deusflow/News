@@ -853,3 +853,260 @@ keywords:
   - word: "integrationsansvarlig"  # Ответственный за интеграцию в коммуне
     category: "society"
     weight: 25
+
+  # =======================================================
+  # ПОЛИТИКА И ГОСУДАРСТВО (новый блок — высокий приоритет)
+  # Что происходит со страной, законы, реформы, госрешения
+  # =======================================================
+
+  # Парламент и правительство (Weight 20)
+  - word: "folketing"
+    category: "politics"
+    weight: 20
+  - word: "regeringen"
+    category: "politics"
+    weight: 18
+  - word: "statsminister"
+    category: "politics"
+    weight: 20
+  - word: "ministeriet"
+    category: "politics"
+    weight: 15
+  - word: "minister"
+    category: "politics"
+    weight: 12
+  - word: "lovforslag"             # законопроект
+    category: "politics"
+    weight: 22
+  - word: "vedtaget"               # принято (закон/решение)
+    category: "politics"
+    weight: 18
+  - word: "afstemning"             # голосование
+    category: "politics"
+    weight: 16
+  - word: "valg"                   # выборы
+    category: "politics"
+    weight: 15
+  - word: "partiet"                # партия
+    category: "politics"
+    weight: 10
+  - word: "opposition"
+    category: "politics"
+    weight: 12
+  - word: "flertal"                # большинство (в парламенте)
+    category: "politics"
+    weight: 16
+  - word: "aftale"                 # соглашение/договорённость между партиями
+    category: "politics"
+    weight: 12
+  - word: "forhandlinger"          # переговоры
+    category: "politics"
+    weight: 12
+
+  # Реформы и изменения, влияющие на жизнь (Weight 18-22)
+  - word: "reform"
+    category: "politics"
+    weight: 20
+  - word: "nye regler"             # новые правила
+    category: "politics"
+    weight: 22
+  - word: "ny lov"                 # новый закон
+    category: "politics"
+    weight: 22
+  - word: "loven træder"           # закон вступает в силу
+    category: "politics"
+    weight: 25
+  - word: "stramninger"            # ужесточения
+    category: "politics"
+    weight: 20
+  - word: "lempelser"              # послабления
+    category: "politics"
+    weight: 18
+  - word: "indfører"               # вводит (меру/закон)
+    category: "politics"
+    weight: 16
+  - word: "afskaffes"              # отменяется
+    category: "politics"
+    weight: 18
+  - word: "offentlig service"
+    category: "politics"
+    weight: 15
+  - word: "velfærd"                # благосостояние, социальное государство
+    category: "politics"
+    weight: 18
+  - word: "velfærdsstat"
+    category: "politics"
+    weight: 20
+
+  # Обороноспособность и безопасность страны (Weight 18)
+  - word: "forsvarsbudget"
+    category: "politics"
+    weight: 22
+  - word: "forsvarspolitik"
+    category: "politics"
+    weight: 20
+  - word: "militærhjælp"
+    category: "politics"
+    weight: 18
+  - word: "nato"
+    category: "politics"
+    weight: 15
+  - word: "beredskab"              # гражданская оборона/готовность
+    category: "politics"
+    weight: 16
+  - word: "beredskabre"
+    category: "politics"
+    weight: 16
+
+  # Экономика страны / влияние на граждан (Weight 16-20)
+  - word: "inflation"
+    category: "economy"
+    weight: 18
+  - word: "rente"                  # процентная ставка
+    category: "economy"
+    weight: 16
+  - word: "nationalbank"
+    category: "economy"
+    weight: 18
+  - word: "boligmarked"            # рынок жилья
+    category: "economy"
+    weight: 16
+  - word: "prisstigninger"         # рост цен
+    category: "economy"
+    weight: 18
+  - word: "forbrugerprisindeks"    # индекс потребительских цен
+    category: "economy"
+    weight: 20
+  - word: "økonomi"
+    category: "economy"
+    weight: 12
+  - word: "dansk økonomi"
+    category: "economy"
+    weight: 20
+  - word: "finanslov"              # государственный бюджет
+    category: "politics"
+    weight: 22
+  - word: "finansministeren"
+    category: "politics"
+    weight: 18
+  - word: "skattereform"
+    category: "politics"
+    weight: 22
+  - word: "beskatning"             # налогообложение
+    category: "economy"
+    weight: 16
+  - word: "afgifter"               # пошлины/сборы
+    category: "economy"
+    weight: 14
+
+  # Энергетика и климат (государственные решения) (Weight 15-20)
+  - word: "klimaplan"
+    category: "politics"
+    weight: 20
+  - word: "klimamål"               # климатические цели
+    category: "politics"
+    weight: 18
+  - word: "grøn energi"
+    category: "politics"
+    weight: 16
+  - word: "vindmøller"             # ветряные турбины
+    category: "economy"
+    weight: 14
+  - word: "energikrise"
+    category: "economy"
+    weight: 20
+  - word: "el-priser"              # цены на электроэнергию
+    category: "economy"
+    weight: 18
+  - word: "strømpriserne"
+    category: "economy"
+    weight: 18
+  - word: "gaspriser"
+    category: "economy"
+    weight: 16
+
+  # Здравоохранение (государственные решения) (Weight 15-18)
+  - word: "sundhedsvæsen"          # система здравоохранения
+    category: "society"
+    weight: 18
+  - word: "sygehus"                # больница
+    category: "society"
+    weight: 14
+  - word: "venteliste"             # очередь ожидания
+    category: "society"
+    weight: 16
+  - word: "sundhedsreform"
+    category: "politics"
+    weight: 22
+  - word: "psykiatri"
+    category: "society"
+    weight: 15
+  - word: "almen praksis"          # общая практика ГП
+    category: "society"
+    weight: 14
+
+  # Пенсии и соцподдержка (Weight 16-20)
+  - word: "folkepension"           # государственная пенсия
+    category: "economy"
+    weight: 20
+  - word: "pensionsalder"          # пенсионный возраст
+    category: "politics"
+    weight: 22
+  - word: "efterløn"               # ранняя пенсия
+    category: "politics"
+    weight: 18
+  - word: "dagpenge"               # пособие по безработице
+    category: "work"
+    weight: 16
+  - word: "kontanthjælp"           # социальное пособие
+    category: "money"
+    weight: 16
+  - word: "børnecheck"             # детское пособие
+    category: "family"
+    weight: 16
+  - word: "børneydelse"
+    category: "family"
+    weight: 16
+
+  # =======================================================
+  # МЯГКИЙ PENALTY — развлекательный контент без датского влияния
+  # Новость пройдёт, если есть другие сильные keywords,
+  # но не выиграет у реально важной темы.
+  # =======================================================
+  - word: "musikfestival"
+    category: "spam"
+    weight: -5
+  - word: "filmfestival"
+    category: "spam"
+    weight: -5
+  - word: "modeugen"               # неделя моды
+    category: "spam"
+    weight: -5
+  - word: "realityshow"
+    category: "spam"
+    weight: -8
+  - word: "reality-show"
+    category: "spam"
+    weight: -8
+  - word: "x factor"
+    category: "spam"
+    weight: -5
+  - word: "vinder af"              # "победитель" — часто pop culture
+    category: "spam"
+    weight: -3
+  - word: "prisoverrækkelse"       # церемония награждения
+    category: "spam"
+    weight: -5
+  - word: "oscar"
+    category: "spam"
+    weight: -5
+  - word: "grammy"
+    category: "spam"
+    weight: -5
+  - word: "celebrity"
+    category: "spam"
+    weight: -8
+  - word: "influencer"
+    category: "spam"
+    weight: -8
+
