@@ -82,12 +82,24 @@ func TestGenerateContentHash_RealWorldDuplicates(t *testing.T) {
 	// For semantic duplicates, we'd need AI or more sophisticated algorithms
 }
 
+func TestGenerateContentHash_LegacyCompatibilityPath(t *testing.T) {
+	content := "Zelenskyj melder om 55.000 draebte ukrainske soldater i krigen mod Rusland."
+	newHash := generateContentHash(content)
+	legacyHash := generateLegacyContentHash(content)
+
+	if newHash == legacyHash {
+		t.Fatalf("expected new hash and legacy hash to differ, both are %q", newHash)
+	}
+	if len(legacyHash) != 16 {
+		t.Fatalf("expected legacy hash length 16, got %d", len(legacyHash))
+	}
+}
+
 func TestGenerateContentHash_ShortContent(t *testing.T) {
-	// Short content should return empty or minimal hash
 	shortContent := "Test"
 	hash := generateContentHash(shortContent)
 
-	if len(hash) != 16 { // Our hash is 16 hex chars
-		t.Errorf("Expected 16 char hash, got %d chars: %s", len(hash), hash)
+	if len(hash) != 32 { // 128-bit (16 bytes) represented as hex
+		t.Errorf("Expected 32 char hash, got %d chars: %s", len(hash), hash)
 	}
 }

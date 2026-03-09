@@ -1,14 +1,17 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
+	"github.com/deusflow/News/internal/logger"
 	_ "github.com/lib/pq"
 )
 
@@ -70,7 +73,7 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 		return nil, fmt.Errorf("failed to initialize schema: %v", err)
 	}
 
-	log.Println("✅ PostgreSQL cache connected successfully")
+	logger.Info("PostgreSQL cache connected successfully")
 	return cache, nil
 }
 
@@ -220,7 +223,7 @@ func (pc *PostgresCache) initSchema() error {
 		return fmt.Errorf("failed to create additional tables: %v", err)
 	}
 
-	log.Println("✅ Database schema initialized")
+	logger.Info("Database schema initialized")
 	return nil
 }
 
@@ -233,7 +236,7 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 	err := pc.db.QueryRow(query, hash, cutoffTime).Scan(&count)
 
 	if err != nil {
-		log.Printf("⚠️ Error checking duplicate: %v", err)
+		logger.Warn("Error checking duplicate by hash", "error", err)
 		return false
 	}
 
@@ -249,7 +252,7 @@ func (pc *PostgresCache) IsLinkAlreadySent(link string) bool {
 	err := pc.db.QueryRow(query, link, cutoffTime).Scan(&count)
 
 	if err != nil {
-		log.Printf("⚠️ Error checking link duplicate: %v", err)
+		logger.Warn("Error checking duplicate by link", "error", err)
 		return false
 	}
 
@@ -261,36 +264,66 @@ func (pc *PostgresCache) IsLinkAlreadySent(link string) bool {
 // Two articles about the same event will have very similar content regardless of title
 func (pc *PostgresCache) IsContentDuplicate(content string) (bool, string) {
 	if len(content) < 100 {
-		return false, "" // Too short to be meaningful
+		return false, ""
 	}
 
 	contentHash := generateContentHash(content)
+	legacyHash := generateLegacyContentHash(content)
 	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
 
-	// Check exact content hash match
 	var existingTitle string
-	query := `SELECT title FROM sent_news WHERE content_hash = $1 AND sent_at > $2 LIMIT 1`
-	err := pc.db.QueryRow(query, contentHash, cutoffTime).Scan(&existingTitle)
+	query := `SELECT title FROM sent_news WHERE content_hash IN ($1, $2) AND sent_at > $3 LIMIT 1`
+	err := pc.db.QueryRow(query, contentHash, legacyHash, cutoffTime).Scan(&existingTitle)
 
 	if err == nil {
-		log.Printf("🔍 Found duplicate content (exact hash match): %s", existingTitle)
+		logger.Info("Found duplicate content hash", "existing_title", existingTitle)
 		return true, existingTitle
 	}
-
 	return false, ""
 }
 
-// generateContentHash creates a signature based on significant numbers in the content.
-// News about the same event typically contains the same key statistics/numbers.
-// This catches cases like "55000 soldiers killed" from different sources.
-//
-// Number separator fix: dots and commas are treated as part of a number ONLY when
-// the previous character was a digit (i.e. "12.50" or "1,000"). In all other
-// positions ("Mr. Smith", "abc, def") they flush the current buffer so we don't
-// accidentally join unrelated digit sequences.
+// generateContentHash creates a stronger, deterministic hash for content deduplication.
+// It combines significant numbers and normalized text and hashes with SHA-256 (128-bit truncated hex).
 func generateContentHash(content string) string {
-	normalized := strings.ToLower(content)
+	normalized := normalizeContentForHash(content)
+	numbers := extractSignificantNumbers(normalized)
+	sort.Strings(numbers)
 
+	signature := "t:" + normalized
+	if len(numbers) > 0 {
+		signature = "n:" + strings.Join(numbers, ",") + "|" + signature
+	}
+
+	sum := sha256.Sum256([]byte(signature))
+	return hex.EncodeToString(sum[:16])
+}
+
+// generateLegacyContentHash keeps the previous FNV-based logic for backward-compatible lookups.
+func generateLegacyContentHash(content string) string {
+	normalized := strings.ToLower(content)
+	numbers := extractSignificantNumbers(normalized)
+	if len(numbers) == 0 {
+		var textOnly strings.Builder
+		for _, r := range normalized {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				textOnly.WriteRune(r)
+			}
+		}
+		text := textOnly.String()
+		if len(text) > 200 {
+			text = text[:200]
+		}
+		h := fnv.New64a()
+		_, _ = h.Write([]byte(text))
+		return fmt.Sprintf("%016x", h.Sum64())
+	}
+	sort.Strings(numbers)
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.Join(numbers, ",")))
+	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+func extractSignificantNumbers(normalized string) []string {
 	var numbers []string
 	var currentNum strings.Builder
 	prevWasDigit := false
@@ -300,12 +333,8 @@ func generateContentHash(content string) string {
 			currentNum.WriteRune(r)
 			prevWasDigit = true
 		} else if (r == '.' || r == ',') && prevWasDigit {
-			// Separator inside a number (e.g. "55.000" or "1,234") — keep accumulating.
-			// We intentionally swallow the separator so "55.000" becomes "55000".
-			// prevWasDigit stays true.
+			// keep separators inside number (e.g. 55.000 => 55000)
 		} else {
-			// Any non-digit, non-separator character (or separator after non-digit)
-			// flushes the current number buffer.
 			if currentNum.Len() > 0 {
 				num := currentNum.String()
 				if len(num) >= 4 {
@@ -316,39 +345,48 @@ func generateContentHash(content string) string {
 			prevWasDigit = false
 		}
 	}
-	// Flush last number
-	if currentNum.Len() >= 4 {
-		numbers = append(numbers, currentNum.String())
+	if currentNum.Len() > 0 {
+		num := currentNum.String()
+		if len(num) >= 4 {
+			numbers = append(numbers, num)
+		}
 	}
+	return numbers
+}
 
-	// If no significant numbers found, use first 200 chars of normalized content
-	if len(numbers) == 0 {
-		// Fallback: use simple text hash
-		var textOnly strings.Builder
-		for _, r := range normalized {
-			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-				textOnly.WriteRune(r)
+func normalizeContentForHash(content string) string {
+	lower := strings.ToLower(stripNumericSeparators(content))
+	var b strings.Builder
+	b.Grow(len(lower))
+	lastSpace := false
+	for _, r := range lower {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastSpace = false
+			continue
+		}
+		if !lastSpace {
+			b.WriteByte(' ')
+			lastSpace = true
+		}
+	}
+	return strings.TrimSpace(strings.Join(strings.Fields(b.String()), " "))
+}
+
+// stripNumericSeparators removes dots/commas only when they are inside a number.
+func stripNumericSeparators(content string) string {
+	runes := []rune(content)
+	var b strings.Builder
+	b.Grow(len(content))
+	for i, r := range runes {
+		if (r == '.' || r == ',') && i > 0 && i+1 < len(runes) {
+			if unicode.IsDigit(runes[i-1]) && unicode.IsDigit(runes[i+1]) {
+				continue
 			}
 		}
-		text := textOnly.String()
-		if len(text) > 200 {
-			text = text[:200]
-		}
-		h := fnv.New64a()
-		h.Write([]byte(text))
-		return fmt.Sprintf("%016x", h.Sum64())
+		b.WriteRune(r)
 	}
-
-	// Sort numbers for consistency
-	sort.Strings(numbers)
-
-	// Create signature from significant numbers
-	signature := strings.Join(numbers, ",")
-
-	// Generate hash
-	h := fnv.New64a()
-	h.Write([]byte(signature))
-	return fmt.Sprintf("%016x", h.Sum64())
+	return b.String()
 }
 
 // MarkAsSent marks news as sent with transaction to prevent race conditions
@@ -406,7 +444,7 @@ func (pc *PostgresCache) IsSourceURLSent(sourceURL string) bool {
 		sourceURL, cutoffTime,
 	).Scan(&count)
 	if err != nil {
-		log.Printf("⚠️ Error checking source_url duplicate: %v", err)
+		logger.Warn("Error checking duplicate by source_url", "error", err)
 		return false
 	}
 	return count > 0
@@ -502,7 +540,7 @@ func (pc *PostgresCache) Cleanup() error {
 
 	rows, _ := result.RowsAffected()
 	if rows > 0 {
-		log.Printf("🗑️ Cleaned up %d old records from sent_news", rows)
+		logger.Info("Cleaned old sent_news records", "rows", rows)
 	}
 
 	// Clean translation_cache (using last_used_at)
@@ -510,12 +548,12 @@ func (pc *PostgresCache) Cleanup() error {
 	queryTrans := `DELETE FROM translation_cache WHERE last_used_at < $1`
 	resultTrans, err := pc.db.Exec(queryTrans, cutoffTime)
 	if err != nil {
-		log.Printf("⚠️ Failed to cleanup translation_cache: %v", err)
+		logger.Warn("Failed to cleanup translation_cache", "error", err)
 		// Don't fail the whole cleanup if this fails
 	} else {
 		rowsTrans, _ := resultTrans.RowsAffected()
 		if rowsTrans > 0 {
-			log.Printf("🗑️ Cleaned up %d old records from translation_cache", rowsTrans)
+			logger.Info("Cleaned old translation_cache records", "rows", rowsTrans)
 		}
 	}
 
@@ -588,7 +626,7 @@ func (pc *PostgresCache) GetRecentNews(limit int) ([]SentNewsItem, error) {
 		var item SentNewsItem
 		err := rows.Scan(&item.Hash, &item.Title, &item.Link, &item.Category, &item.Source, &item.SentAt)
 		if err != nil {
-			log.Printf("⚠️ Error scanning row: %v", err)
+			logger.Warn("Error scanning recent news row", "error", err)
 			continue
 		}
 		items = append(items, item)

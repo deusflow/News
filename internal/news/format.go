@@ -74,10 +74,14 @@ func removeTitleFromSummary(summary, title string) string {
 
 	summaryLower := strings.ToLower(summary)
 	if strings.HasPrefix(summaryLower, normalizedTitle) {
-		rest := summary[len(normalizedTitle):]
-		rest = strings.TrimLeft(rest, ".!?:;,:-–— \n\t")
-		if rest != "" {
-			return strings.TrimSpace(rest)
+		summaryRunes := []rune(summary)
+		titleRunes := []rune(normalizedTitle)
+		if len(summaryRunes) >= len(titleRunes) {
+			rest := string(summaryRunes[len(titleRunes):])
+			rest = strings.TrimLeft(rest, ".!?:;,:-–— \n\t")
+			if rest != "" {
+				return strings.TrimSpace(rest)
+			}
 		}
 	}
 	return summary

@@ -243,6 +243,9 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 // Run запускает приложение
 func (a *App) Run(ctx context.Context) {
 	logger.Info("Starting Danish News Bot Run")
+	runStartedAt := time.Now()
+	defer a.metrics.RecordProcessingTime(time.Since(runStartedAt))
+
 	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
 		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
 			"env", "MAX_NEWS_LIMIT",
@@ -293,6 +296,7 @@ func (a *App) Run(ctx context.Context) {
 	// 5. Скачивание новостей
 	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
+		a.metrics.SetError(err.Error())
 		logger.Error("Fetch error", "err", err)
 		return
 	}
@@ -305,6 +309,7 @@ func (a *App) Run(ctx context.Context) {
 	// 6. Фильтрация и перевод
 	filtered, err := a.processor.Process(ctx, items)
 	if err != nil {
+		a.metrics.SetError(err.Error())
 		logger.Error("Filter error", "err", err)
 		return
 	}
@@ -314,6 +319,7 @@ func (a *App) Run(ctx context.Context) {
 	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
 	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", publishPerRunLimit)
 	a.sender.Send(ctx, filtered)
+	a.metrics.SetLastRun()
 }
 
 // CheckHealth performs health checks on components
@@ -576,6 +582,15 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 	}
 
 	for _, item := range items {
+		// Guard: if the original send actually reached Telegram but we failed
+		// to process the response, resending would create a duplicate post.
+		hash := adapter.GenerateNewsHash(item.Title, item.Link)
+		if adapter.IsAlreadySent(hash) || adapter.IsSourceURLSent(item.Link) {
+			logger.Info("DLQ item already delivered, removing from queue", "id", item.ID, "title", item.Title)
+			_ = adapter.DeleteFailedNews(item.ID)
+			continue
+		}
+
 		var err error
 		if item.ImageURL != "" {
 			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)

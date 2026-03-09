@@ -21,12 +21,12 @@ type ArticleContent struct {
 	ImageURL string
 }
 
+// scraperHTTPClient is shared across all scrape requests to reuse connections.
+var scraperHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // ExtractFullArticle gets full text and og:image of article by URL.
 // Uses a single HTTP request — image extraction reuses the same parsed document.
 func ExtractFullArticle(ctx context.Context, articleURL string) (*ArticleContent, error) {
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", articleURL, nil)
 	if err != nil {
@@ -34,7 +34,7 @@ func ExtractFullArticle(ctx context.Context, articleURL string) (*ArticleContent
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-	resp, err := client.Do(req)
+	resp, err := scraperHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error loading page: %v", err)
 	}
@@ -170,7 +170,8 @@ func isNavigationOrOtherArticle(text string) bool {
 		"læs også", "se også", "følg", "cookie", "gdpr",
 		"abonnement", "privatlivspolitik", "nyhedsbrev",
 		"log ind", "opret", "del artikel", "print",
-		"reklame", "annonce", "sponsor", "opdateret",
+		"reklame", "annonce", "sponsor",
+		"sidst opdateret", "senest opdateret",
 		"redigeret", "publiceret", "dr nyheder",
 	}
 
@@ -593,14 +594,13 @@ func ExtractImageURL(pageURL string) (string, error) {
 		return "", fmt.Errorf("empty url")
 	}
 
-	client := &http.Client{Timeout: 12 * time.Second}
 	req, err := http.NewRequest("GET", pageURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-	resp, err := client.Do(req)
+	resp, err := scraperHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error loading page: %v", err)
 	}

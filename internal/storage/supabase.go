@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -67,7 +66,7 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 		resp, err = c.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
-			log.Printf("⚠️ Supabase request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
+			logger.Warn("Supabase request failed", "attempt", attempt+1, "max_attempts", maxRetries, "error", err)
 
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
@@ -90,7 +89,7 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 			respBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
-			log.Printf("⚠️ Supabase returned %d (attempt %d/%d): %s", resp.StatusCode, attempt+1, maxRetries, string(respBody))
+			logger.Warn("Supabase retryable response", "status", resp.StatusCode, "attempt", attempt+1, "max_attempts", maxRetries, "body", string(respBody))
 
 			delay := retryBaseDelay * time.Duration(1<<attempt)
 			if delay > retryMaxDelay {
@@ -194,7 +193,7 @@ func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 		return fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("✅ News saved to Supabase: %s", news.Title)
+	logger.Info("News saved to Supabase", "title", news.Title, "source_url", news.SourceURL)
 	return nil
 }
 
@@ -277,7 +276,7 @@ func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL s
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(checkCtx.Err(), context.DeadlineExceeded) {
-			log.Printf("⚠️ Supabase source_url duplicate check timeout (2s), allowing news")
+			logger.Warn("Supabase source_url duplicate check timeout, allowing news", "timeout_seconds", 2)
 			return false, nil
 		}
 		return false, err

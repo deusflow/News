@@ -78,7 +78,8 @@ func healthHandler(w http.ResponseWriter, r *http.Request, m *metrics.Metrics, a
 	health := a.CheckHealth(r.Context())
 
 	status := "ok"
-	if !stats["is_healthy"].(bool) {
+	isHealthy, _ := stats["is_healthy"].(bool)
+	if !isHealthy {
 		status = "error"
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}

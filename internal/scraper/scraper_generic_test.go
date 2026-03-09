@@ -53,3 +53,17 @@ func TestExtractGenericContent_StopsOnLimits(t *testing.T) {
 		t.Fatalf("expected generic content to be bounded, got len=%d", len(got))
 	}
 }
+
+func TestIsNavigationOrOtherArticle_AllowsRegularUpdatedSentence(t *testing.T) {
+	text := "Artiklen blev opdateret med nye tal fra kommunen i eftermiddag."
+	if isNavigationOrOtherArticle(text) {
+		t.Fatalf("expected regular sentence with 'opdateret' to pass content filter")
+	}
+}
+
+func TestIsNavigationOrOtherArticle_FiltersExplicitUpdateLabel(t *testing.T) {
+	text := "Sidst opdateret kl. 14:03"
+	if !isNavigationOrOtherArticle(text) {
+		t.Fatalf("expected explicit update label to be treated as navigation/meta")
+	}
+}

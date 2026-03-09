@@ -25,8 +25,7 @@ jobs:
       CACHE_FILE_PATH: sent_news.json
       CACHE_TTL_HOURS: 48
 
-      # Bot configuration
-      MAX_NEWS_LIMIT: 3
+      # Bot configuration — publish limit is hardcoded (1 per run) in app.go
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 1
@@ -110,8 +109,8 @@ jobs:
 
       - name: Test PostgreSQL connection
         run: |
-          echo "🔌 Testing PostgreSQL connection..."
-          go run test_db.go || echo "⚠️ PostgreSQL test failed, will use fallback cache"
+          echo "Testing PostgreSQL connection..."
+          go run ./cmd/testdb || echo "⚠️ PostgreSQL test failed, will use fallback cache"
         working-directory: ${{ github.workspace }}
         continue-on-error: true
 

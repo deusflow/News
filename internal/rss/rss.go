@@ -2,12 +2,13 @@ package rss
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/deusflow/News/internal/logger"
 	"github.com/mmcdole/gofeed"
 	"gopkg.in/yaml.v3"
 )
@@ -41,7 +42,7 @@ func LoadFeeds(path string) ([]FeedSource, error) {
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
-			log.Printf("Warning: failed to close file %s: %v", path, closeErr)
+			logger.Warn("Failed to close feeds config file", "path", path, "error", closeErr)
 		}
 	}()
 
@@ -70,7 +71,7 @@ func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, erro
 
 	for _, source := range sources {
 		if !source.Active {
-			log.Printf("Skipping inactive feed: %s", source.Name)
+			logger.Info("Skipping inactive feed", "source", source.Name)
 			continue
 		}
 
@@ -92,9 +93,9 @@ func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, erro
 			feed, err := parser.ParseURLWithContext(s.URL, ctx)
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Printf("Feed fetch cancelled for %s: %v", s.Name, ctx.Err())
+					logger.Info("Feed fetch cancelled", "source", s.Name, "error", ctx.Err())
 				} else {
-					log.Printf("Error parsing RSS %s (%s): %v", s.URL, s.Name, err)
+					logger.Warn("Error parsing RSS feed", "url", s.URL, "source", s.Name, "error", err)
 				}
 				return
 			}
@@ -105,11 +106,16 @@ func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, erro
 			for _, item := range feed.Items {
 				allItems = append(allItems, &FeedItem{Item: item, Source: &s})
 			}
-			log.Printf("Loaded %d news from %s (%s)", len(feed.Items), s.Name, s.URL)
+			logger.Info("Loaded RSS items", "count", len(feed.Items), "source", s.Name, "url", s.URL)
 		}(source)
 	}
 
 	wg.Wait()
-	log.Printf("Processed RSS feeds: %d/%d ok", successCount, len(sources))
+	logger.Info("Processed RSS feeds", "success", successCount, "total", len(sources))
+
+	if successCount == 0 && len(sources) > 0 {
+		return nil, fmt.Errorf("all %d RSS feeds failed, no news fetched", len(sources))
+	}
+
 	return allItems, nil
 }
