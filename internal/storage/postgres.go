@@ -162,6 +162,25 @@ func (pc *PostgresCache) initSchema() error {
 		return fmt.Errorf("failed to create supabase_synced index: %v", err)
 	}
 
+	// Step 4c: Migration — add title_norm column for near-duplicate detection.
+	// Stores first 5 significant words of title (lowercase, digits stripped).
+	// Catches same story published by different sources (e.g. DSB delay from DR + TV Midtvest).
+	migration3 := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'title_norm') THEN
+			ALTER TABLE sent_news ADD COLUMN title_norm TEXT;
+		END IF;
+	END $$;
+	`
+	if _, err = pc.db.Exec(migration3); err != nil {
+		return fmt.Errorf("failed to run migration3 (title_norm): %v", err)
+	}
+	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_title_norm ON sent_news(title_norm);`); err != nil {
+		return fmt.Errorf("failed to create title_norm index: %v", err)
+	}
+
 	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
 	// Kept separate from sent_news to avoid bloating the dedup table with large JSON blobs.
 	syncQueueSchema := `
@@ -332,6 +351,70 @@ func generateLegacyContentHash(content string) string {
 	return fmt.Sprintf("%016x", h.Sum64())
 }
 
+// normalizeTitleForDedup returns the first 5 significant words of a title,
+// lowercased and stripped of punctuation/digits.
+// "Forsinkede tog kostede rekordbeløb" → "forsinkede tog kostede rekordbeløb"
+// "Forsinkede tog har kostet DSB rekordbeløb i kompensation" → "forsinkede tog har kostet dsb"
+// Overlap ≥ 3 words → near-duplicate.
+func normalizeTitleForDedup(title string) string {
+	title = strings.ToLower(title)
+	// Remove punctuation and digits, keep letters and spaces
+	var buf strings.Builder
+	for _, r := range title {
+		if unicode.IsLetter(r) || unicode.IsSpace(r) {
+			buf.WriteRune(r)
+		} else {
+			buf.WriteRune(' ')
+		}
+	}
+	// Split into words, skip stop-words and very short tokens
+	stopWords := map[string]bool{
+		// Danish
+		"i": true, "er": true, "og": true, "en": true, "et": true,
+		"af": true, "til": true, "med": true, "på": true, "for": true,
+		"at": true, "de": true, "den": true, "det": true, "har": true,
+		"fra": true, "om": true, "som": true, "efter": true, "ikke": true,
+		// English
+		"the": true, "a": true, "an": true, "in": true, "of": true,
+		"to": true, "and": true, "is": true, "are": true,
+	}
+	var words []string
+	for _, w := range strings.Fields(buf.String()) {
+		if len([]rune(w)) < 3 {
+			continue
+		}
+		if stopWords[w] {
+			continue
+		}
+		words = append(words, w)
+		if len(words) == 5 {
+			break
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// IsTitleNearDuplicate checks if a title is semantically similar to a recently sent title.
+// Uses the first 5 significant words overlap — catches same story from different sources.
+func (pc *PostgresCache) IsTitleNearDuplicate(title string) (bool, string) {
+	norm := normalizeTitleForDedup(title)
+	if norm == "" {
+		return false, ""
+	}
+	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
+
+	// Exact match on normalized key
+	var existingTitle string
+	err := pc.db.QueryRow(
+		`SELECT title FROM sent_news WHERE title_norm = $1 AND sent_at > $2 LIMIT 1`,
+		norm, cutoffTime,
+	).Scan(&existingTitle)
+	if err == nil {
+		return true, existingTitle
+	}
+	return false, ""
+}
+
 func extractSignificantNumbers(normalized string) []string {
 	var numbers []string
 	var currentNum strings.Builder
@@ -422,17 +505,19 @@ func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, categ
 	if len(content) >= 100 {
 		contentHash = generateContentHash(content)
 	}
+	titleNorm := normalizeTitleForDedup(title)
 
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, content_hash, category, source, sent_at, supabase_synced)
-		VALUES ($1, $2, $3, $3, $4, $5, $6, NOW(), FALSE)
+		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE)
 		ON CONFLICT (hash) DO UPDATE SET
 			sent_at = NOW(),
 			content_hash = EXCLUDED.content_hash,
-			source_url = EXCLUDED.source_url
+			source_url = EXCLUDED.source_url,
+			title_norm = EXCLUDED.title_norm
 	`
 
-	_, err := pc.db.Exec(query, hash, title, link, contentHash, category, source)
+	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source)
 	if err != nil {
 		return fmt.Errorf("failed to mark as sent: %v", err)
 	}

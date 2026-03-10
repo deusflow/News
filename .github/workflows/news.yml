@@ -110,7 +110,7 @@ jobs:
       - name: Test PostgreSQL connection
         run: |
           echo "Testing PostgreSQL connection..."
-          go run ./cmd/testdb || echo "⚠️ PostgreSQL test failed, will use fallback cache"
+          go run ./cmd/testdb/ || echo "⚠️ PostgreSQL test failed, will use fallback cache"
         working-directory: ${{ github.workspace }}
         continue-on-error: true
 

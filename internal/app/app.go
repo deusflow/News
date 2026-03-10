@@ -478,6 +478,13 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			m.IncrementDuplicatesFiltered()
 			continue
 		}
+		if isDuplicate, existingTitle := cacheAdapter.IsTitleNearDuplicate(n.Title); isDuplicate {
+			logger.Info("⏭️ Skipping near-duplicate title (same story, different source)",
+				"new_title", n.Title,
+				"existing_title", existingTitle)
+			m.IncrementDuplicatesFiltered()
+			continue
+		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
 			logger.Info("⏭️ Skipping duplicate news (same content found)",
 				"new_title", n.Title,

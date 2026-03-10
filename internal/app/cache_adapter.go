@@ -12,6 +12,7 @@ type CacheAdapter interface {
 	IsLinkAlreadySent(link string) bool
 	IsSourceURLSent(sourceURL string) bool // replaces Supabase REST duplicate check
 	IsContentDuplicate(content string) (bool, string)
+	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 	MarkSupabaseSynced(hash string) error
@@ -54,6 +55,10 @@ func (f *FileCacheAdapter) IsSourceURLSent(sourceURL string) bool {
 }
 
 func (f *FileCacheAdapter) IsContentDuplicate(content string) (bool, string) {
+	return false, ""
+}
+
+func (f *FileCacheAdapter) IsTitleNearDuplicate(title string) (bool, string) {
 	return false, ""
 }
 
@@ -140,6 +145,10 @@ func (p *PostgresCacheAdapter) IsSourceURLSent(sourceURL string) bool {
 
 func (p *PostgresCacheAdapter) IsContentDuplicate(content string) (bool, string) {
 	return p.cache.IsContentDuplicate(content)
+}
+
+func (p *PostgresCacheAdapter) IsTitleNearDuplicate(title string) (bool, string) {
+	return p.cache.IsTitleNearDuplicate(title)
 }
 
 func (p *PostgresCacheAdapter) MarkAsSent(hash, title, link, category, source string) error {
