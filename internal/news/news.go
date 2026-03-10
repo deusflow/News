@@ -484,6 +484,15 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		logger.Error("AI response validation failed", "title", title, "error", err)
 		return nil, err
 	}
+	logger.Info("AI response fields",
+		"title", title,
+		"category_raw", resp.Category,
+		"mood", resp.Mood,
+		"dk_len", len([]rune(strings.TrimSpace(resp.Danish))),
+		"ua_len", len([]rune(strings.TrimSpace(resp.Ukrainian))),
+		"tldr_len", len([]rune(strings.TrimSpace(resp.TLDR))),
+		"fun_fact_len", len([]rune(strings.TrimSpace(resp.FunFact))),
+		"why_it_matters_len", len([]rune(strings.TrimSpace(resp.WhyItMatters))))
 
 	published := time.Now()
 	if item.PublishedParsed != nil {

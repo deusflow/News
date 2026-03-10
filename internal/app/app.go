@@ -376,12 +376,26 @@ func (a *App) ReloadConfig() error {
 // sendOneNews formats and sends a single news item to Telegram.
 // On failure the item is saved to DLQ for retry on next run.
 func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	if strings.TrimSpace(n.FunFact) != "" && cacheAdapter.IsFunFactRecentlyUsed(n.FunFact) {
-		logger.Info("dropping repeated fun_fact for this run", "title", n.Title)
+	funFactOriginal := strings.TrimSpace(n.FunFact)
+	if funFactOriginal == "" {
+		logger.Info("fun_fact missing from AI response", "title", n.Title)
+	} else {
+		logger.Info("fun_fact received from AI", "title", n.Title, "length", len([]rune(funFactOriginal)))
+	}
+
+	if funFactOriginal != "" && cacheAdapter.IsFunFactRecentlyUsed(funFactOriginal) {
+		logger.Info("dropping repeated fun_fact for this run", "title", n.Title, "fun_fact_preview", truncateForLog(funFactOriginal, 80))
 		n.FunFact = ""
 	}
 
 	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+	logger.Info("telegram render mode decision",
+		"title", n.Title,
+		"has_image", n.ImageURL != "",
+		"use_photo", canPhoto,
+		"photo_text_limit", cfg.Posting.PhotoTextLimit,
+		"has_fun_fact", strings.TrimSpace(n.FunFact) != "",
+		"has_why_it_matters", strings.TrimSpace(n.WhyItMatters) != "")
 	if n.ImageURL != "" && !canPhoto {
 		logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
 	}
@@ -441,25 +455,39 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 // newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
 // This is a hard architectural rule, not a config knob: one run = one publication.
 func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	for _, n := range newsList {
+	for i, n := range newsList {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+		logger.Info("evaluating publish candidate",
+			"rank", i+1,
+			"title", n.Title,
+			"score", n.Score,
+			"impact_score", n.ImpactScore,
+			"keyword_score", n.KeywordScore,
+			"category", n.Category,
+			"source", n.SourceName,
+			"hash", hash,
+			"link", n.Link,
+			"content_len", len([]rune(strings.TrimSpace(n.Content))))
+
 		if cacheAdapter.IsAlreadySent(hash) {
-			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title)
+			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title, "hash", hash)
 			continue
 		}
 		if cacheAdapter.IsSourceURLSent(n.Link) {
-			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title)
+			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title, "source_url", n.Link)
 			m.IncrementDuplicatesFiltered()
 			continue
 		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
 			logger.Info("⏭️ Skipping duplicate news (same content found)",
-				"new_title", n.Title, "existing_title", existingTitle)
+				"new_title", n.Title,
+				"existing_title", existingTitle,
+				"content_len", len([]rune(strings.TrimSpace(n.Content))))
 			m.IncrementDuplicatesFiltered()
 			continue
 		}
 
-		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category)
+		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category, "rank", i+1)
 		sendOneNews(ctx, n, hash, cfg, cacheAdapter, m, websiteGen, supabase)
 		return // EXACTLY ONE. Hard stop.
 	}
@@ -467,7 +495,16 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	logger.Info("No publishable news found in this run")
 }
 
-// generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout
+func truncateForLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len([]rune(s)) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max]) + "..."
+}
+
+// generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout.
 func generateWebsitePost(gen *website.Generator, n news.News) {
 	post := website.NewsPost{
 		Title:            n.Title,
@@ -487,7 +524,6 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 		PublishedAt:      n.Published,
 	}
 
-	// Use timeout to prevent hanging goroutines (10 seconds should be plenty for file write)
 	ctx := context.Background()
 	if err := gen.GeneratePostWithTimeout(ctx, post, 10*time.Second); err != nil {
 		logger.Warn("Failed to generate website post", "title", n.Title, "error", err)
