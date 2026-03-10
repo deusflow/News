@@ -15,6 +15,8 @@ type CacheAdapter interface {
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 	MarkSupabaseSynced(hash string) error
+	IsFunFactRecentlyUsed(funFact string) bool
+	MarkFunFactUsed(funFact string) error
 
 	// Supabase sync queue — Neon is source of truth, Supabase is secondary
 	EnqueueSupabaseSync(hash string, payload []byte) error
@@ -68,6 +70,14 @@ func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, cat
 // --- SYNC QUEUE STUBS (file cache has no Supabase sync queue) ---
 
 func (f *FileCacheAdapter) MarkSupabaseSynced(hash string) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) IsFunFactRecentlyUsed(funFact string) bool {
+	return false
+}
+
+func (f *FileCacheAdapter) MarkFunFactUsed(funFact string) error {
 	return nil
 }
 
@@ -161,6 +171,14 @@ func (p *PostgresCacheAdapter) IncrementFailedAttempts(id int, errorMsg string) 
 
 func (p *PostgresCacheAdapter) MarkSupabaseSynced(hash string) error {
 	return p.cache.MarkSupabaseSynced(hash)
+}
+
+func (p *PostgresCacheAdapter) IsFunFactRecentlyUsed(funFact string) bool {
+	return p.cache.IsFunFactRecentlyUsed(funFact)
+}
+
+func (p *PostgresCacheAdapter) MarkFunFactUsed(funFact string) error {
+	return p.cache.MarkFunFactUsed(funFact)
 }
 
 func (p *PostgresCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {

@@ -201,6 +201,15 @@ func (pc *PostgresCache) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_translation_cache_hash ON translation_cache(content_hash);
 	CREATE INDEX IF NOT EXISTS idx_translation_cache_created_at ON translation_cache(created_at);
 
+	-- Table for recently used fun facts (anti-repeat in Telegram posts)
+	CREATE TABLE IF NOT EXISTS fun_fact_cache (
+		id SERIAL PRIMARY KEY,
+		fact_hash VARCHAR(64) UNIQUE NOT NULL,
+		fact_text TEXT NOT NULL,
+		used_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_fun_fact_cache_used_at ON fun_fact_cache(used_at);
+
 	-- Table for failed news items (Dead Letter Queue)
 	CREATE TABLE IF NOT EXISTS failed_news (
 		id SERIAL PRIMARY KEY,
@@ -557,6 +566,17 @@ func (pc *PostgresCache) Cleanup() error {
 		}
 	}
 
+	queryFunFacts := `DELETE FROM fun_fact_cache WHERE used_at < $1`
+	resultFunFacts, err := pc.db.Exec(queryFunFacts, cutoffTime)
+	if err != nil {
+		logger.Warn("Failed to cleanup fun_fact_cache", "error", err)
+	} else {
+		rowsFunFacts, _ := resultFunFacts.RowsAffected()
+		if rowsFunFacts > 0 {
+			logger.Info("Cleaned old fun_fact_cache records", "rows", rowsFunFacts)
+		}
+	}
+
 	return nil
 }
 
@@ -746,5 +766,72 @@ func (pc *PostgresCache) DeleteFailedNews(id int) error {
 // IncrementFailedAttempts updates the attempt counter
 func (pc *PostgresCache) IncrementFailedAttempts(id int, errorMsg string) error {
 	_, err := pc.db.Exec(`UPDATE failed_news SET attempts = attempts + 1, last_attempt_at = NOW(), error_msg = $2 WHERE id = $1`, id, errorMsg)
+	return err
+}
+
+// normalizeFunFactForHash normalizes fun fact text for consistent hashing.
+func normalizeFunFactForHash(fact string) string {
+	fact = strings.ToLower(strings.TrimSpace(fact))
+	if fact == "" {
+		return ""
+	}
+
+	// Remove leading emoji/symbol prefix and collapse whitespace.
+	fact = strings.TrimLeftFunc(fact, func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+		switch r {
+		case ',', '.', ':', ';', '!', '?', '-', '—', '–':
+			return true
+		default:
+			return unicode.IsPunct(r) || unicode.IsSymbol(r) || unicode.IsSpace(r)
+		}
+	})
+	return strings.Join(strings.Fields(fact), " ")
+}
+
+// generateFunFactHash creates a hash for the fun fact text.
+func generateFunFactHash(fact string) string {
+	normalized := normalizeFunFactForHash(fact)
+	if normalized == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:16])
+}
+
+// IsFunFactRecentlyUsed checks whether a similar fact was posted within TTL window.
+func (pc *PostgresCache) IsFunFactRecentlyUsed(funFact string) bool {
+	hash := generateFunFactHash(funFact)
+	if hash == "" {
+		return false
+	}
+	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
+	var count int
+	err := pc.db.QueryRow(
+		`SELECT COUNT(*) FROM fun_fact_cache WHERE fact_hash = $1 AND used_at > $2`,
+		hash, cutoffTime,
+	).Scan(&count)
+	if err != nil {
+		logger.Warn("Error checking fun_fact repeat", "error", err)
+		return false
+	}
+	return count > 0
+}
+
+// MarkFunFactUsed stores/refreshes usage time for a fact hash.
+func (pc *PostgresCache) MarkFunFactUsed(funFact string) error {
+	hash := generateFunFactHash(funFact)
+	if hash == "" {
+		return nil
+	}
+	_, err := pc.db.Exec(`
+		INSERT INTO fun_fact_cache (fact_hash, fact_text, used_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (fact_hash) DO UPDATE SET
+			fact_text = EXCLUDED.fact_text,
+			used_at = NOW()
+	`, hash, strings.TrimSpace(funFact))
 	return err
 }

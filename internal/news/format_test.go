@@ -1,6 +1,9 @@
 package news
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRemoveTitleFromSummary_UnicodeSafeTrim(t *testing.T) {
 	title := "Maersk stopper alle sejladser"
@@ -20,5 +23,21 @@ func TestRemoveTitleFromSummary_DoesNotTrimWhenNotPrefix(t *testing.T) {
 	got := removeTitleFromSummary(summary, title)
 	if got != summary {
 		t.Fatalf("expected summary to remain unchanged, got: %q", got)
+	}
+}
+
+func TestFormatNewsWithImage_IncludesWhyItMatters(t *testing.T) {
+	n := News{
+		Title:            "Test title",
+		TitleUkrainian:   "Тестовий заголовок",
+		SummaryDanish:    "Kort dansk tekst.",
+		SummaryUkrainian: "Короткий український текст.",
+		WhyItMatters:     "Це впливає на умови праці випускників у великих містах.",
+		Category:         "society",
+	}
+
+	out := FormatNewsWithImage(n)
+	if !strings.Contains(out, "Чому це важливо") {
+		t.Fatalf("expected why-it-matters block in output, got: %q", out)
 	}
 }

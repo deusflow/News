@@ -130,6 +130,7 @@ type NewsArchive struct {
 	SummaryDanish    string    `json:"summary_danish,omitempty"`
 	TLDR             string    `json:"tldr,omitempty"`
 	FunFact          string    `json:"fun_fact,omitempty"`
+	WhyItMatters     string    `json:"why_it_matters,omitempty"`
 	ImageURL         string    `json:"image_url,omitempty"`
 	SourceURL        string    `json:"source_url,omitempty"`
 	SourceName       string    `json:"source_name,omitempty"`

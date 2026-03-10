@@ -24,6 +24,17 @@ func TestCalculateImpactScore_EntertainmentOnlyPenalty(t *testing.T) {
 	}
 }
 
+func TestCalculateImpactScore_WorkAndSocietyCrossesThreshold(t *testing.T) {
+	weights := map[string]int{
+		"society": 16,
+		"work":    14,
+	}
+	got := calculateImpactScore(weights)
+	if got < impactPriorityThreshold {
+		t.Fatalf("expected work+society impact >= threshold (%d), got %d", impactPriorityThreshold, got)
+	}
+}
+
 func TestSortByPublishPriority_ImpactFirst(t *testing.T) {
 	items := []News{
 		{Title: "high-score-light", Score: 85, ImpactScore: 0},

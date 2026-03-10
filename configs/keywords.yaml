@@ -531,9 +531,6 @@ keywords:
   - word: "temporary protection"
     category: "visas"
     weight: 25
-  - word: "midlertidig beskyttelse"
-    category: "visas"
-    weight: 25
   - word: "residence permit"
     category: "visas"
     weight: 20
@@ -974,12 +971,6 @@ keywords:
   - word: "prisstigninger"         # рост цен
     category: "economy"
     weight: 18
-  - word: "forbrugerprisindeks"    # индекс потребительских цен
-    category: "economy"
-    weight: 20
-  - word: "økonomi"
-    category: "economy"
-    weight: 12
   - word: "dansk økonomi"
     category: "economy"
     weight: 20
@@ -1110,3 +1101,62 @@ keywords:
     category: "spam"
     weight: -8
 
+  # =======================================================
+  # ПРОТЕСТЫ, РЫНОК ТРУДА И СОЦИАЛЬНОЕ ДАВЛЕНИЕ
+  # Нужны для кейсов вроде praktikkarrusellen/demo в København
+  # =======================================================
+  - word: "demonstration"
+    category: "society"
+    weight: 20
+  - word: "protest"
+    category: "society"
+    weight: 18
+  - word: "manifestation"
+    category: "society"
+    weight: 16
+  - word: "strejke"
+    category: "society"
+    weight: 18
+  - word: "arbejdsvilkår"
+    category: "work"
+    weight: 20
+  - word: "jobafslag"
+    category: "work"
+    weight: 24
+  - word: "afslag på job"
+    category: "work"
+    weight: 22
+  - word: "praktikkarrusellen"
+    category: "work"
+    weight: 30
+  - word: "praktikplads"
+    category: "work"
+    weight: 24
+  - word: "ulønnet praktik"
+    category: "work"
+    weight: 24
+  - word: "gratis arbejdskraft"
+    category: "work"
+    weight: 24
+
+  # =======================================================
+  # РЕГИОНАЛЬНАЯ ПОЛИТИКА И ЖИЗНЬ ВНЕ СТОЛИЦЫ
+  # =======================================================
+  - word: "landdistrikterne"
+    category: "society"
+    weight: 18
+  - word: "yderområderne"
+    category: "society"
+    weight: 18
+  - word: "udkantsdanmark"
+    category: "society"
+    weight: 20
+  - word: "fraflytning"
+    category: "society"
+    weight: 20
+  - word: "bosætning"
+    category: "politics"
+    weight: 16
+  - word: "regional udvikling"
+    category: "politics"
+    weight: 18

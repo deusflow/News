@@ -4,10 +4,11 @@ import "fmt"
 
 // NewsBudget визначає ліміти символів для різних частин новини
 type NewsBudget struct {
-	DanishChars    int
-	UkrainianChars int
-	TLDRChars      int
-	FunFactChars   int
+	DanishChars       int
+	UkrainianChars    int
+	TLDRChars         int
+	FunFactChars      int
+	WhyItMattersChars int
 }
 
 // DefaultBudget — character limits for each part of a news item.
@@ -24,10 +25,11 @@ type NewsBudget struct {
 //	─────────────────────
 //	Total:     ~902 chars  ✅ fits in 1024 with ~122 chars spare for tags
 var DefaultBudget = NewsBudget{
-	DanishChars:    320,
-	UkrainianChars: 320,
-	TLDRChars:      90,
-	FunFactChars:   150,
+	DanishChars:       320,
+	UkrainianChars:    320,
+	TLDRChars:         90,
+	FunFactChars:      150,
+	WhyItMattersChars: 140,
 }
 
 // GenerateNewsPrompt створює єдиний промт для всіх AI моделей (Gemini, Groq).
@@ -122,6 +124,12 @@ CONTENT: %s
   ✓ Good: "💥 США завдали удар по Ірану, загинув Хаменеї"
   ✗ Too long: "💥 Атака США на Іран, що вбила Хаменеї, не отримала підтримки союзників"
 
+"why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
+  • Explain systemic impact for residents in Denmark: what changes, who is affected, why now.
+  • No slogans, no pathos, no moral judgement.
+  • This is NOT a retelling of the headline; it is the practical consequence.
+  ✓ Good: "Черга на місця практики зростає, тому випускники довше залишаються без першої роботи."
+
 "fun_fact": ONE fact about Denmark. STRICT MAX %d chars. Start with ONE emoji.
   • Ukrainian language.
   • Must be UNRELATED to this news topic.
@@ -141,5 +149,5 @@ Output valid JSON only.
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		BuildValidCategoryList(),
-		DefaultBudget.TLDRChars, DefaultBudget.FunFactChars)
+		DefaultBudget.TLDRChars, DefaultBudget.WhyItMattersChars, DefaultBudget.FunFactChars)
 }

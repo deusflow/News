@@ -376,6 +376,11 @@ func (a *App) ReloadConfig() error {
 // sendOneNews formats and sends a single news item to Telegram.
 // On failure the item is saved to DLQ for retry on next run.
 func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	if strings.TrimSpace(n.FunFact) != "" && cacheAdapter.IsFunFactRecentlyUsed(n.FunFact) {
+		logger.Info("dropping repeated fun_fact for this run", "title", n.Title)
+		n.FunFact = ""
+	}
+
 	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
 	if n.ImageURL != "" && !canPhoto {
 		logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
@@ -417,6 +422,11 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 
 	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
 	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	if strings.TrimSpace(n.FunFact) != "" {
+		if err := cacheAdapter.MarkFunFactUsed(n.FunFact); err != nil {
+			logger.Warn("failed to mark fun_fact usage", "title", n.Title, "error", err)
+		}
+	}
 	m.IncrementTelegramMessagesSent()
 
 	if supabase != nil {
@@ -473,6 +483,7 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 		Mood:             n.Mood,
 		TLDR:             n.TLDR,
 		FunFact:          n.FunFact,
+		WhyItMatters:     n.WhyItMatters,
 		PublishedAt:      n.Published,
 	}
 
@@ -499,6 +510,7 @@ func saveToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *stor
 		SummaryDanish:    n.SummaryDanish,
 		TLDR:             n.TLDR,
 		FunFact:          n.FunFact,
+		WhyItMatters:     n.WhyItMatters,
 		ImageURL:         n.ImageURL,
 		SourceURL:        n.Link,
 		SourceName:       n.SourceName,

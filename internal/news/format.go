@@ -144,13 +144,20 @@ func FormatNewsWithImage(n News) string {
 	}
 	b.WriteString("\n\n")
 
-	// 5. Теги
+	// 5. Почему это важно (короткий редакторский вывод)
+	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
+		b.WriteString("🧭 <b>Чому це важливо:</b> ")
+		b.WriteString(w)
+		b.WriteString("\n\n")
+	}
+
+	// 6. Теги
 	if tags := formatTags(n.Tags); tags != "" {
 		b.WriteString(tags)
 		b.WriteString("\n")
 	}
 
-	// 6. Факт (через разделитель)
+	// 7. Факт (через разделитель)
 	if fact := strings.TrimSpace(n.FunFact); fact != "" {
 		b.WriteString("\n━━━━━━━━━━━━━━━\n")
 		b.WriteString("💡 <i>" + fact + "</i>")
@@ -186,6 +193,7 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	}
 	dkBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title))
 	uaBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))
+	why := strings.TrimSpace(n.WhyItMatters)
 
 	// buildCore assembles the mandatory content block — never trimmed.
 	var sb strings.Builder
@@ -211,11 +219,17 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		return ""
 	}
 
+	// Try to add why_it_matters
+	withWhy := core
+	if why != "" {
+		withWhy = core + "\n\n🧭 <b>Чому це важливо:</b> " + why
+	}
+
 	// Try to add tags
 	tags := formatTags(n.Tags)
-	withTags := core
+	withTags := withWhy
 	if tags != "" {
-		withTags = core + "\n\n" + tags
+		withTags = withWhy + "\n\n" + tags
 	}
 
 	// Try to add fun_fact
@@ -226,12 +240,17 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		}
 	}
 
-	// Fact didn't fit — try with tags only
+	// Fact didn't fit — try with tags and why
 	if utf8.RuneCountInString(withTags) <= maxLen {
 		return withTags
 	}
 
-	// Tags didn't fit either — return core only (always fits, checked above)
+	// Tags didn't fit — try with why only
+	if utf8.RuneCountInString(withWhy) <= maxLen {
+		return withWhy
+	}
+
+	// Why didn't fit either — return core only (always fits, checked above)
 	return core
 }
 

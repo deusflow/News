@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -358,5 +359,21 @@ func TestCalculateScore_RealWorld_FootballNegativeScore(t *testing.T) {
 	score, _ := kc.CalculateScore("FC Midtjylland må nøjes med nullert i superliga-kamp")
 	if score >= 0 {
 		t.Errorf("football news should score < 0, got %d", score)
+	}
+}
+
+func TestLoadKeywords_RealFile_NoExactNormalizedDuplicates(t *testing.T) {
+	kc, err := LoadKeywords("../../configs/keywords.yaml")
+	if err != nil {
+		t.Fatalf("LoadKeywords real file: %v", err)
+	}
+
+	seen := make(map[string]int)
+	for i, kw := range kc.Keywords {
+		key := fmt.Sprintf("%s|%s|%d", kw.normalizedWord, kw.Category, kw.Weight)
+		if prev, ok := seen[key]; ok {
+			t.Fatalf("exact duplicate keyword detected: %q category=%q weight=%d (items %d and %d)", kw.Word, kw.Category, kw.Weight, prev+1, i+1)
+		}
+		seen[key] = i
 	}
 }

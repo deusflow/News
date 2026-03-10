@@ -40,6 +40,7 @@ type News struct {
 	Tags             []string
 	TLDR             string
 	FunFact          string
+	WhyItMatters     string
 
 	ImageURL string
 	ImageAlt string
@@ -361,14 +362,15 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 
 	impact := 0
 	impact += categoryWeights["politics"]
+	impact += categoryWeights["society"]
+	impact += categoryWeights["work"]
 	impact += categoryWeights["economy"] / 2
-	impact += categoryWeights["society"] / 2
 	impact += categoryWeights["visas"] / 2
-	impact += categoryWeights["work"] / 2
 	impact += categoryWeights["money"] / 2
 	impact += categoryWeights["housing"] / 2
 	impact += categoryWeights["health"] / 2
 	impact += categoryWeights["transport"] / 2
+	impact += categoryWeights["local"] / 2
 
 	// Entertainment-only items get a small penalty when no public-impact signal exists.
 	if impact == 0 {
@@ -514,6 +516,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		Tags:             resp.Tags,
 		TLDR:             resp.TLDR,
 		FunFact:          resp.FunFact,
+		WhyItMatters:     resp.WhyItMatters,
 	}
 
 	// Картинка: скрапер (фаза 1) → RSS image → Enclosures

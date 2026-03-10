@@ -29,6 +29,7 @@ type NewsPost struct {
 	Mood             string
 	TLDR             string
 	FunFact          string
+	WhyItMatters     string
 	PublishedAt      time.Time
 }
 
@@ -175,6 +176,12 @@ func (g *Generator) generateMarkdown(post NewsPost) string {
 		sb.WriteString(sanitizeMarkdownContent(post.Content))
 	}
 	sb.WriteString("\n\n")
+
+	if post.WhyItMatters != "" {
+		sb.WriteString("**Чому це важливо:** ")
+		sb.WriteString(sanitizeMarkdownContent(post.WhyItMatters))
+		sb.WriteString("\n\n")
+	}
 
 	// Danish content
 	sb.WriteString("## 🇩🇰 På dansk\n\n")

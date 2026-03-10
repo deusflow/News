@@ -17,6 +17,7 @@ type Response struct {
 	Tags           []string `json:"tags"`
 	TLDR           string   `json:"tldr"`
 	FunFact        string   `json:"fun_fact"`
+	WhyItMatters   string   `json:"why_it_matters"`
 }
 
 // validMoods — whitelist допустимых значений mood.
@@ -50,6 +51,13 @@ func (r *Response) Validate() error {
 
 	// category нормализуем (валидация через news.ValidateCategory происходит в news.go)
 	r.Category = strings.ToLower(strings.TrimSpace(r.Category))
+
+	// Редакторский вывод обязателен для поста; если модель его пропустила,
+	// используем TLDR как безопасный fallback вместо пропуска новости.
+	r.WhyItMatters = strings.TrimSpace(r.WhyItMatters)
+	if r.WhyItMatters == "" {
+		r.WhyItMatters = strings.TrimSpace(r.TLDR)
+	}
 
 	return nil
 }
