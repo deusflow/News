@@ -289,6 +289,10 @@ func (a *App) Run(ctx context.Context) {
 	// 4.1b Сбор Telegram feedback callback'ов из прошлых запусков (cron-safe polling).
 	if a.cfg.Feature.EnableFeedbackButtons && a.cfg.Database.UsePostgres {
 		collectTelegramFeedback(a.cfg, a.cacheAdapter)
+	} else {
+		logger.Info("telegram feedback polling is disabled",
+			"enable_feedback_buttons", a.cfg.Feature.EnableFeedbackButtons,
+			"use_postgres", a.cfg.Database.UsePostgres)
 	}
 
 	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
@@ -427,6 +431,11 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 					{Text: "Не актуально 👎", CallbackData: "fb:dn:" + token},
 				})
 			}
+		} else {
+			logger.Info("feedback buttons are skipped for this post",
+				"enable_feedback_buttons", cfg.Feature.EnableFeedbackButtons,
+				"use_postgres", cfg.Database.UsePostgres,
+				"title", n.Title)
 		}
 	}
 

@@ -20,8 +20,9 @@ jobs:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
       # === БЕЗОПАСНЫЙ РЕЖИМ (SAFE MODE) ===
-      # Отключаем PostgreSQL и Supabase, чтобы тесты не попадали в основной архив/базу
-      USE_POSTGRES: 'false'
+      # Для feedback-кнопок нужен PostgreSQL. Используем отдельный TEST_DATABASE_URL,
+      # если он задан в Secrets; иначе останемся на file cache.
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       ENABLE_SUPABASE: 'false'
       ENABLE_WEBSITE: 'false'
 
@@ -33,6 +34,7 @@ jobs:
       BOT_MODE: multiple
       SCRAPE_CONCURRENCY: 2
       ENABLE_INLINE_BUTTONS: 'true'
+      ENABLE_FEEDBACK_BUTTONS: 'true'
 
       # Технические переменные
       GO111MODULE: 'on'
@@ -57,6 +59,15 @@ jobs:
       - name: 🚀 Run on TEST Channel
         run: |
           echo "🧪 Running on TEST CHANNEL..."
-          echo "Database: DISABLED (Temporary File Cache)"
+          if [ -n "$TEST_DATABASE_URL" ]; then
+            export DATABASE_URL="$TEST_DATABASE_URL"
+            export USE_POSTGRES='true'
+            echo "Database: TEST PostgreSQL ENABLED (feedback buttons active)"
+          else
+            export USE_POSTGRES='false'
+            echo "Database: DISABLED (Temporary File Cache)"
+            echo "Feedback buttons: OFF (requires TEST_DATABASE_URL + USE_POSTGRES=true)"
+          fi
           echo "AI Providers: $AI_PROVIDERS"
           ./bin/dknews
+
