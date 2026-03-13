@@ -68,8 +68,9 @@ type DatabaseConfig struct {
 }
 
 type FeatureConfig struct {
-	EnableInlineButtons bool
-	ChannelUsername     string // for building URL buttons (e.g. deusflow_news)
+	EnableInlineButtons   bool
+	EnableFeedbackButtons bool
+	ChannelUsername       string // for building URL buttons (e.g. deusflow_news)
 }
 
 type MonitoringConfig struct {
@@ -293,8 +294,9 @@ func Load() (*Config, error) {
 			TTL: 48, // default TTL for database records
 		},
 		Feature: FeatureConfig{
-			EnableInlineButtons: true,
-			ChannelUsername:     "",
+			EnableInlineButtons:   true,
+			EnableFeedbackButtons: true,
+			ChannelUsername:       "",
 		},
 		Monitoring: MonitoringConfig{
 			EnableHTTPMonitoring: false,
@@ -385,6 +387,9 @@ func Load() (*Config, error) {
 	// Feature flags
 	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
 		cfg.Feature.EnableInlineButtons = v == "true"
+	}
+	if v := os.Getenv("ENABLE_FEEDBACK_BUTTONS"); v != "" {
+		cfg.Feature.EnableFeedbackButtons = v == "true"
 	}
 	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
 		cfg.Feature.ChannelUsername = v

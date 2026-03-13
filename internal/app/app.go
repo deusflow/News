@@ -286,6 +286,11 @@ func (a *App) Run(ctx context.Context) {
 	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
 	processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
 
+	// 4.1b Сбор Telegram feedback callback'ов из прошлых запусков (cron-safe polling).
+	if a.cfg.Feature.EnableFeedbackButtons && a.cfg.Database.UsePostgres {
+		collectTelegramFeedback(a.cfg, a.cacheAdapter)
+	}
+
 	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
 	// Neon — source of truth. Если Supabase был недоступен в прошлый раз,
 	// записи лежат в supabase_sync_queue и досинхронизируются здесь.
@@ -402,27 +407,42 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 
 	var outText string
 	var err error
+	var messageID int
 
 	var buttons [][]telegram.InlineButton
-	if cfg.Feature.EnableInlineButtons && n.Link != "" {
-		buttons = append(buttons, []telegram.InlineButton{
-			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		})
+	if cfg.Feature.EnableInlineButtons {
+		if n.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+			})
+		}
+
+		if cfg.Feature.EnableFeedbackButtons && cfg.Database.UsePostgres {
+			token := feedbackTokenFromHash(hash)
+			if saveErr := cacheAdapter.SaveFeedbackButtonToken(token, hash); saveErr != nil {
+				logger.Warn("failed to save feedback button token", "hash", hash, "error", saveErr)
+			} else {
+				buttons = append(buttons, []telegram.InlineButton{
+					{Text: "Цікаво 👍", CallbackData: "fb:up:" + token},
+					{Text: "Не актуально 👎", CallbackData: "fb:dn:" + token},
+				})
+			}
+		}
 	}
 
 	if canPhoto {
 		outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 		if len(buttons) > 0 {
-			err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
+			messageID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 		} else {
-			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
+			messageID, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
 		}
 	} else {
 		outText = news.FormatNewsWithImage(n)
 		if len(buttons) > 0 {
-			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
+			messageID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
+			messageID, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
 		}
 	}
 
@@ -442,6 +462,7 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		}
 	}
 	m.IncrementTelegramMessagesSent()
+	logger.Info("telegram post sent", "title", n.Title, "message_id", messageID, "feedback_buttons", cfg.Feature.EnableFeedbackButtons)
 
 	if supabase != nil {
 		saveToSupabase(ctx, cacheAdapter, supabase, hash, n)
@@ -648,7 +669,7 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 
 		var err error
 		if item.ImageURL != "" {
-			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
+			_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
 		} else {
 			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText)
 		}
@@ -672,4 +693,87 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 			m.IncrementTelegramMessagesSent()
 		}
 	}
+}
+
+func collectTelegramFeedback(cfg *config.Config, cacheAdapter CacheAdapter) {
+	offset, err := cacheAdapter.GetTelegramUpdateOffset()
+	if err != nil {
+		logger.Warn("failed to load telegram update offset", "error", err)
+		offset = 0
+	}
+
+	updates, err := telegram.GetUpdates(cfg.Telegram.Token, offset+1, 100)
+	if err != nil {
+		logger.Warn("failed to poll telegram updates", "error", err)
+		return
+	}
+	if len(updates) == 0 {
+		return
+	}
+
+	maxUpdateID := offset
+	applied := 0
+	for _, upd := range updates {
+		if upd.UpdateID > maxUpdateID {
+			maxUpdateID = upd.UpdateID
+		}
+		if upd.CallbackQuery == nil {
+			continue
+		}
+
+		reaction, token, ok := parseFeedbackCallbackData(upd.CallbackQuery.Data)
+		if !ok {
+			continue
+		}
+
+		newsHash, found, resolveErr := cacheAdapter.ResolveFeedbackButtonToken(token)
+		if resolveErr != nil {
+			logger.Warn("failed to resolve feedback token", "token", token, "error", resolveErr)
+			continue
+		}
+		if !found {
+			_ = telegram.AnswerCallbackQuery(cfg.Telegram.Token, upd.CallbackQuery.ID, "Це повідомлення вже застаріло")
+			continue
+		}
+
+		stored, saveErr := cacheAdapter.SaveTelegramReaction(upd.UpdateID, newsHash, upd.CallbackQuery.From.ID, reaction)
+		if saveErr != nil {
+			logger.Warn("failed to store telegram reaction", "update_id", upd.UpdateID, "error", saveErr)
+			continue
+		}
+		if stored {
+			applied++
+		}
+
+		ackText := "Дякуємо за реакцію!"
+		if reaction < 0 {
+			ackText = "Прийнято, дякуємо за фідбек"
+		}
+		_ = telegram.AnswerCallbackQuery(cfg.Telegram.Token, upd.CallbackQuery.ID, ackText)
+	}
+
+	if maxUpdateID > offset {
+		if err := cacheAdapter.SaveTelegramUpdateOffset(maxUpdateID); err != nil {
+			logger.Warn("failed to persist telegram update offset", "offset", maxUpdateID, "error", err)
+		} else {
+			logger.Info("telegram feedback collected", "updates", len(updates), "applied", applied, "new_offset", maxUpdateID)
+		}
+	}
+}
+
+func feedbackTokenFromHash(hash string) string {
+	if len(hash) <= 24 {
+		return hash
+	}
+	return hash[:24]
+}
+
+func parseFeedbackCallbackData(data string) (reaction int, token string, ok bool) {
+	if strings.HasPrefix(data, "fb:up:") {
+		return 1, strings.TrimSpace(strings.TrimPrefix(data, "fb:up:")), true
+	}
+	if strings.HasPrefix(data, "fb:dn:") {
+		return -1, strings.TrimSpace(strings.TrimPrefix(data, "fb:dn:")), true
+	}
+	return 0, "", false
 }

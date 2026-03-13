@@ -244,6 +244,41 @@ func (pc *PostgresCache) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_failed_news_attempts ON failed_news(attempts);
 	CREATE INDEX IF NOT EXISTS idx_failed_news_created_at ON failed_news(created_at);
+
+	-- Telegram bot state (e.g. last processed update_id for getUpdates polling)
+	CREATE TABLE IF NOT EXISTS telegram_bot_state (
+		state_key TEXT PRIMARY KEY,
+		state_value TEXT NOT NULL,
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	-- Mapping from short callback token to canonical sent_news hash.
+	CREATE TABLE IF NOT EXISTS feedback_button_tokens (
+		token VARCHAR(32) PRIMARY KEY,
+		news_hash VARCHAR(64) NOT NULL REFERENCES sent_news(hash) ON DELETE CASCADE,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_feedback_button_tokens_news_hash ON feedback_button_tokens(news_hash);
+
+	-- Idempotent raw callback events (dedup by update_id).
+	CREATE TABLE IF NOT EXISTS telegram_feedback_events (
+		update_id BIGINT PRIMARY KEY,
+		news_hash VARCHAR(64) NOT NULL REFERENCES sent_news(hash) ON DELETE CASCADE,
+		user_id BIGINT NOT NULL,
+		reaction SMALLINT NOT NULL CHECK (reaction IN (-1, 1)),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_telegram_feedback_events_news_hash ON telegram_feedback_events(news_hash);
+
+	-- Current vote per user per news (latest reaction wins).
+	CREATE TABLE IF NOT EXISTS telegram_feedback_votes (
+		news_hash VARCHAR(64) NOT NULL REFERENCES sent_news(hash) ON DELETE CASCADE,
+		user_id BIGINT NOT NULL,
+		reaction SMALLINT NOT NULL CHECK (reaction IN (-1, 1)),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (news_hash, user_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_telegram_feedback_votes_news_hash ON telegram_feedback_votes(news_hash);
 	`
 
 	_, err = pc.db.Exec(additionalSchema)
@@ -919,4 +954,121 @@ func (pc *PostgresCache) MarkFunFactUsed(funFact string) error {
 			used_at = NOW()
 	`, hash, strings.TrimSpace(funFact))
 	return err
+}
+
+// GetTelegramUpdateOffset returns the last processed Telegram update_id.
+func (pc *PostgresCache) GetTelegramUpdateOffset() (int64, error) {
+	var raw string
+	err := pc.db.QueryRow(`SELECT state_value FROM telegram_bot_state WHERE state_key = 'telegram_update_offset'`).Scan(&raw)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var offset int64
+	if _, err := fmt.Sscan(raw, &offset); err != nil {
+		return 0, fmt.Errorf("invalid telegram_update_offset value %q: %w", raw, err)
+	}
+	return offset, nil
+}
+
+// SaveTelegramUpdateOffset persists the last processed Telegram update_id.
+func (pc *PostgresCache) SaveTelegramUpdateOffset(offset int64) error {
+	_, err := pc.db.Exec(`
+		INSERT INTO telegram_bot_state (state_key, state_value, updated_at)
+		VALUES ('telegram_update_offset', $1, NOW())
+		ON CONFLICT (state_key) DO UPDATE SET
+			state_value = EXCLUDED.state_value,
+			updated_at = NOW()
+	`, fmt.Sprintf("%d", offset))
+	return err
+}
+
+// SaveFeedbackButtonToken stores callback token -> sent news hash mapping.
+func (pc *PostgresCache) SaveFeedbackButtonToken(token, newsHash string) error {
+	if token == "" || newsHash == "" {
+		return nil
+	}
+	_, err := pc.db.Exec(`
+		INSERT INTO feedback_button_tokens (token, news_hash, created_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (token) DO UPDATE SET news_hash = EXCLUDED.news_hash
+	`, token, newsHash)
+	return err
+}
+
+// ResolveFeedbackButtonToken resolves callback token to sent news hash.
+func (pc *PostgresCache) ResolveFeedbackButtonToken(token string) (string, bool, error) {
+	if token == "" {
+		return "", false, nil
+	}
+	var newsHash string
+	err := pc.db.QueryRow(`SELECT news_hash FROM feedback_button_tokens WHERE token = $1`, token).Scan(&newsHash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return newsHash, true, nil
+}
+
+// SaveTelegramReaction stores callback event idempotently and upserts user's current vote.
+// Returns true when a new update_id was applied, false when it was a duplicate update.
+func (pc *PostgresCache) SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error) {
+	if updateID == 0 || newsHash == "" || userID == 0 {
+		return false, nil
+	}
+	if reaction != 1 && reaction != -1 {
+		return false, fmt.Errorf("unsupported reaction value: %d", reaction)
+	}
+
+	tx, err := pc.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.Exec(`
+		INSERT INTO telegram_feedback_events (update_id, news_hash, user_id, reaction, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (update_id) DO NOTHING
+	`, updateID, newsHash, userID, reaction)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		err = tx.Commit()
+		if err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO telegram_feedback_votes (news_hash, user_id, reaction, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (news_hash, user_id) DO UPDATE SET
+			reaction = EXCLUDED.reaction,
+			updated_at = NOW()
+	`, newsHash, userID, reaction)
+	if err != nil {
+		return false, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

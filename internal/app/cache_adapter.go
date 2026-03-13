@@ -19,6 +19,13 @@ type CacheAdapter interface {
 	IsFunFactRecentlyUsed(funFact string) bool
 	MarkFunFactUsed(funFact string) error
 
+	// Telegram feedback buttons
+	GetTelegramUpdateOffset() (int64, error)
+	SaveTelegramUpdateOffset(offset int64) error
+	SaveFeedbackButtonToken(token, newsHash string) error
+	ResolveFeedbackButtonToken(token string) (string, bool, error)
+	SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error)
+
 	// Supabase sync queue — Neon is source of truth, Supabase is secondary
 	EnqueueSupabaseSync(hash string, payload []byte) error
 	GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error)
@@ -84,6 +91,26 @@ func (f *FileCacheAdapter) IsFunFactRecentlyUsed(funFact string) bool {
 
 func (f *FileCacheAdapter) MarkFunFactUsed(funFact string) error {
 	return nil
+}
+
+func (f *FileCacheAdapter) GetTelegramUpdateOffset() (int64, error) {
+	return 0, nil
+}
+
+func (f *FileCacheAdapter) SaveTelegramUpdateOffset(offset int64) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) SaveFeedbackButtonToken(token, newsHash string) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) ResolveFeedbackButtonToken(token string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (f *FileCacheAdapter) SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error) {
+	return false, nil
 }
 
 func (f *FileCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {
@@ -188,6 +215,26 @@ func (p *PostgresCacheAdapter) IsFunFactRecentlyUsed(funFact string) bool {
 
 func (p *PostgresCacheAdapter) MarkFunFactUsed(funFact string) error {
 	return p.cache.MarkFunFactUsed(funFact)
+}
+
+func (p *PostgresCacheAdapter) GetTelegramUpdateOffset() (int64, error) {
+	return p.cache.GetTelegramUpdateOffset()
+}
+
+func (p *PostgresCacheAdapter) SaveTelegramUpdateOffset(offset int64) error {
+	return p.cache.SaveTelegramUpdateOffset(offset)
+}
+
+func (p *PostgresCacheAdapter) SaveFeedbackButtonToken(token, newsHash string) error {
+	return p.cache.SaveFeedbackButtonToken(token, newsHash)
+}
+
+func (p *PostgresCacheAdapter) ResolveFeedbackButtonToken(token string) (string, bool, error) {
+	return p.cache.ResolveFeedbackButtonToken(token)
+}
+
+func (p *PostgresCacheAdapter) SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error) {
+	return p.cache.SaveTelegramReaction(updateID, newsHash, userID, reaction)
 }
 
 func (p *PostgresCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {

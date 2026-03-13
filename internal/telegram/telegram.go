@@ -53,12 +53,12 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 }
 
 // SendPhoto sends a photo with caption
-func SendPhoto(token string, chatID string, photoURL string, caption string) error {
+func SendPhoto(token string, chatID string, photoURL string, caption string) (int, error) {
 	return SendPhotoWithButtons(token, chatID, photoURL, caption, nil)
 }
 
 // SendPhotoWithButtons sends a photo with buttons
-func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) error {
+func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) (int, error) {
 	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
 
 	body := map[string]interface{}{
@@ -72,6 +72,68 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 		body["reply_markup"] = map[string]interface{}{
 			"inline_keyboard": buttons,
 		}
+	}
+
+	return executeRequest(context.Background(), url, body)
+}
+
+// GetUpdates fetches pending Telegram updates for callback processing.
+func GetUpdates(token string, offset int64, limit int) ([]Update, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+
+	url := fmt.Sprintf("%s%s/getUpdates", telegramAPIBase, token)
+	body := map[string]interface{}{
+		"offset":          offset,
+		"limit":           limit,
+		"timeout":         0,
+		"allowed_updates": []string{"callback_query"},
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("telegram getUpdates error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var parsed struct {
+		OK     bool     `json:"ok"`
+		Result []Update `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+	if !parsed.OK {
+		return nil, fmt.Errorf("telegram getUpdates returned ok=false")
+	}
+
+	return parsed.Result, nil
+}
+
+// AnswerCallbackQuery sends a small toast notification in Telegram UI.
+func AnswerCallbackQuery(token string, callbackID string, text string) error {
+	url := fmt.Sprintf("%s%s/answerCallbackQuery", telegramAPIBase, token)
+	body := map[string]interface{}{
+		"callback_query_id": callbackID,
+		"text":              text,
+		"show_alert":        false,
 	}
 
 	_, err := executeRequest(context.Background(), url, body)
@@ -176,4 +238,22 @@ type InlineButton struct {
 	Text         string `json:"text"`
 	URL          string `json:"url,omitempty"`
 	CallbackData string `json:"callback_data,omitempty"`
+}
+
+// Update is a Telegram update payload.
+type Update struct {
+	UpdateID      int64          `json:"update_id"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
+}
+
+// CallbackQuery represents button click payload.
+type CallbackQuery struct {
+	ID   string            `json:"id"`
+	From CallbackQueryUser `json:"from"`
+	Data string            `json:"data"`
+}
+
+// CallbackQueryUser is the Telegram user who clicked a button.
+type CallbackQueryUser struct {
+	ID int64 `json:"id"`
 }
