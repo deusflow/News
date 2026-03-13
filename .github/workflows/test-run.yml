@@ -38,6 +38,7 @@ jobs:
 
       # Технические переменные
       GO111MODULE: 'on'
+      WORKFLOW_REV: 'test-run-v2-db-required'
 
     steps:
       - name: Checkout code
@@ -53,21 +54,31 @@ jobs:
           go mod download
           mkdir -p bin
 
+      - name: Preflight env checks
+        run: |
+          echo "Workflow ref: ${{ github.workflow_ref }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+          echo "Workflow rev: $WORKFLOW_REV"
+
+          if [ -z "$TEST_DATABASE_URL" ]; then
+            echo "ERROR: TEST_DATABASE_URL is empty or missing."
+            echo "ERROR: Cannot enable PostgreSQL, feedback buttons will not work."
+            exit 1
+          fi
+
+          echo "TEST_DATABASE_URL is set (value hidden), length: ${#TEST_DATABASE_URL}"
+
       - name: Build
         run: go build -o bin/dknews ./cmd/dknews
 
       - name: 🚀 Run on TEST Channel
         run: |
           echo "🧪 Running on TEST CHANNEL..."
-          if [ -n "$TEST_DATABASE_URL" ]; then
-            export DATABASE_URL="$TEST_DATABASE_URL"
-            export USE_POSTGRES='true'
-            echo "Database: TEST PostgreSQL ENABLED (feedback buttons active)"
-          else
-            export USE_POSTGRES='false'
-            echo "Database: DISABLED (Temporary File Cache)"
-            echo "Feedback buttons: OFF (requires TEST_DATABASE_URL + USE_POSTGRES=true)"
-          fi
+          export DATABASE_URL="$TEST_DATABASE_URL"
+          export USE_POSTGRES='true'
+          echo "Database: TEST PostgreSQL ENABLED (feedback buttons active)"
+          echo "Flags: ENABLE_INLINE_BUTTONS=$ENABLE_INLINE_BUTTONS, ENABLE_FEEDBACK_BUTTONS=$ENABLE_FEEDBACK_BUTTONS, USE_POSTGRES=$USE_POSTGRES"
           echo "AI Providers: $AI_PROVIDERS"
           ./bin/dknews
 
