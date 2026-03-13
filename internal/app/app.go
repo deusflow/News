@@ -412,6 +412,8 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 	var outText string
 	var err error
 	var messageID int
+	feedbackToken := ""
+	feedbackButtonsAdded := false
 
 	var buttons [][]telegram.InlineButton
 	if cfg.Feature.EnableInlineButtons {
@@ -422,15 +424,12 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		}
 
 		if cfg.Feature.EnableFeedbackButtons && cfg.Database.UsePostgres {
-			token := feedbackTokenFromHash(hash)
-			if saveErr := cacheAdapter.SaveFeedbackButtonToken(token, hash); saveErr != nil {
-				logger.Warn("failed to save feedback button token", "hash", hash, "error", saveErr)
-			} else {
-				buttons = append(buttons, []telegram.InlineButton{
-					{Text: "Цікаво 👍", CallbackData: "fb:up:" + token},
-					{Text: "Не актуально 👎", CallbackData: "fb:dn:" + token},
-				})
-			}
+			feedbackToken = feedbackTokenFromHash(hash)
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "Цікаво 👍", CallbackData: "fb:up:" + feedbackToken},
+				{Text: "Не актуально 👎", CallbackData: "fb:dn:" + feedbackToken},
+			})
+			feedbackButtonsAdded = true
 		} else {
 			logger.Info("feedback buttons are skipped for this post",
 				"enable_feedback_buttons", cfg.Feature.EnableFeedbackButtons,
@@ -465,13 +464,18 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 
 	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
 	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	if feedbackToken != "" {
+		if saveErr := cacheAdapter.SaveFeedbackButtonToken(feedbackToken, hash); saveErr != nil {
+			logger.Warn("failed to save feedback button token", "hash", hash, "error", saveErr)
+		}
+	}
 	if strings.TrimSpace(n.FunFact) != "" {
 		if err := cacheAdapter.MarkFunFactUsed(n.FunFact); err != nil {
 			logger.Warn("failed to mark fun_fact usage", "title", n.Title, "error", err)
 		}
 	}
 	m.IncrementTelegramMessagesSent()
-	logger.Info("telegram post sent", "title", n.Title, "message_id", messageID, "feedback_buttons", cfg.Feature.EnableFeedbackButtons)
+	logger.Info("telegram post sent", "title", n.Title, "message_id", messageID, "feedback_buttons", feedbackButtonsAdded)
 
 	if supabase != nil {
 		saveToSupabase(ctx, cacheAdapter, supabase, hash, n)
