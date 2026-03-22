@@ -1,6 +1,11 @@
 package news
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/deusflow/News/internal/storage"
+)
 
 // NewsBudget визначає ліміти символів для різних частин новини
 type NewsBudget struct {
@@ -150,4 +155,53 @@ Output valid JSON only.
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		BuildValidCategoryList(),
 		DefaultBudget.TLDRChars, DefaultBudget.WhyItMattersChars, DefaultBudget.FunFactChars)
+}
+
+// GenerateWeeklyDigestPrompt builds a strict JSON prompt for weekly digest.
+// It asks AI to synthesize consequences, not copy-paste source bullets.
+func GenerateWeeklyDigestPrompt(items []storage.DigestNewsItem) string {
+	var b strings.Builder
+	for i, item := range items {
+		fmt.Fprintf(&b, "%d) [%s] %s | source=%s | date=%s", i+1,
+			strings.TrimSpace(item.Category),
+			strings.TrimSpace(item.Title),
+			strings.TrimSpace(item.Source),
+			item.PublishedTime.UTC().Format("2006-01-02"))
+		if strings.TrimSpace(item.WhyItMatters) != "" {
+			fmt.Fprintf(&b, " | why=%s", strings.TrimSpace(item.WhyItMatters))
+		}
+		b.WriteString("\n")
+	}
+
+	return fmt.Sprintf(`You are a senior editor for a Ukrainian-language Denmark news channel.
+
+TASK:
+From the weekly list below, pick exactly 7 MOST important and surprising events.
+Selection criteria (priority order):
+1) Scale and real impact on people in Denmark/EU
+2) Practical consequences for daily life (law, money, work, transport, migration, safety)
+3) Unexpectedness / shock value
+
+IMPORTANT:
+- Do NOT copy source text.
+- Rewrite in your own words.
+- For each item: 1 short thesis sentence about what happened + 1 short consequence sentence.
+- Focus on consequences, not rhetoric.
+
+WEEKLY DATA:
+%s
+
+Output ONLY valid JSON with these fields:
+{
+  "danish": "4-6 concise Danish lines summary for Danish-speaking followers",
+  "ukrainian": "Exactly 7 bullet lines (1-7). Each line has: what happened + practical consequence",
+  "title_ukrainian": "Головне за тиждень у Данії та ЄС",
+  "mood": "neutral",
+  "category": "politics",
+  "tags": ["дайджест", "данія", "єс"],
+  "tldr": "📌 Топ-7 подій тижня: що сталося і як це вплине на життя",
+  "why_it_matters": "Один короткий висновок: яка системна зміна для людей у Данії.",
+  "fun_fact": "💡 Короткий новий факт про Данію без кліше"
+}
+`, b.String())
 }

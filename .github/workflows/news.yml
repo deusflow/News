@@ -2,16 +2,17 @@ name: Danish News Bot - Scheduled
 
 on:
   schedule:
-    # Adjust schedule as you like (UTC). Example: every 6 hours
     - cron: '30 5 * * *'   # 05:30 UTC = 07:30 датского времени (летом)
     - cron: '0 10 * * *'   # 10:00 UTC = 12:00 датского времени (летом)
     - cron: '0 12 * * *'   # 12:00 UTC = 14:00 датского времени (летом)
     - cron: '0 14 * * *'   # 14:00 UTC = 16:00 датского времени (летом)
     - cron: '0 19 * * *'   # 19:00 UTC = 21:00 датского
+    - cron: '30 7 * * 0'   # Воскресенье — еженедельный AI-дайджест
   workflow_dispatch: {}
 
 jobs:
   run-bot:
+    if: ${{ github.event_name != 'schedule' || github.event.schedule != '30 7 * * 0' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read  # Read-only mode - bot only writes to database
@@ -33,6 +34,9 @@ jobs:
       # Feature flags (NEW)
       ENABLE_THREAD_MODE: 'false'
       ENABLE_INLINE_BUTTONS: 'true'
+      ENABLE_FEEDBACK_BUTTONS: 'true'
+      FEEDBACK_LISTEN_SECONDS: '180'
+      FEEDBACK_POLL_INTERVAL_SECONDS: '3'
       INLINE_BUTTON_MODE: 'url'
       ENABLE_IMPORTANCE_LINE: 'true'
       ENABLE_VOCAB_POST: 'false'
@@ -117,20 +121,16 @@ jobs:
       - name: Run bot
         run: |
           echo "🚀 Starting Danish News Bot..."
-          echo "Database mode: PostgreSQL (primary) + File cache (fallback)"
+          echo "Feedback callbacks polled for ${FEEDBACK_LISTEN_SECONDS}s after publish"
           ./bin/dknews | tee run.log
         working-directory: ${{ github.workspace }}
-
-      # Website posts are now generated on-the-fly during site deployment
-      # No git commits needed - bot only saves to Supabase database
 
       - name: Show resulting cache file
         run: |
           echo "--- sent_news.json (after run) ---"
-          test -f sent_news.json && cat sent_news.json || echo "Cache file not created (using PostgreSQL)"
-        working-directory: ${{ github.workspace }}
+          test -f sent_news.json && cat sent_news.json || echo "Cache not created (PostgreSQL mode)"
 
-      - name: Upload run log (optional)
+      - name: Upload run log
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -138,10 +138,64 @@ jobs:
           path: run.log
           if-no-files-found: ignore
 
-      - name: Upload sent_news.json as artifact (fallback)
+      - name: Upload sent_news.json as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sent-news-cache-${{ github.run_number }}
           path: sent_news.json
           if-no-files-found: warn
+
+  # ─── Воскресный AI-дайджест (только 30 7 * * 0) ───────────────────────────
+  weekly-digest:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '30 7 * * 0' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USE_POSTGRES: 'true'
+      CACHE_FILE_PATH: sent_news.json
+      CACHE_TTL_HOURS: 48
+      WEEKLY_DIGEST_ONLY: 'true'
+
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      AI_PROVIDERS: "gemini,groq"
+
+      GO111MODULE: 'on'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: true
+
+      - name: Prepare deps and bin dir
+        run: |
+          go mod download
+          mkdir -p bin
+
+      - name: Build
+        run: go build -o bin/dknews ./cmd/dknews
+
+      - name: Run weekly digest
+        run: |
+          echo "📌 Sending weekly digest..."
+          ./bin/dknews | tee digest.log
+
+      - name: Upload digest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-log-${{ github.run_number }}
+          path: digest.log
+          if-no-files-found: ignore
+

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/deusflow/News/internal/storage"
 )
 
@@ -14,7 +16,7 @@ type CacheAdapter interface {
 	IsContentDuplicate(content string) (bool, string)
 	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
 	MarkAsSent(hash, title, link, category, source string) error
-	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	MarkAsSentWithContent(hash, title, link, content, whyItMatters, category, source string) error
 	MarkSupabaseSynced(hash string) error
 	IsFunFactRecentlyUsed(funFact string) bool
 	MarkFunFactUsed(funFact string) error
@@ -25,6 +27,9 @@ type CacheAdapter interface {
 	SaveFeedbackButtonToken(token, newsHash string) error
 	ResolveFeedbackButtonToken(token string) (string, bool, error)
 	SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error)
+	GetBotState(key string) (string, bool, error)
+	SaveBotState(key, value string) error
+	GetSentNewsInRange(since, until time.Time, limit int) ([]storage.DigestNewsItem, error)
 
 	// Supabase sync queue — Neon is source of truth, Supabase is secondary
 	EnqueueSupabaseSync(hash string, payload []byte) error
@@ -74,7 +79,7 @@ func (f *FileCacheAdapter) MarkAsSent(hash, title, link, category, source string
 	return nil
 }
 
-func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, whyItMatters, category, source string) error {
 	f.cache.MarkAsSent(hash, title, link, category, source)
 	return nil
 }
@@ -111,6 +116,18 @@ func (f *FileCacheAdapter) ResolveFeedbackButtonToken(token string) (string, boo
 
 func (f *FileCacheAdapter) SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error) {
 	return false, nil
+}
+
+func (f *FileCacheAdapter) GetBotState(key string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (f *FileCacheAdapter) SaveBotState(key, value string) error {
+	return nil
+}
+
+func (f *FileCacheAdapter) GetSentNewsInRange(since, until time.Time, limit int) ([]storage.DigestNewsItem, error) {
+	return nil, nil
 }
 
 func (f *FileCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {
@@ -182,8 +199,8 @@ func (p *PostgresCacheAdapter) MarkAsSent(hash, title, link, category, source st
 	return p.cache.MarkAsSent(hash, title, link, category, source)
 }
 
-func (p *PostgresCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
-	return p.cache.MarkAsSentWithContent(hash, title, link, content, category, source)
+func (p *PostgresCacheAdapter) MarkAsSentWithContent(hash, title, link, content, whyItMatters, category, source string) error {
+	return p.cache.MarkAsSentWithContent(hash, title, link, content, whyItMatters, category, source)
 }
 
 // --- РЕАЛИЗАЦИЯ DLQ ---
@@ -235,6 +252,18 @@ func (p *PostgresCacheAdapter) ResolveFeedbackButtonToken(token string) (string,
 
 func (p *PostgresCacheAdapter) SaveTelegramReaction(updateID int64, newsHash string, userID int64, reaction int) (bool, error) {
 	return p.cache.SaveTelegramReaction(updateID, newsHash, userID, reaction)
+}
+
+func (p *PostgresCacheAdapter) GetBotState(key string) (string, bool, error) {
+	return p.cache.GetBotState(key)
+}
+
+func (p *PostgresCacheAdapter) SaveBotState(key, value string) error {
+	return p.cache.SaveBotState(key, value)
+}
+
+func (p *PostgresCacheAdapter) GetSentNewsInRange(since, until time.Time, limit int) ([]storage.DigestNewsItem, error) {
+	return p.cache.GetSentNewsInRange(since, until, limit)
 }
 
 func (p *PostgresCacheAdapter) EnqueueSupabaseSync(hash string, payload []byte) error {

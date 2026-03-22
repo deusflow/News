@@ -23,6 +23,10 @@ import (
 
 const publishPerRunLimit = 1
 
+const (
+	weeklyDigestStateKey = "weekly_digest_last_iso_week"
+)
+
 // Service interfaces for SRP
 type NewsFetcher interface {
 	Fetch(ctx context.Context) ([]*rss.FeedItem, error)
@@ -244,7 +248,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 func (a *App) Run(ctx context.Context) {
 	logger.Info("Starting Danish News Bot Run")
 	runStartedAt := time.Now()
-	defer a.metrics.RecordProcessingTime(time.Since(runStartedAt))
+	defer func() { a.metrics.RecordProcessingTime(time.Since(runStartedAt)) }()
 
 	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
 		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
@@ -286,13 +290,34 @@ func (a *App) Run(ctx context.Context) {
 	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
 	processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
 
+	feedbackEnabled := a.cfg.Feature.EnableFeedbackButtons && a.cfg.Database.UsePostgres
+
 	// 4.1b Сбор Telegram feedback callback'ов из прошлых запусков (cron-safe polling).
-	if a.cfg.Feature.EnableFeedbackButtons && a.cfg.Database.UsePostgres {
+	if feedbackEnabled {
 		collectTelegramFeedback(a.cfg, a.cacheAdapter)
 	} else {
 		logger.Info("telegram feedback polling is disabled",
 			"enable_feedback_buttons", a.cfg.Feature.EnableFeedbackButtons,
 			"use_postgres", a.cfg.Database.UsePostgres)
+	}
+
+	feedbackListenSeconds := envInt("FEEDBACK_LISTEN_SECONDS", 0)
+	feedbackPollInterval := envInt("FEEDBACK_POLL_INTERVAL_SECONDS", 3)
+	if feedbackPollInterval < 1 {
+		feedbackPollInterval = 1
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("FEEDBACK_ONLY")), "true") {
+		if feedbackEnabled && feedbackListenSeconds > 0 {
+			collectTelegramFeedbackWindow(a.cfg, a.cacheAdapter, feedbackListenSeconds, feedbackPollInterval)
+		}
+		logger.Info("feedback-only mode enabled; skipping fetch/process/publish pipeline")
+		return
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("WEEKLY_DIGEST_ONLY")), "true") {
+		a.sendWeeklyDigest(ctx)
+		return
 	}
 
 	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
@@ -328,6 +353,10 @@ func (a *App) Run(ctx context.Context) {
 	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
 	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", publishPerRunLimit)
 	a.sender.Send(ctx, filtered)
+
+	if feedbackEnabled && feedbackListenSeconds > 0 {
+		collectTelegramFeedbackWindow(a.cfg, a.cacheAdapter, feedbackListenSeconds, feedbackPollInterval)
+	}
 	a.metrics.SetLastRun()
 }
 
@@ -463,7 +492,7 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 	}
 
 	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
-	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.WhyItMatters, n.Category, n.SourceName)
 	if feedbackToken != "" {
 		if saveErr := cacheAdapter.SaveFeedbackButtonToken(feedbackToken, hash); saveErr != nil {
 			logger.Warn("failed to save feedback button token", "hash", hash, "error", saveErr)
@@ -772,6 +801,87 @@ func collectTelegramFeedback(cfg *config.Config, cacheAdapter CacheAdapter) {
 			logger.Info("telegram feedback collected", "updates", len(updates), "applied", applied, "new_offset", maxUpdateID)
 		}
 	}
+}
+
+func collectTelegramFeedbackWindow(cfg *config.Config, cacheAdapter CacheAdapter, listenSeconds int, pollIntervalSeconds int) {
+	if listenSeconds <= 0 {
+		return
+	}
+
+	logger.Info("starting feedback polling window",
+		"listen_seconds", listenSeconds,
+		"poll_interval_seconds", pollIntervalSeconds)
+
+	deadline := time.Now().Add(time.Duration(listenSeconds) * time.Second)
+	for time.Now().Before(deadline) {
+		collectTelegramFeedback(cfg, cacheAdapter)
+		time.Sleep(time.Duration(pollIntervalSeconds) * time.Second)
+	}
+
+	logger.Info("feedback polling window finished", "listen_seconds", listenSeconds)
+}
+
+func (a *App) sendWeeklyDigest(ctx context.Context) {
+	if !a.cfg.Database.UsePostgres {
+		logger.Warn("weekly digest requires USE_POSTGRES=true")
+		return
+	}
+
+	now := time.Now().UTC()
+	isoYear, isoWeek := now.ISOWeek()
+	stateValue := fmt.Sprintf("%04d-W%02d", isoYear, isoWeek)
+
+	if lastValue, found, err := a.cacheAdapter.GetBotState(weeklyDigestStateKey); err == nil && found && strings.TrimSpace(lastValue) == stateValue {
+		logger.Info("weekly digest already sent for this ISO week", "iso_week", stateValue)
+		return
+	}
+
+	since := now.AddDate(0, 0, -7)
+	items, err := a.cacheAdapter.GetSentNewsInRange(since, now, 200)
+	if err != nil {
+		logger.Error("failed to load weekly digest source data", "error", err)
+		return
+	}
+	if len(items) == 0 {
+		logger.Info("weekly digest skipped: no sent news in the last 7 days")
+		return
+	}
+
+	prompt := news.GenerateWeeklyDigestPrompt(items)
+	resp, err := a.aiManager.Generate(ctx, "Weekly Digest", "weekly_digest", prompt)
+	if err != nil {
+		logger.Error("failed to generate weekly digest", "error", err)
+		return
+	}
+	if err := resp.Validate(); err != nil {
+		logger.Error("weekly digest validation failed", "error", err)
+		return
+	}
+
+	msg := fmt.Sprintf("📌 <b>Головне за тиждень</b>\n\n%s\n\n🇩🇰 <b>Kort på dansk:</b> %s", strings.TrimSpace(resp.Ukrainian), strings.TrimSpace(resp.Danish))
+	if _, err := telegram.SendMessageAllowPreview(a.cfg.Telegram.Token, a.cfg.Telegram.ChatID, msg); err != nil {
+		logger.Error("failed to send weekly digest", "error", err)
+		return
+	}
+
+	if err := a.cacheAdapter.SaveBotState(weeklyDigestStateKey, stateValue); err != nil {
+		logger.Warn("failed to persist weekly digest state", "state", stateValue, "error", err)
+	}
+
+	logger.Info("weekly digest sent", "items", len(items), "iso_week", stateValue)
+}
+
+func envInt(name string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return fallback
+	}
+
+	var n int
+	if _, err := fmt.Sscan(v, &n); err != nil {
+		return fallback
+	}
+	return n
 }
 
 func feedbackTokenFromHash(hash string) string {

@@ -39,6 +39,7 @@ jobs:
       # Технические переменные
       GO111MODULE: 'on'
       WORKFLOW_REV: 'test-run-v2-db-required'
+      FEEDBACK_LISTEN_SECONDS: '180'
 
     steps:
       - name: Checkout code
@@ -80,5 +81,7 @@ jobs:
           echo "Database: TEST PostgreSQL ENABLED (feedback buttons active)"
           echo "Flags: ENABLE_INLINE_BUTTONS=$ENABLE_INLINE_BUTTONS, ENABLE_FEEDBACK_BUTTONS=$ENABLE_FEEDBACK_BUTTONS, USE_POSTGRES=$USE_POSTGRES"
           echo "AI Providers: $AI_PROVIDERS"
+          echo "Feedback window: ${FEEDBACK_LISTEN_SECONDS}s (built-in, no shell loop needed)"
           ./bin/dknews
+
 

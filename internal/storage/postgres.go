@@ -46,6 +46,15 @@ type FailedItem struct {
 	Attempts    int
 }
 
+// DigestNewsItem is a compact row used to build weekly digest prompts.
+type DigestNewsItem struct {
+	Title         string
+	Category      string
+	Source        string
+	WhyItMatters  string
+	PublishedTime time.Time
+}
+
 // NewPostgresCache creates a new PostgreSQL cache instance
 func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, error) {
 	db, err := sql.Open("postgres", connectionString)
@@ -179,6 +188,20 @@ func (pc *PostgresCache) initSchema() error {
 	}
 	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_title_norm ON sent_news(title_norm);`); err != nil {
 		return fmt.Errorf("failed to create title_norm index: %v", err)
+	}
+
+	// Step 4d: Migration — add editorial consequence text for digest quality.
+	migration4 := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'why_it_matters') THEN
+			ALTER TABLE sent_news ADD COLUMN why_it_matters TEXT;
+		END IF;
+	END $$;
+	`
+	if _, err = pc.db.Exec(migration4); err != nil {
+		return fmt.Errorf("failed to run migration4 (why_it_matters): %v", err)
 	}
 
 	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
@@ -535,29 +558,61 @@ func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) 
 
 // MarkAsSentWithContent marks news as sent and stores content hash + source_url for dedup.
 // supabase_synced is set to FALSE — caller must call MarkSupabaseSynced after successful push.
-func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, whyItMatters, category, source string) error {
 	contentHash := ""
 	if len(content) >= 100 {
 		contentHash = generateContentHash(content)
 	}
 	titleNorm := normalizeTitleForDedup(title)
+	whyItMatters = strings.TrimSpace(whyItMatters)
 
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced)
-		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE)
+		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, why_it_matters, sent_at, supabase_synced)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, NOW(), FALSE)
 		ON CONFLICT (hash) DO UPDATE SET
 			sent_at = NOW(),
 			content_hash = EXCLUDED.content_hash,
 			source_url = EXCLUDED.source_url,
-			title_norm = EXCLUDED.title_norm
+			title_norm = EXCLUDED.title_norm,
+			why_it_matters = EXCLUDED.why_it_matters
 	`
 
-	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source)
+	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source, whyItMatters)
 	if err != nil {
 		return fmt.Errorf("failed to mark as sent: %v", err)
 	}
 
 	return nil
+}
+
+// GetSentNewsInRange returns sent_news rows for digest generation.
+func (pc *PostgresCache) GetSentNewsInRange(since, until time.Time, limit int) ([]DigestNewsItem, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := pc.db.Query(`
+		SELECT title, category, source, COALESCE(why_it_matters, ''), sent_at
+		FROM sent_news
+		WHERE sent_at >= $1 AND sent_at < $2
+		ORDER BY sent_at DESC
+		LIMIT $3
+	`, since, until, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]DigestNewsItem, 0, limit)
+	for rows.Next() {
+		var item DigestNewsItem
+		if err := rows.Scan(&item.Title, &item.Category, &item.Source, &item.WhyItMatters, &item.PublishedTime); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, rows.Err()
 }
 
 // IsSourceURLSent checks whether a news item with this source_url was already sent.
@@ -958,13 +1013,12 @@ func (pc *PostgresCache) MarkFunFactUsed(funFact string) error {
 
 // GetTelegramUpdateOffset returns the last processed Telegram update_id.
 func (pc *PostgresCache) GetTelegramUpdateOffset() (int64, error) {
-	var raw string
-	err := pc.db.QueryRow(`SELECT state_value FROM telegram_bot_state WHERE state_key = 'telegram_update_offset'`).Scan(&raw)
+	raw, found, err := pc.GetBotState("telegram_update_offset")
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
 		return 0, err
+	}
+	if !found {
+		return 0, nil
 	}
 	var offset int64
 	if _, err := fmt.Sscan(raw, &offset); err != nil {
@@ -975,13 +1029,40 @@ func (pc *PostgresCache) GetTelegramUpdateOffset() (int64, error) {
 
 // SaveTelegramUpdateOffset persists the last processed Telegram update_id.
 func (pc *PostgresCache) SaveTelegramUpdateOffset(offset int64) error {
+	return pc.SaveBotState("telegram_update_offset", fmt.Sprintf("%d", offset))
+}
+
+// GetBotState reads a small state value from telegram_bot_state table.
+func (pc *PostgresCache) GetBotState(key string) (string, bool, error) {
+	if strings.TrimSpace(key) == "" {
+		return "", false, nil
+	}
+
+	var raw string
+	err := pc.db.QueryRow(`SELECT state_value FROM telegram_bot_state WHERE state_key = $1`, key).Scan(&raw)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+
+	return raw, true, nil
+}
+
+// SaveBotState upserts a small state value in telegram_bot_state table.
+func (pc *PostgresCache) SaveBotState(key, value string) error {
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+
 	_, err := pc.db.Exec(`
 		INSERT INTO telegram_bot_state (state_key, state_value, updated_at)
-		VALUES ('telegram_update_offset', $1, NOW())
+		VALUES ($1, $2, NOW())
 		ON CONFLICT (state_key) DO UPDATE SET
 			state_value = EXCLUDED.state_value,
 			updated_at = NOW()
-	`, fmt.Sprintf("%d", offset))
+	`, key, value)
 	return err
 }
 
