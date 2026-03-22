@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -26,8 +27,11 @@ type News struct {
 
 	// KeywordScore and ImpactScore are explicit ranking signals.
 	// Score remains the final combined value used for ordering.
-	KeywordScore int
-	ImpactScore  int
+	KeywordScore        int
+	ImpactScore         int
+	CoreImpactScore     int
+	SoftScore           int
+	EditorialAdjustment int
 
 	SourceName string
 	SourceLang string
@@ -141,16 +145,19 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	// (мгновенно), отсекаем мусор (score < 0), и отправляем в AI только
 	// топовых кандидатов (maxAICandidates).
 	//
-	// Количество AI-кандидатов: берём больше чем нужно для публикации,
-	// потому что AI может отвергнуть некоторые (пустой контент, валидация).
-	// 5 кандидатов достаточно, чтобы гарантировать хотя бы 1 качественную новость.
-	const maxAICandidates = 5
+	// Количество AI-кандидатов берём из конфига скрапера.
+	// Это устраняет рассинхрон между конфигурацией и фактическим поведением.
+	maxAICandidates := opts.ScrapeMaxArticles
+	if maxAICandidates <= 0 {
+		maxAICandidates = 5
+	}
 
 	type preScored struct {
 		item              *rss.FeedItem
 		kwScore           int
 		kwCat             string
 		kwCategoryWeights map[string]int
+		kwMatches         []config.KeywordMatch
 	}
 
 	var scored []preScored
@@ -158,19 +165,21 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		kwScore := 0
 		kwCat := ""
 		kwCategoryWeights := map[string]int{}
+		var kwMatches []config.KeywordMatch
 		if opts.Keywords != nil {
 			// Pre-score по title + RSS description (контент ещё не скрейпнут)
 			text := item.Title
 			if item.Description != "" {
 				text += " " + item.Description
 			}
-			kwScore, kwCat, kwCategoryWeights = opts.Keywords.CalculateScoreDetailed(text)
+			kwScore, kwCat, kwCategoryWeights, kwMatches = opts.Keywords.CalculateScoreDetailedWithMatches(text)
 		}
 		scored = append(scored, preScored{
 			item:              item,
 			kwScore:           kwScore,
 			kwCat:             kwCat,
 			kwCategoryWeights: kwCategoryWeights,
+			kwMatches:         kwMatches,
 		})
 	}
 
@@ -307,6 +316,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			kwScore := topCandidates[idx].kwScore
 			kwCat := topCandidates[idx].kwCat
 			kwCategoryWeights := topCandidates[idx].kwCategoryWeights
+			kwMatches := topCandidates[idx].kwMatches
 
 			// Re-score on full text (title + scraped content) for final ranking precision.
 			// Pre-score still controls the cheap pre-filter before AI.
@@ -315,21 +325,26 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				if s.content != "" {
 					fullText += " " + s.content
 				}
-				fullKwScore, fullKwCat, fullKwWeights := opts.Keywords.CalculateScoreDetailed(fullText)
+				fullKwScore, fullKwCat, fullKwWeights, fullMatches := opts.Keywords.CalculateScoreDetailedWithMatches(fullText)
 				if fullKwScore > kwScore {
 					kwScore = fullKwScore
 					kwCat = fullKwCat
 					kwCategoryWeights = fullKwWeights
+					kwMatches = fullMatches
 				}
 			}
 
 			impactScore := calculateImpactScore(kwCategoryWeights)
+			coreImpact, softScore, editorialAdjustment := calculateEditorialSignals(kwCategoryWeights)
 
 			// Keywords remain primary. Impact is a separate architectural signal.
 			// AI (mood/freshness) stays secondary via n.Score from processItemWithContent().
 			n.KeywordScore = kwScore
 			n.ImpactScore = impactScore
-			n.Score += kwScore + impactScore
+			n.CoreImpactScore = coreImpact
+			n.SoftScore = softScore
+			n.EditorialAdjustment = editorialAdjustment
+			n.Score += kwScore + impactScore + editorialAdjustment
 
 			// If keywords found a category, prefer it after strict normalization.
 			if kwCat != "" && kwCat != "spam" {
@@ -337,6 +352,23 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					n.Category = string(coerced)
 				}
 			}
+
+			if opts.Config != nil && opts.Config.Feature.EnableDecisionLog {
+				logger.Info("candidate decision",
+					"title", n.Title,
+					"source", n.SourceName,
+					"category", n.Category,
+					"keyword_score", n.KeywordScore,
+					"impact_score", n.ImpactScore,
+					"core_impact_score", n.CoreImpactScore,
+					"soft_score", n.SoftScore,
+					"editorial_adjustment", n.EditorialAdjustment,
+					"final_score", n.Score,
+					"passes_public_impact_gate", PassesPublicImpactGate(*n),
+					"keyword_top_matches", topKeywordMatchesForLog(kwMatches, 8),
+					"category_weights", formatCategoryWeightsForLog(kwCategoryWeights))
+			}
+
 			result = append(result, *n)
 		}
 	}
@@ -389,12 +421,74 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	return impact
 }
 
+func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, softScore int, adjustment int) {
+	if len(categoryWeights) == 0 {
+		return 0, 0, 0
+	}
+
+	coreImpact += categoryWeights["politics"]
+	coreImpact += categoryWeights["society"]
+	coreImpact += categoryWeights["work"]
+	coreImpact += categoryWeights["economy"]
+	coreImpact += categoryWeights["visas"]
+	coreImpact += categoryWeights["money"]
+	coreImpact += categoryWeights["local"]
+	coreImpact += categoryWeights["education"]
+	coreImpact += categoryWeights["health"]
+	coreImpact += categoryWeights["housing"]
+	coreImpact += categoryWeights["transport"]
+
+	softScore += categoryWeights["lifestyle"]
+	softScore += categoryWeights["sport"]
+
+	coreBoost := min(20, coreImpact/4)
+	softPenalty := 0
+	if coreImpact == 0 && softScore > 0 {
+		softPenalty = min(8, softScore/2)
+	} else if coreImpact < 10 && softScore > 0 {
+		softPenalty = min(4, softScore/4)
+	}
+
+	adjustment = coreBoost - softPenalty
+	return coreImpact, softScore, adjustment
+}
+
 func isImpactCandidate(n News) bool {
 	return n.ImpactScore >= impactPriorityThreshold
 }
 
+func isCoreImpactCategory(c Category) bool {
+	switch c {
+	case CategoryPolitics, CategorySociety, CategoryWork, CategoryEconomy, CategoryVisas, CategoryMoney, CategoryLocal, CategoryEducation, CategoryEU, CategoryWar:
+		return true
+	default:
+		return false
+	}
+}
+
+// PassesPublicImpactGate marks candidates that should be prioritized for publication.
+func PassesPublicImpactGate(n News) bool {
+	if n.CoreImpactScore >= 10 {
+		return true
+	}
+	if n.ImpactScore >= impactPriorityThreshold {
+		return true
+	}
+	cat := ValidateCategory(n.Category)
+	return isCoreImpactCategory(cat) && n.KeywordScore >= 12
+}
+
 func sortByPublishPriority(items []News) {
 	sort.SliceStable(items, func(i, j int) bool {
+		iGate := PassesPublicImpactGate(items[i])
+		jGate := PassesPublicImpactGate(items[j])
+		if iGate != jGate {
+			return iGate
+		}
+		if items[i].CoreImpactScore != items[j].CoreImpactScore {
+			return items[i].CoreImpactScore > items[j].CoreImpactScore
+		}
+
 		iImpact := isImpactCandidate(items[i])
 		jImpact := isImpactCandidate(items[j])
 		if iImpact != jImpact {
@@ -405,6 +499,45 @@ func sortByPublishPriority(items []News) {
 		}
 		return items[i].Score > items[j].Score
 	})
+}
+
+func topKeywordMatchesForLog(matches []config.KeywordMatch, limit int) string {
+	if len(matches) == 0 || limit <= 0 {
+		return ""
+	}
+	sorted := make([]config.KeywordMatch, len(matches))
+	copy(sorted, matches)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].Weight > sorted[j].Weight
+	})
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+	parts := make([]string, 0, len(sorted))
+	for _, m := range sorted {
+		mode := "substr"
+		if m.WholeWord {
+			mode = "word"
+		}
+		parts = append(parts, fmt.Sprintf("%s:%s:%d:%s", m.Word, m.Category, m.Weight, mode))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatCategoryWeightsForLog(weights map[string]int) string {
+	if len(weights) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(weights))
+	for k := range weights {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", k, weights[k]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func min(a, b int) int {

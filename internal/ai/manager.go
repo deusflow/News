@@ -52,12 +52,14 @@ type Manager struct {
 	providers []Provider
 	metrics   *metrics.Metrics
 
-	jobQueue  chan aiJob
-	cancelCtx context.CancelFunc
-	delay     time.Duration
+	jobQueue     chan aiJob
+	cancelCtx    context.CancelFunc
+	delay        time.Duration
+	maxRequests  int
+	requestCount int
 }
 
-func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
+func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	delay := defaultDelay
@@ -69,14 +71,18 @@ func NewManager(m *metrics.Metrics, providers ...Provider) *Manager {
 	}
 
 	mgr := &Manager{
-		providers: providers,
-		metrics:   m,
-		jobQueue:  make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
-		cancelCtx: cancel,
-		delay:     delay,
+		providers:   providers,
+		metrics:     m,
+		jobQueue:    make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
+		cancelCtx:   cancel,
+		delay:       delay,
+		maxRequests: maxRequests,
 	}
 
-	logger.Info("AI Manager started", "mode", "single-worker", "inter_request_delay", delay)
+	logger.Info("AI Manager started",
+		"mode", "single-worker",
+		"inter_request_delay", delay,
+		"max_requests_per_run", maxRequests)
 	go mgr.worker(ctx)
 
 	return mgr
@@ -174,11 +180,16 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 	var lastErr error
 
 	for _, provider := range m.providers {
+		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
+			return nil, fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
+		}
+
 		logger.Info("trying AI provider", "provider", provider.Name())
 
+		m.requestCount++
 		resp, err := provider.Generate(ctx, title, content, prompt)
 		if err == nil {
-			logger.Info("AI success", "provider", provider.Name())
+			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount)
 			return resp, nil
 		}
 
@@ -198,9 +209,14 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 				return nil, ctx.Err()
 			}
 
+			if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
+				return nil, fmt.Errorf("AI hard limit reached during retry: %d requests per run", m.maxRequests)
+			}
+
+			m.requestCount++
 			resp2, err2 := provider.Generate(ctx, title, content, prompt)
 			if err2 == nil {
-				logger.Info("AI success after rate-limit wait", "provider", provider.Name())
+				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount)
 				return resp2, nil
 			}
 			lastErr = err2

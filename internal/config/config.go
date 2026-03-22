@@ -68,8 +68,10 @@ type DatabaseConfig struct {
 }
 
 type FeatureConfig struct {
-	EnableInlineButtons bool
-	ChannelUsername     string // for building URL buttons (e.g. deusflow_news)
+	EnableInlineButtons    bool
+	ChannelUsername        string // for building URL buttons (e.g. deusflow_news)
+	EnablePublicImpactGate bool   // if true, publish stage prefers impactful/systemic news
+	EnableDecisionLog      bool   // if true, logs full candidate decision blocks
 }
 
 type MonitoringConfig struct {
@@ -115,6 +117,14 @@ type Keyword struct {
 	wholeWordMatch bool
 }
 
+// KeywordMatch describes one keyword hit for explainable ranking logs.
+type KeywordMatch struct {
+	Word      string
+	Category  string
+	Weight    int
+	WholeWord bool
+}
+
 // KeywordsConfig holds the keywords for filtering
 type KeywordsConfig struct {
 	Keywords []Keyword `yaml:"keywords"`
@@ -133,13 +143,21 @@ func (kc *KeywordsConfig) CalculateScore(text string) (int, string) {
 //  2. top category by accumulated weight (excluding spam)
 //  3. per-category accumulated weights (for impact-aware ranking)
 func (kc *KeywordsConfig) CalculateScoreDetailed(text string) (int, string, map[string]int) {
+	total, topCategory, categoryWeights, _ := kc.CalculateScoreDetailedWithMatches(text)
+	return total, topCategory, categoryWeights
+}
+
+// CalculateScoreDetailedWithMatches returns score details and concrete keyword hits
+// for explainable ranking logs.
+func (kc *KeywordsConfig) CalculateScoreDetailedWithMatches(text string) (int, string, map[string]int, []KeywordMatch) {
 	if kc == nil || len(kc.Keywords) == 0 {
-		return 0, "", map[string]int{}
+		return 0, "", map[string]int{}, nil
 	}
 
 	lowerText := strings.ToLower(text)
 	totalScore := 0
 	categoryWeights := make(map[string]int, 16) // category -> accumulated weight
+	matches := make([]KeywordMatch, 0, 12)
 
 	for i := range kc.Keywords {
 		kw := &kc.Keywords[i]
@@ -157,6 +175,12 @@ func (kc *KeywordsConfig) CalculateScoreDetailed(text string) (int, string, map[
 		if matched {
 			totalScore += kw.Weight
 			categoryWeights[kw.Category] += kw.Weight
+			matches = append(matches, KeywordMatch{
+				Word:      kw.Word,
+				Category:  kw.Category,
+				Weight:    kw.Weight,
+				WholeWord: kw.wholeWordMatch,
+			})
 		}
 	}
 
@@ -173,7 +197,7 @@ func (kc *KeywordsConfig) CalculateScoreDetailed(text string) (int, string, map[
 		}
 	}
 
-	return totalScore, topCategory, categoryWeights
+	return totalScore, topCategory, categoryWeights, matches
 }
 
 func LoadKeywords(path string) (*KeywordsConfig, error) {
@@ -293,8 +317,10 @@ func Load() (*Config, error) {
 			TTL: 48, // default TTL for database records
 		},
 		Feature: FeatureConfig{
-			EnableInlineButtons: true,
-			ChannelUsername:     "",
+			EnableInlineButtons:    true,
+			ChannelUsername:        "",
+			EnablePublicImpactGate: true,
+			EnableDecisionLog:      true,
 		},
 		Monitoring: MonitoringConfig{
 			EnableHTTPMonitoring: false,
@@ -388,6 +414,12 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
 		cfg.Feature.ChannelUsername = v
+	}
+	if v := os.Getenv("ENABLE_PUBLIC_IMPACT_GATE"); v != "" {
+		cfg.Feature.EnablePublicImpactGate = v == "true"
+	}
+	if v := os.Getenv("ENABLE_DECISION_LOG"); v != "" {
+		cfg.Feature.EnableDecisionLog = v == "true"
 	}
 
 	// AI Providers (default and env override)

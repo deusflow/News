@@ -79,6 +79,7 @@ func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem
 		ScrapeMaxArticles: p.cfg.Scraper.MaxArticles,
 		ScrapeConcurrency: p.cfg.Scraper.Concurrency,
 		Keywords:          p.keywords,
+		Config:            p.cfg,
 		AI:                p.aiMgr,
 		Metrics:           p.metrics,
 	})
@@ -183,7 +184,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
 	}
 
-	aiManager := ai.NewManager(m, aiProviders...)
+	aiManager := ai.NewManager(m, cfg.AI.MaxGeminiRequests, aiProviders...)
 	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов
@@ -455,7 +456,26 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 // newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
 // This is a hard architectural rule, not a config knob: one run = one publication.
 func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	for i, n := range newsList {
+	candidates := newsList
+	if cfg.Feature.EnablePublicImpactGate {
+		impactCandidates := make([]news.News, 0, len(newsList))
+		for _, n := range newsList {
+			if news.PassesPublicImpactGate(n) {
+				impactCandidates = append(impactCandidates, n)
+			}
+		}
+		if len(impactCandidates) > 0 {
+			logger.Info("Public impact gate enabled: using only impact candidates",
+				"before", len(newsList),
+				"after", len(impactCandidates))
+			candidates = impactCandidates
+		} else {
+			logger.Info("Public impact gate enabled: no candidates passed, fallback to full list",
+				"candidates", len(newsList))
+		}
+	}
+
+	for i, n := range candidates {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		logger.Info("evaluating publish candidate",
 			"rank", i+1,
@@ -467,7 +487,11 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			"source", n.SourceName,
 			"hash", hash,
 			"link", n.Link,
-			"content_len", len([]rune(strings.TrimSpace(n.Content))))
+			"content_len", len([]rune(strings.TrimSpace(n.Content))),
+			"core_impact_score", n.CoreImpactScore,
+			"soft_score", n.SoftScore,
+			"editorial_adjustment", n.EditorialAdjustment,
+			"passes_public_impact_gate", news.PassesPublicImpactGate(n))
 
 		if cacheAdapter.IsAlreadySent(hash) {
 			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title, "hash", hash)

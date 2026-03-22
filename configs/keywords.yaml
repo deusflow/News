@@ -161,7 +161,7 @@ keywords:
     weight: 15
   - word: "børnecheck"
     category: "family"
-    weight: 15
+    weight: 16
   - word: "barsel"
     category: "family"
     weight: 12
@@ -275,7 +275,7 @@ keywords:
     weight: 8
   - word: "inflation"
     category: "economy"
-    weight: 10
+    weight: 18
 
   # Крупнейшие датские компании и торговля (BUG-3 fix)
   # Новости про Mærsk, Novo, Vestas — это экономика Дании первого уровня.
@@ -345,7 +345,7 @@ keywords:
     weight: 12
   - word: "rente"            # процентная ставка
     category: "economy"
-    weight: 12
+    weight: 16
   - word: "nationalbanken"   # Центробанк Дании
     category: "economy"
     weight: 18
@@ -568,10 +568,10 @@ keywords:
   # =======================================================
   - word: "marts 2027"         # Новая дата окончания защиты
     category: "visas"
-    weight: 25
+    weight: 35
   - word: "march 2027"
     category: "visas"
-    weight: 25
+    weight: 35
   - word: "long-term resident" # Статус долговременного резидента ЕС (обсуждается)
     category: "visas"
     weight: 20
@@ -706,8 +706,8 @@ keywords:
     category: "health"
     weight: 20
   - word: "sygehus"            # Больница
-    category: "health"
-    weight: 10
+    category: "society"
+    weight: 14
   - word: "psykolog"           # Психолог (актуально для беженцев)
     category: "health"
     weight: 15
@@ -756,12 +756,7 @@ keywords:
   # =======================================================
   # ЕС: ТРЕНДЫ 2026-2027 (КРИТИЧНО ДЛЯ ВСЕХ УЧАСТНИКОВ)
   # =======================================================
-  - word: "marts 2027"
-    category: "visas"
-    weight: 35
-  - word: "march 2027"
-    category: "visas"
-    weight: 35
+  # deduplicated above
   - word: "4 million ukrainians"   # Масштаб — часто упоминается в статьях
     category: "visas"
     weight: 20
@@ -956,12 +951,7 @@ keywords:
     weight: 16
 
   # Экономика страны / влияние на граждан (Weight 16-20)
-  - word: "inflation"
-    category: "economy"
-    weight: 18
-  - word: "rente"                  # процентная ставка
-    category: "economy"
-    weight: 16
+  # deduplicated above
   - word: "nationalbank"
     category: "economy"
     weight: 18
@@ -1020,9 +1010,7 @@ keywords:
   - word: "sundhedsvæsen"          # система здравоохранения
     category: "society"
     weight: 18
-  - word: "sygehus"                # больница
-    category: "society"
-    weight: 14
+  # deduplicated above
   - word: "venteliste"             # очередь ожидания
     category: "society"
     weight: 16
@@ -1052,9 +1040,7 @@ keywords:
   - word: "kontanthjælp"           # социальное пособие
     category: "money"
     weight: 16
-  - word: "børnecheck"             # детское пособие
-    category: "family"
-    weight: 16
+  # deduplicated above
   - word: "børneydelse"
     category: "family"
     weight: 16
