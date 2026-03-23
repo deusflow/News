@@ -88,6 +88,12 @@ type SupabaseConfig struct {
 	URL        string // Supabase project URL
 	ServiceKey string // Supabase service_role key
 	Enable     bool   // if true, save news to Supabase archive
+
+	HTTPTimeoutSeconds           int // HTTP client timeout for Supabase requests
+	DuplicateCheckTimeoutSeconds int // timeout for duplicate-check requests
+	MaxRetries                   int // retry attempts for transient Supabase failures
+	RetryBaseDelaySeconds        int // exponential backoff base delay
+	RetryMaxDelaySeconds         int // exponential backoff max delay
 }
 
 type Config struct {
@@ -221,6 +227,12 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 		return nil, fmt.Errorf("keywords array is empty in config")
 	}
 
+	wholeWordMaxRunes := getEnvIntOrDefault("KEYWORD_WHOLE_WORD_MAX_RUNES", 4)
+	if wholeWordMaxRunes < 1 {
+		wholeWordMaxRunes = 4
+	}
+	strictWordBoundaries := strings.EqualFold(os.Getenv("KEYWORDS_STRICT_WORD_MATCH"), "true")
+
 	for i := range cfg.Keywords {
 		word := strings.TrimSpace(cfg.Keywords[i].Word)
 		if word == "" {
@@ -229,7 +241,7 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 		cfg.Keywords[i].Word = word
 		cfg.Keywords[i].normalizedWord = strings.ToLower(word)
 		cfg.Keywords[i].Category = strings.ToLower(strings.TrimSpace(cfg.Keywords[i].Category))
-		cfg.Keywords[i].wholeWordMatch = len([]rune(cfg.Keywords[i].normalizedWord)) <= 4
+		cfg.Keywords[i].wholeWordMatch = strictWordBoundaries || len([]rune(cfg.Keywords[i].normalizedWord)) <= wholeWordMaxRunes
 	}
 
 	return &KeywordsConfig{
@@ -328,6 +340,13 @@ func Load() (*Config, error) {
 		},
 		Website: WebsiteConfig{
 			ContentDir: "website/content",
+		},
+		Supabase: SupabaseConfig{
+			HTTPTimeoutSeconds:           30,
+			DuplicateCheckTimeoutSeconds: 2,
+			MaxRetries:                   3,
+			RetryBaseDelaySeconds:        2,
+			RetryMaxDelaySeconds:         10,
 		},
 	}
 
@@ -449,6 +468,28 @@ func Load() (*Config, error) {
 	// Supabase settings
 	cfg.Supabase.URL = os.Getenv("SUPABASE_URL")
 	cfg.Supabase.ServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
+	cfg.Supabase.HTTPTimeoutSeconds = getEnvIntOrDefault("SUPABASE_HTTP_TIMEOUT_SECONDS", cfg.Supabase.HTTPTimeoutSeconds)
+	cfg.Supabase.DuplicateCheckTimeoutSeconds = getEnvIntOrDefault("SUPABASE_DUPLICATE_CHECK_TIMEOUT_SECONDS", cfg.Supabase.DuplicateCheckTimeoutSeconds)
+	cfg.Supabase.MaxRetries = getEnvIntOrDefault("SUPABASE_MAX_RETRIES", cfg.Supabase.MaxRetries)
+	cfg.Supabase.RetryBaseDelaySeconds = getEnvIntOrDefault("SUPABASE_RETRY_BASE_DELAY_SECONDS", cfg.Supabase.RetryBaseDelaySeconds)
+	cfg.Supabase.RetryMaxDelaySeconds = getEnvIntOrDefault("SUPABASE_RETRY_MAX_DELAY_SECONDS", cfg.Supabase.RetryMaxDelaySeconds)
+
+	if cfg.Supabase.MaxRetries < 1 {
+		cfg.Supabase.MaxRetries = 1
+	}
+	if cfg.Supabase.RetryBaseDelaySeconds < 1 {
+		cfg.Supabase.RetryBaseDelaySeconds = 1
+	}
+	if cfg.Supabase.RetryMaxDelaySeconds < cfg.Supabase.RetryBaseDelaySeconds {
+		cfg.Supabase.RetryMaxDelaySeconds = cfg.Supabase.RetryBaseDelaySeconds
+	}
+	if cfg.Supabase.HTTPTimeoutSeconds < 1 {
+		cfg.Supabase.HTTPTimeoutSeconds = 30
+	}
+	if cfg.Supabase.DuplicateCheckTimeoutSeconds < 1 {
+		cfg.Supabase.DuplicateCheckTimeoutSeconds = 2
+	}
+
 	if cfg.Supabase.URL != "" && cfg.Supabase.ServiceKey != "" {
 		cfg.Supabase.Enable = true
 	}

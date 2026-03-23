@@ -18,12 +18,24 @@ import (
 	"github.com/deusflow/News/internal/slugify"
 )
 
-// Retry configuration for Supabase requests
-const (
-	maxRetries     = 3
-	retryBaseDelay = 2 * time.Second
-	retryMaxDelay  = 10 * time.Second
-)
+// SupabaseClientOptions tunes HTTP behavior without changing defaults.
+type SupabaseClientOptions struct {
+	HTTPTimeout           time.Duration
+	DuplicateCheckTimeout time.Duration
+	MaxRetries            int
+	RetryBaseDelay        time.Duration
+	RetryMaxDelay         time.Duration
+}
+
+func defaultSupabaseClientOptions() SupabaseClientOptions {
+	return SupabaseClientOptions{
+		HTTPTimeout:           30 * time.Second,
+		DuplicateCheckTimeout: 2 * time.Second,
+		MaxRetries:            3,
+		RetryBaseDelay:        2 * time.Second,
+		RetryMaxDelay:         10 * time.Second,
+	}
+}
 
 // isRetryableError checks if the HTTP status code is retryable (server errors, gateway issues)
 func isRetryableError(statusCode int) bool {
@@ -40,7 +52,7 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 	var lastErr error
 	var resp *http.Response
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < c.options.MaxRetries; attempt++ {
 		// Bail out immediately if context is already cancelled
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -66,11 +78,11 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 		resp, err = c.httpClient.Do(req)
 		if err != nil {
 			lastErr = err
-			logger.Warn("Supabase request failed", "attempt", attempt+1, "max_attempts", maxRetries, "error", err)
+			logger.Warn("Supabase request failed", "attempt", attempt+1, "max_attempts", c.options.MaxRetries, "error", err)
 
-			delay := retryBaseDelay * time.Duration(1<<attempt)
-			if delay > retryMaxDelay {
-				delay = retryMaxDelay
+			delay := c.options.RetryBaseDelay * time.Duration(1<<attempt)
+			if delay > c.options.RetryMaxDelay {
+				delay = c.options.RetryMaxDelay
 			}
 
 			// Context-aware sleep: stop waiting if shutdown is signalled
@@ -89,11 +101,11 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 			respBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("supabase error (status %d): %s", resp.StatusCode, string(respBody))
-			logger.Warn("Supabase retryable response", "status", resp.StatusCode, "attempt", attempt+1, "max_attempts", maxRetries, "body", string(respBody))
+			logger.Warn("Supabase retryable response", "status", resp.StatusCode, "attempt", attempt+1, "max_attempts", c.options.MaxRetries, "body", string(respBody))
 
-			delay := retryBaseDelay * time.Duration(1<<attempt)
-			if delay > retryMaxDelay {
-				delay = retryMaxDelay
+			delay := c.options.RetryBaseDelay * time.Duration(1<<attempt)
+			if delay > c.options.RetryMaxDelay {
+				delay = c.options.RetryMaxDelay
 			}
 
 			timer := time.NewTimer(delay)
@@ -110,7 +122,7 @@ func (c *SupabaseClient) retryableRequest(ctx context.Context, method, url strin
 		return resp, nil
 	}
 
-	return nil, fmt.Errorf("supabase request failed after %d retries: %w", maxRetries, lastErr)
+	return nil, fmt.Errorf("supabase request failed after %d retries: %w", c.options.MaxRetries, lastErr)
 }
 
 // SupabaseClient handles interactions with Supabase for website archive
@@ -118,6 +130,7 @@ type SupabaseClient struct {
 	url        string
 	serviceKey string
 	httpClient *http.Client
+	options    SupabaseClientOptions
 }
 
 // NewsArchive represents a news item in Supabase
@@ -144,6 +157,11 @@ type NewsArchive struct {
 
 // NewSupabaseClient creates a new Supabase client
 func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
+	return NewSupabaseClientWithOptions(url, serviceKey, defaultSupabaseClientOptions())
+}
+
+// NewSupabaseClientWithOptions creates a new Supabase client with custom retry/timeouts.
+func NewSupabaseClientWithOptions(url, serviceKey string, options SupabaseClientOptions) (*SupabaseClient, error) {
 	if url == "" || serviceKey == "" {
 		return nil, fmt.Errorf("supabase URL and service key are required")
 	}
@@ -151,12 +169,29 @@ func NewSupabaseClient(url, serviceKey string) (*SupabaseClient, error) {
 	// Remove trailing slash from URL
 	url = strings.TrimSuffix(url, "/")
 
+	if options.HTTPTimeout <= 0 {
+		options.HTTPTimeout = 30 * time.Second
+	}
+	if options.DuplicateCheckTimeout <= 0 {
+		options.DuplicateCheckTimeout = 2 * time.Second
+	}
+	if options.MaxRetries < 1 {
+		options.MaxRetries = 1
+	}
+	if options.RetryBaseDelay <= 0 {
+		options.RetryBaseDelay = 2 * time.Second
+	}
+	if options.RetryMaxDelay < options.RetryBaseDelay {
+		options.RetryMaxDelay = options.RetryBaseDelay
+	}
+
 	return &SupabaseClient{
 		url:        url,
 		serviceKey: serviceKey,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: options.HTTPTimeout,
 		},
+		options: options,
 	}, nil
 }
 
@@ -199,10 +234,10 @@ func (c *SupabaseClient) SaveNews(ctx context.Context, news NewsArchive) error {
 }
 
 // IsDuplicateNews checks if a similar news already exists in Supabase.
-// Uses a 2-second context timeout so the bot is never blocked by a slow Supabase response.
+// Uses a short configurable context timeout so the bot is never blocked by slow responses.
 // The HTTP request is cancelled when the timeout fires — no goroutine leak.
 func (c *SupabaseClient) IsDuplicateNews(title string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), c.options.DuplicateCheckTimeout)
 	defer cancel()
 	return c.checkDuplicateInternal(ctx, title)
 }
@@ -226,7 +261,7 @@ func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title strin
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			logger.Warn("supabase duplicate check timeout", "duration_sec", 2)
+			logger.Warn("supabase duplicate check timeout", "duration_sec", c.options.DuplicateCheckTimeout.Seconds())
 			return false, nil // timeout → allow the news through
 		}
 		return false, err
@@ -254,13 +289,13 @@ func (c *SupabaseClient) checkDuplicateInternal(ctx context.Context, title strin
 }
 
 // IsDuplicateBySourceURL checks if news with the same source_url already exists.
-// Uses a 2-second context timeout — no goroutine leak on slow responses.
+// Uses a short configurable context timeout — no goroutine leak on slow responses.
 func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL string) (bool, error) {
 	if sourceURL == "" {
 		return false, nil
 	}
 
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	checkCtx, cancel := context.WithTimeout(ctx, c.options.DuplicateCheckTimeout)
 	defer cancel()
 
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?source_url=eq.%s&select=id",
@@ -277,7 +312,7 @@ func (c *SupabaseClient) IsDuplicateBySourceURL(ctx context.Context, sourceURL s
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(checkCtx.Err(), context.DeadlineExceeded) {
-			logger.Warn("Supabase source_url duplicate check timeout, allowing news", "timeout_seconds", 2)
+			logger.Warn("Supabase source_url duplicate check timeout, allowing news", "timeout_seconds", c.options.DuplicateCheckTimeout.Seconds())
 			return false, nil
 		}
 		return false, err

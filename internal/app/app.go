@@ -207,7 +207,13 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	// Initialize Supabase client for website archive
 	var supabaseClient *storage.SupabaseClient
 	if cfg.Supabase.Enable {
-		supabaseClient, err = storage.NewSupabaseClient(cfg.Supabase.URL, cfg.Supabase.ServiceKey)
+		supabaseClient, err = storage.NewSupabaseClientWithOptions(cfg.Supabase.URL, cfg.Supabase.ServiceKey, storage.SupabaseClientOptions{
+			HTTPTimeout:           time.Duration(cfg.Supabase.HTTPTimeoutSeconds) * time.Second,
+			DuplicateCheckTimeout: time.Duration(cfg.Supabase.DuplicateCheckTimeoutSeconds) * time.Second,
+			MaxRetries:            cfg.Supabase.MaxRetries,
+			RetryBaseDelay:        time.Duration(cfg.Supabase.RetryBaseDelaySeconds) * time.Second,
+			RetryMaxDelay:         time.Duration(cfg.Supabase.RetryMaxDelaySeconds) * time.Second,
+		})
 		if err != nil {
 			logger.Warn("Failed to initialize Supabase client", "error", err)
 		} else {

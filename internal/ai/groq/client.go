@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,20 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		logger.Error("❌ Groq API Error", "status", resp.StatusCode, "body", string(body))
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := 0
+			if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
+				if v, convErr := strconv.Atoi(h); convErr == nil {
+					retryAfter = v
+				}
+			}
+			if retryAfter <= 0 {
+				if parsed, ok := ai.ParseRetryAfterSeconds(string(body)); ok {
+					retryAfter = parsed
+				}
+			}
+			return nil, ai.NewRateLimitedError(c.Name(), fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body)), time.Duration(retryAfter)*time.Second)
+		}
 		return nil, fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body))
 	}
 

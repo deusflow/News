@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/deusflow/News/internal/ai"
 	"github.com/deusflow/News/internal/logger"
@@ -56,6 +57,14 @@ func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*
 	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
 		logger.Error("❌ Gemini API Error", "title", title, "error", err)
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") {
+			retryAfter := 0
+			if secs, ok := ai.ParseRetryAfterSeconds(err.Error()); ok {
+				retryAfter = secs
+			}
+			return nil, ai.NewRateLimitedError(c.Name(), fmt.Errorf("gemini generate error: %w", err), time.Duration(retryAfter)*time.Second)
+		}
 		return nil, fmt.Errorf("gemini generate error: %w", err)
 	}
 

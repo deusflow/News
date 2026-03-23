@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/deusflow/News/internal/logger"
@@ -153,26 +151,6 @@ func (m *Manager) worker(ctx context.Context) {
 	}
 }
 
-func tryParseRetrySeconds(text string) (int, bool) {
-	if text == "" {
-		return 0, false
-	}
-	lower := strings.ToLower(text)
-	re := regexp.MustCompile(`(?i)retry(?:\s*(?:in|after))?\s*[:]?\s*(\d+(?:\.\d+)?)\s*s`)
-	if m := re.FindStringSubmatch(lower); len(m) >= 2 {
-		if f, err := strconv.ParseFloat(m[1], 64); err == nil {
-			return int(f + 0.5), true
-		}
-	}
-	re2 := regexp.MustCompile(`(\d+)\s*seconds`)
-	if match := re2.FindStringSubmatch(lower); len(match) >= 2 {
-		if v, err := strconv.Atoi(match[1]); err == nil {
-			return v, true
-		}
-	}
-	return 0, false
-}
-
 // executeWithFallback пробует каждого провайдера по очереди.
 // Если провайдер вернул 429 с Retry-After — ждём ровно столько, сколько просят,
 // и повторяем этого же провайдера один раз перед переходом к следующему.
@@ -193,15 +171,22 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 			return resp, nil
 		}
 
-		if secs, ok := tryParseRetrySeconds(err.Error()); ok && secs > 0 && secs <= 180 {
+		retryAfter := 0
+		if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 0 {
+			retryAfter = int(perr.RetryAfter.Seconds())
+		} else if secs, ok := ParseRetryAfterSeconds(err.Error()); ok {
+			retryAfter = secs
+		}
+
+		if retryAfter > 0 && retryAfter <= 180 {
 			logger.Warn("AI provider rate limited",
 				"provider", provider.Name(),
-				"wait_sec", secs)
+				"wait_sec", retryAfter)
 			if m.metrics != nil {
 				m.metrics.IncrementAIRetry()
 			}
 
-			timer := time.NewTimer(time.Duration(secs+2) * time.Second)
+			timer := time.NewTimer(time.Duration(retryAfter+2) * time.Second)
 			select {
 			case <-timer.C:
 			case <-ctx.Done():
