@@ -395,16 +395,27 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		n.FunFact = ""
 	}
 
+	videoURL := news.ExtractVideoURL(n)
 	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+	if videoURL != "" {
+		// Telegram does not render web link preview cards in photo captions.
+		// For video-linked stories, force text mode so YouTube preview is visible.
+		canPhoto = false
+	}
 	logger.Info("telegram render mode decision",
 		"title", n.Title,
 		"has_image", n.ImageURL != "",
+		"has_video_url", videoURL != "",
 		"use_photo", canPhoto,
 		"photo_text_limit", cfg.Posting.PhotoTextLimit,
 		"has_fun_fact", strings.TrimSpace(n.FunFact) != "",
 		"has_why_it_matters", strings.TrimSpace(n.WhyItMatters) != "")
 	if n.ImageURL != "" && !canPhoto {
-		logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+		if videoURL != "" {
+			logger.Info("📝 Photo skipped — video preview requires text mode", "title", n.Title, "video_url", videoURL)
+		} else {
+			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
+		}
 	}
 
 	var outText string
@@ -415,7 +426,7 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		buttons = append(buttons, []telegram.InlineButton{
 			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 		})
-		if videoURL := news.ExtractVideoURL(n); videoURL != "" && videoURL != n.Link {
+		if videoURL != "" && videoURL != n.Link {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🎬 Дивитись відео", URL: videoURL},
 			})

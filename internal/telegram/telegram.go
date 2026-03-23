@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/deusflow/News/internal/logger"
@@ -19,6 +21,11 @@ const telegramAPIBase = "https://api.telegram.org/bot"
 var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
+
+var (
+	hrefURLRegex  = regexp.MustCompile(`href="(https?://[^"]+)"`)
+	plainURLRegex = regexp.MustCompile(`https?://[^\s<>"]+`)
+)
 
 // SendMessageAllowPreview sends a message allowing web preview
 func SendMessageAllowPreview(token string, chatID string, text string) (int, error) {
@@ -34,10 +41,24 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, token)
 
 	body := map[string]interface{}{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": !allowPreview,
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "HTML",
+	}
+
+	if allowPreview {
+		if previewURL := extractPreviewURL(text); previewURL != "" {
+			body["link_preview_options"] = map[string]interface{}{
+				"is_disabled":        false,
+				"url":                previewURL,
+				"prefer_large_media": true,
+				"show_above_text":    true,
+			}
+		} else {
+			body["disable_web_page_preview"] = false
+		}
+	} else {
+		body["disable_web_page_preview"] = true
 	}
 
 	if len(buttons) > 0 {
@@ -50,6 +71,25 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 	}
 
 	return executeRequest(ctx, url, body)
+}
+
+func extractPreviewURL(text string) string {
+	if text == "" {
+		return ""
+	}
+	if m := hrefURLRegex.FindStringSubmatch(text); len(m) >= 2 {
+		return sanitizeURL(m[1])
+	}
+	if raw := plainURLRegex.FindString(text); raw != "" {
+		return sanitizeURL(raw)
+	}
+	return ""
+}
+
+func sanitizeURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimRight(raw, ".,;:!?)")
+	return raw
 }
 
 // SendPhoto sends a photo with caption
