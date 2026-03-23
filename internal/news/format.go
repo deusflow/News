@@ -2,8 +2,14 @@ package news
 
 import (
 	"fmt"
+	"html"
+	"regexp"
 	"strings"
 	"unicode/utf8"
+)
+
+var (
+	youtubeURLRegex = regexp.MustCompile(`https?://(?:www\.)?(?:youtube\.com/watch\?v=[^\s<]+|youtu\.be/[^\s<]+)`)
 )
 
 // moodEmoji maps validated mood values to their display emoji.
@@ -87,6 +93,40 @@ func removeTitleFromSummary(summary, title string) string {
 	return summary
 }
 
+// normalizeVideoLinksForTelegram replaces raw YouTube URLs with a clean HTML link label.
+func normalizeVideoLinksForTelegram(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return text
+	}
+	return youtubeURLRegex.ReplaceAllStringFunc(text, func(raw string) string {
+		clean := strings.TrimRight(strings.TrimSpace(raw), ".,;:!?)")
+		if clean == "" {
+			return raw
+		}
+		return `<a href="` + html.EscapeString(clean) + `">🎬 Відео</a>`
+	})
+}
+
+// ExtractVideoURL returns the first YouTube URL found in news fields.
+func ExtractVideoURL(n News) string {
+	searchSpace := []string{
+		n.Title,
+		n.Summary,
+		n.SummaryDanish,
+		n.SummaryUkrainian,
+		n.Content,
+	}
+	for _, part := range searchSpace {
+		if part == "" {
+			continue
+		}
+		if u := youtubeURLRegex.FindString(part); u != "" {
+			return strings.TrimRight(strings.TrimSpace(u), ".,;:!?)")
+		}
+	}
+	return ""
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // FormatNewsWithImage — длинный пост без фото (лимит 4096 символов).
 // Используется когда фото нет или текст не влезает в caption.
@@ -128,7 +168,7 @@ func FormatNewsWithImage(n News) string {
 
 	// 3. Датская версия: заголовок + body
 	b.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
-	if dk := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title)); dk != "" {
+	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, n.Title))); dk != "" {
 		b.WriteString("\n" + dk)
 	}
 	b.WriteString("\n\n")
@@ -139,7 +179,7 @@ func FormatNewsWithImage(n News) string {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
 	b.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
-	if ua := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)); ua != "" {
+	if ua := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))); ua != "" {
 		b.WriteString("\n" + ua)
 	}
 	b.WriteString("\n\n")
@@ -191,8 +231,8 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	if ukTitle == "" {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
-	dkBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, n.Title))
-	uaBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))
+	dkBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, n.Title)))
+	uaBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)))
 	why := strings.TrimSpace(n.WhyItMatters)
 
 	// buildCore assembles the mandatory content block — never trimmed.

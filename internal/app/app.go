@@ -415,6 +415,12 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		buttons = append(buttons, []telegram.InlineButton{
 			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 		})
+		if videoURL := news.ExtractVideoURL(n); videoURL != "" && videoURL != n.Link {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🎬 Дивитись відео", URL: videoURL},
+			})
+			logger.Info("video link detected for telegram post", "title", n.Title, "video_url", videoURL)
+		}
 	}
 
 	if canPhoto {
