@@ -2,7 +2,6 @@ package news
 
 import (
 	"fmt"
-	"html"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -93,18 +92,18 @@ func removeTitleFromSummary(summary, title string) string {
 	return summary
 }
 
-// normalizeVideoLinksForTelegram replaces raw YouTube URLs with a clean HTML link label.
+// normalizeVideoLinksForTelegram removes raw YouTube URLs from the middle of text.
+// These URLs are then added separately as plain text at the end,
+// allowing Telegram to generate native preview with 100% reliability.
 func normalizeVideoLinksForTelegram(text string) string {
 	if strings.TrimSpace(text) == "" {
 		return text
 	}
-	return youtubeURLRegex.ReplaceAllStringFunc(text, func(raw string) string {
-		clean := strings.TrimRight(strings.TrimSpace(raw), ".,;:!?)")
-		if clean == "" {
-			return raw
-		}
-		return `<a href="` + html.EscapeString(clean) + `">🎬 Відео</a>`
-	})
+	// Remove YouTube URLs from the body — they'll be appended separately
+	text = youtubeURLRegex.ReplaceAllString(text, "")
+	// Clean up extra spaces/newlines that might be left
+	text = strings.Join(strings.Fields(text), " ")
+	return text
 }
 
 // ExtractVideoURL returns the first YouTube URL found in news fields.
@@ -203,6 +202,11 @@ func FormatNewsWithImage(n News) string {
 		b.WriteString("💡 <i>" + fact + "</i>")
 	}
 
+	// 8. YouTube URL (plain text at the end for native Telegram preview)
+	if videoURL := ExtractVideoURL(n); videoURL != "" {
+		b.WriteString("\n\n" + videoURL)
+	}
+
 	return b.String()
 }
 
@@ -276,21 +280,49 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	if fact := strings.TrimSpace(n.FunFact); fact != "" {
 		full := withTags + "\n\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
 		if utf8.RuneCountInString(full) <= maxLen {
+			// Try to add YouTube URL if available
+			if videoURL := ExtractVideoURL(n); videoURL != "" {
+				fullWithVideo := full + "\n\n" + videoURL
+				if utf8.RuneCountInString(fullWithVideo) <= maxLen {
+					return fullWithVideo
+				}
+			}
 			return full
 		}
 	}
 
 	// Fact didn't fit — try with tags and why
 	if utf8.RuneCountInString(withTags) <= maxLen {
+		// Try to add YouTube URL if available
+		if videoURL := ExtractVideoURL(n); videoURL != "" {
+			withVideo := withTags + "\n\n" + videoURL
+			if utf8.RuneCountInString(withVideo) <= maxLen {
+				return withVideo
+			}
+		}
 		return withTags
 	}
 
 	// Tags didn't fit — try with why only
 	if utf8.RuneCountInString(withWhy) <= maxLen {
+		// Try to add YouTube URL if available
+		if videoURL := ExtractVideoURL(n); videoURL != "" {
+			withVideo := withWhy + "\n\n" + videoURL
+			if utf8.RuneCountInString(withVideo) <= maxLen {
+				return withVideo
+			}
+		}
 		return withWhy
 	}
 
 	// Why didn't fit either — return core only (always fits, checked above)
+	// But try to add YouTube URL if it fits
+	if videoURL := ExtractVideoURL(n); videoURL != "" {
+		coreWithVideo := core + "\n\n" + videoURL
+		if utf8.RuneCountInString(coreWithVideo) <= maxLen {
+			return coreWithVideo
+		}
+	}
 	return core
 }
 
