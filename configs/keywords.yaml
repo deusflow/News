@@ -1146,3 +1146,18 @@ keywords:
   - word: "regional udvikling"
     category: "politics"
     weight: 18
+  # =======================================================
+  # ANTI-SPAM (Negative Weights)
+  # =======================================================
+  - word: "jagttegn"
+    category: "lifestyle"
+    weight: -20
+  - word: "hundeejer"
+    category: "lifestyle"
+    weight: -15
+  - word: "forny"
+    category: "lifestyle"
+    weight: -10
+  - word: "lokal"
+    category: "local"
+    weight: -5

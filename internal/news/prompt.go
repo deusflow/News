@@ -57,14 +57,22 @@ CONTENT: %s
 ━━━ TASKS — return valid JSON only ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 "danish": News body in Danish. MAX %d chars.
-  • DO NOT repeat the title — it is shown above this text separately.
-  • 3 sentences: main fact → context → consequence.
-  • Include specific numbers, dates, names where available.
+	• DO NOT repeat the title.
+	• DO NOT open with a pronoun (Han/Hun/De) without naming the person first.
+	• Structure (3–5 sentences):
+	1. Core fact with specific details (who, what, when, where + number/date)
+	2. Background: WHY this happened or what led to it
+	3. Impact: who is concretely affected and how
+	4. (optional) Reaction or next development
+	5. (optional) Broader Danish or EU context
+	• If the source text lacks enough facts to fill sentences 1–3 specifically,
+		write what you can but set has_enough_context to false.
 
 "ukrainian": Same news in Ukrainian. MAX %d chars.
-  • Exactly the same facts as Danish — no additions, no omissions.
-  • DO NOT repeat the title.
-  • 3 sentences: same structure as Danish.
+  • Mirror the SAME facts as Danish — same structure, same depth.
+  • Ukrainian readers may not know Danish political context — add 1 short
+    clarifying phrase if a name/institution needs it (e.g. "Folketing — данський парламент").
+  • DO NOT add facts not present in Danish version.
 
 "title_ukrainian": Ukrainian headline. MAX 85 chars.
   • Translate the TITLE only — short newspaper front-page style.
@@ -106,6 +114,8 @@ CONTENT: %s
 
   "local"     → Any specific Danish city or municipality: Copenhagen, Aarhus, Viborg,
                 Odense, Aalborg, Esbjerg, or any named Danish region/municipality.
+                MUST include sufficient context (what happened and why it matters at least somewhat nationally).
+                If a local story lacks concrete facts or national relevance, assign category "local" but set impact_score penalty.
 
   "visas"     → Residence permits, asylum, Ukrainian TPS status, deportation, border control.
   "work"      → Jobs, employment, work permits, labour market statistics.
@@ -125,10 +135,12 @@ CONTENT: %s
   ✗ Too long: "💥 Атака США на Іран, що вбила Хаменеї, не отримала підтримки союзників"
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
-  • Explain systemic impact for residents in Denmark: what changes, who is affected, why now.
-  • No slogans, no pathos, no moral judgement.
-  • This is NOT a retelling of the headline; it is the practical consequence.
-  ✓ Good: "Черга на місця практики зростає, тому випускники довше залишаються без першої роботи."
+  Answer ONE of:
+  (a) What changes in taxes, benefits, rights, or daily life in Denmark
+  (b) Why this matters for Ukraine, the war, or EU refugee policy
+  (c) What upcoming decision residents should watch
+  FORBIDDEN: vague impact ("може вплинути"), opinion, restatement of headline.
+  If none apply → write exactly: 'Не впливає на повсякденне життя'
 
 "fun_fact": ONE fact about Denmark. STRICT MAX %d chars. Start with ONE emoji.
   • Ukrainian language.

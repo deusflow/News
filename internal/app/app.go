@@ -75,7 +75,7 @@ func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Me
 func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error) {
 	return news.FilterAndTranslateWithOptions(ctx, items, news.Options{
 		MaxAge:            p.cfg.RSS.NewsMaxAge,
-		PerSource:         2,
+		PerSource:         5, // Allow up to 5 best articles per RSS source
 		ScrapeMaxArticles: p.cfg.Scraper.MaxArticles,
 		ScrapeConcurrency: p.cfg.Scraper.Concurrency,
 		Keywords:          p.keywords,
@@ -496,6 +496,27 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			logger.Info("Public impact gate enabled: no candidates passed, fallback to full list",
 				"candidates", len(newsList))
 		}
+	}
+
+	// Filter out duplicates and already sent to find valid candidates
+	var validCandidates []news.News
+	for _, n := range candidates {
+		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+		if cacheAdapter.IsAlreadySent(hash) || cacheAdapter.IsSourceURLSent(n.Link) {
+			continue
+		}
+		if isDuplicate, _ := cacheAdapter.IsTitleNearDuplicate(n.Title); isDuplicate {
+			continue
+		}
+		if isDuplicate, _ := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
+			continue
+		}
+		validCandidates = append(validCandidates, n)
+	}
+
+	if len(validCandidates) == 1 && validCandidates[0].Score < 70 {
+		logger.Info("Only one low-score candidate, skipping run to avoid publishing noise", "score", validCandidates[0].Score, "title", validCandidates[0].Title)
+		return
 	}
 
 	for i, n := range candidates {

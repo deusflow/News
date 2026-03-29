@@ -80,7 +80,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("starting news fetch cycle")
 	logger.Info("received raw items from RSS", "count", len(items))
 
-	const minKeywordScoreForAI = 1
+	const minKeywordScoreForAI = 8
 
 	// ── Шаг 1: фильтрация по дате ────────────────────────────────────────────
 	var recent []*rss.FeedItem
