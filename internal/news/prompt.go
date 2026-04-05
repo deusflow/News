@@ -144,10 +144,14 @@ CONTENT: %s
 
 "fun_fact": ONE fact about Denmark. STRICT MAX %d chars. Start with ONE emoji.
   • Ukrainian language.
-  • Must be UNRELATED to this news topic.
-  • Must feel current and surprising — NOT clichés like "Denmark is happiest country"
-    or "LEGO is from Denmark". Prefer facts about Danish law, society, tech, daily life.
-  ✓ Good: "🧾 У Данії заборонено давати дитині ім'я, якого немає у державному списку з 7000 імен"
+  • Must be RELATED to the selected "category" of this news.
+    Example: politics → Danish governance/laws; money/economy → taxes, salaries, prices;
+    work → labor market; education → schools/universities; tech → digital services/AI;
+    war/eu/visas → defence, EU policy, migration rules.
+  • Must add useful context, not repeat the headline details.
+  • Must feel current and surprising — avoid clichés like "Denmark is happiest country"
+    or "LEGO is from Denmark".
+  ✓ Good: "🧾 У Данії більшість податкових змін набирають чинності з початку фінансового року, тому дедлайни часто оголошують заздалегідь"
   ✗ Bad: "🇩🇰 Данія — найщасливіша країна світу"
 
 ━━━ PROHIBITIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

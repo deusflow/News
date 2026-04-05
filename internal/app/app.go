@@ -483,41 +483,31 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	if cfg.Feature.EnablePublicImpactGate {
 		impactCandidates := make([]news.News, 0, len(newsList))
 		for _, n := range newsList {
-			if news.PassesPublicImpactGate(n) {
+			if news.PassesAudienceRelevanceGate(n) {
 				impactCandidates = append(impactCandidates, n)
 			}
 		}
 		if len(impactCandidates) > 0 {
-			logger.Info("Public impact gate enabled: using only impact candidates",
+			logger.Info("Public impact gate enabled: using only relevance-checked candidates",
 				"before", len(newsList),
 				"after", len(impactCandidates))
 			candidates = impactCandidates
 		} else {
-			logger.Info("Public impact gate enabled: no candidates passed, fallback to full list",
+			logger.Info("Public impact gate enabled: NO candidates passed the audience relevance gate, returning to avoid publishing noise",
 				"candidates", len(newsList))
+			return
 		}
 	}
 
-	// Filter out duplicates and already sent to find valid candidates
-	var validCandidates []news.News
-	for _, n := range candidates {
-		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
-		if cacheAdapter.IsAlreadySent(hash) || cacheAdapter.IsSourceURLSent(n.Link) {
-			continue
-		}
-		if isDuplicate, _ := cacheAdapter.IsTitleNearDuplicate(n.Title); isDuplicate {
-			continue
-		}
-		if isDuplicate, _ := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
-			continue
-		}
-		validCandidates = append(validCandidates, n)
-	}
+	// Iterate through candidates (ranked highest to lowest)
+	// Stop at the first valid, non-duplicate candidate to publish it.
+	var published *news.News
+	var publishedRank int
+	var publishedHash string
 
-	if len(validCandidates) == 1 && validCandidates[0].Score < 70 {
-		logger.Info("Only one low-score candidate, skipping run to avoid publishing noise", "score", validCandidates[0].Score, "title", validCandidates[0].Title)
-		return
-	}
+	// We'll collect the skipped ones just to compute next best for the diff log
+	var nextValid *news.News
+	foundValidCount := 0
 
 	for i, n := range candidates {
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
@@ -535,7 +525,8 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			"core_impact_score", n.CoreImpactScore,
 			"soft_score", n.SoftScore,
 			"editorial_adjustment", n.EditorialAdjustment,
-			"passes_public_impact_gate", news.PassesPublicImpactGate(n))
+			"passes_public_impact_gate", news.PassesPublicImpactGate(n),
+			"passes_audience_gate", news.PassesAudienceRelevanceGate(n))
 
 		if cacheAdapter.IsAlreadySent(hash) {
 			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title, "hash", hash)
@@ -543,14 +534,18 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		}
 		if cacheAdapter.IsSourceURLSent(n.Link) {
 			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title, "source_url", n.Link)
-			m.IncrementDuplicatesFiltered()
+			if published == nil {
+				m.IncrementDuplicatesFiltered()
+			}
 			continue
 		}
 		if isDuplicate, existingTitle := cacheAdapter.IsTitleNearDuplicate(n.Title); isDuplicate {
 			logger.Info("⏭️ Skipping near-duplicate title (same story, different source)",
 				"new_title", n.Title,
 				"existing_title", existingTitle)
-			m.IncrementDuplicatesFiltered()
+			if published == nil {
+				m.IncrementDuplicatesFiltered()
+			}
 			continue
 		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
@@ -558,16 +553,70 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				"new_title", n.Title,
 				"existing_title", existingTitle,
 				"content_len", len([]rune(strings.TrimSpace(n.Content))))
-			m.IncrementDuplicatesFiltered()
+			if published == nil {
+				m.IncrementDuplicatesFiltered()
+			}
 			continue
 		}
 
-		logger.Info("Publishing best news", "title", n.Title, "score", n.Score, "category", n.Category, "rank", i+1)
-		sendOneNews(ctx, n, hash, cfg, cacheAdapter, m, websiteGen, supabase)
-		return // EXACTLY ONE. Hard stop.
+		// It's a valid candidate!
+		foundValidCount++
+
+		if published == nil {
+			// This is our winner!
+			nCopy := n
+			published = &nCopy
+			publishedRank = i + 1
+			publishedHash = hash
+
+			// We continue the loop ONLY ONE more valid time to find "nextValid" for diff log
+		} else if nextValid == nil {
+			// This is the second valid candidate
+			nCopy := n
+			nextValid = &nCopy
+			break // We have the winner and the runner-up, we can stop evaluating
+		}
 	}
 
-	logger.Info("No publishable news found in this run")
+	if published == nil {
+		logger.Info("No publishable news found in this run")
+		return
+	}
+
+	if foundValidCount == 1 && published.Score < 70 {
+		logger.Info("Only one low-score candidate, skipping run to avoid publishing noise", "score", published.Score, "title", published.Title)
+		return
+	}
+
+	// P3 QUALITY METRICS: Track dedup quality drops
+	if publishedRank > 1 {
+		logger.Warn("Quality drop detected: publication went to rank > 1 due to dedup of top candidates",
+			"published_rank", publishedRank,
+			"skipped_count", publishedRank-1,
+			"published_title", published.Title)
+	}
+
+	// P3 OBSERVABILITY: Log diff to next best candidate to explain "why this winner won"
+	diffLog := []interface{}{
+		"winner_title", published.Title,
+		"winner_score", published.Score,
+		"winner_category", published.Category,
+		"winner_kw_score", published.KeywordScore,
+		"winner_original_rank", publishedRank,
+	}
+	if nextValid != nil {
+		diffLog = append(diffLog,
+			"next_title", nextValid.Title,
+			"next_score", nextValid.Score,
+			"next_category", nextValid.Category,
+			"score_diff", published.Score-nextValid.Score)
+	} else {
+		diffLog = append(diffLog, "next_title", "none")
+	}
+	logger.Info("Winner reason & evaluation result", diffLog...)
+
+	logger.Info("Publishing best news", "title", published.Title, "score", published.Score, "category", published.Category, "rank", publishedRank)
+	sendOneNews(ctx, *published, publishedHash, cfg, cacheAdapter, m, websiteGen, supabase)
 }
 
 func truncateForLog(s string, max int) string {

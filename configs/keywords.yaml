@@ -306,7 +306,7 @@ keywords:
     weight: 12
   - word: "containerskib"
     category: "economy"
-    weight: 12
+    weight: 5
   - word: "fragtskib"
     category: "economy"
     weight: 12

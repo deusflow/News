@@ -401,8 +401,8 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	impact += categoryWeights["money"] / 2
 	impact += categoryWeights["housing"] / 2
 	impact += categoryWeights["health"] / 2
-	impact += categoryWeights["transport"] / 2
-	impact += categoryWeights["local"] / 2
+	impact += categoryWeights["transport"] / 3
+	impact += categoryWeights["local"] / 3
 
 	// Entertainment-only items get a small penalty when no public-impact signal exists.
 	if impact == 0 {
@@ -410,6 +410,13 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 		if light > 0 {
 			impact -= min(6, light/3)
 		}
+	}
+
+	// Contextual filter: limit raw local/transport incidents without structural framing.
+	structural := categoryWeights["politics"] + categoryWeights["work"] + categoryWeights["money"] + categoryWeights["visas"] + categoryWeights["economy"] + categoryWeights["education"]
+	incidentScore := categoryWeights["transport"] + categoryWeights["local"]
+	if structural < 5 && incidentScore > 10 {
+		impact -= min(10, incidentScore/2) // Penalty for pure traffic/local incident
 	}
 
 	if impact > 40 {
@@ -432,21 +439,30 @@ func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, 
 	coreImpact += categoryWeights["economy"]
 	coreImpact += categoryWeights["visas"]
 	coreImpact += categoryWeights["money"]
-	coreImpact += categoryWeights["local"]
 	coreImpact += categoryWeights["education"]
 	coreImpact += categoryWeights["health"]
 	coreImpact += categoryWeights["housing"]
-	coreImpact += categoryWeights["transport"]
+
+	// Local and transport contribute less directly to structural CoreImpact unless accompanied by context.
+	incidentImpact := categoryWeights["local"] + categoryWeights["transport"]
+	if coreImpact >= 5 {
+		// Structural context exists broadly, allow incident words to add flavor.
+		coreImpact += incidentImpact / 2
+	} else {
+		// Barely structural, heavily local.
+		coreImpact += incidentImpact / 4
+	}
 
 	softScore += categoryWeights["lifestyle"]
 	softScore += categoryWeights["sport"]
+	softScore += categoryWeights["family"]
 
 	coreBoost := min(20, coreImpact/4)
 	softPenalty := 0
 	if coreImpact == 0 && softScore > 0 {
-		softPenalty = min(8, softScore/2)
+		softPenalty = min(10, softScore/2)
 	} else if coreImpact < 10 && softScore > 0 {
-		softPenalty = min(4, softScore/4)
+		softPenalty = min(6, softScore/3)
 	}
 
 	adjustment = coreBoost - softPenalty
@@ -459,7 +475,7 @@ func isImpactCandidate(n News) bool {
 
 func isCoreImpactCategory(c Category) bool {
 	switch c {
-	case CategoryPolitics, CategorySociety, CategoryWork, CategoryEconomy, CategoryVisas, CategoryMoney, CategoryLocal, CategoryEducation, CategoryEU, CategoryWar:
+	case CategoryPolitics, CategorySociety, CategoryWork, CategoryEconomy, CategoryVisas, CategoryMoney, CategoryEducation, CategoryEU, CategoryWar:
 		return true
 	default:
 		return false
@@ -476,6 +492,29 @@ func PassesPublicImpactGate(n News) bool {
 	}
 	cat := ValidateCategory(n.Category)
 	return isCoreImpactCategory(cat) && n.KeywordScore >= 12
+}
+
+// PassesAudienceRelevanceGate is a strict filter ensuring we do not publish empty noise.
+// It allows structural/country-wide news, good lifestyle stories, but drops bare local incidents.
+func PassesAudienceRelevanceGate(n News) bool {
+	if PassesPublicImpactGate(n) {
+		return true // Structural news passes
+	}
+
+	// If it's a weak local/transport incident, ruthlessly cut it
+	cat := ValidateCategory(n.Category)
+	if cat == CategoryLocal || cat == CategoryCrime {
+		return false // No structural impact = rejected
+	}
+
+	// If it's lifestyle/sport/family, we allow it (30% balance) but require a decent score
+	if cat == CategoryLifestyle || cat == CategoryFamily || cat == CategorySport {
+		// Must not be empty triviality
+		return n.KeywordScore >= 20 || n.Score >= 70
+	}
+
+	// Fallback for edge cases (including structural society)
+	return n.Score >= 60
 }
 
 func sortByPublishPriority(items []News) {
