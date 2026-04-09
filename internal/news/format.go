@@ -166,8 +166,12 @@ func FormatNewsWithImage(n News) string {
 	}
 
 	// 3. Датская версия: заголовок + body
-	b.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
-	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, n.Title))); dk != "" {
+	dkTitle := strings.TrimSpace(n.TitleDanish)
+	if dkTitle == "" {
+		dkTitle = strings.TrimSpace(n.Title)
+	}
+	b.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
+	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle))); dk != "" {
 		b.WriteString("\n" + dk)
 	}
 	b.WriteString("\n\n")
@@ -231,11 +235,15 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		maxLen = 1024
 	}
 
+	dkTitle := strings.TrimSpace(n.TitleDanish)
+	if dkTitle == "" {
+		dkTitle = strings.TrimSpace(n.Title)
+	}
 	ukTitle := strings.TrimSpace(n.TitleUkrainian)
 	if ukTitle == "" {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
-	dkBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, n.Title)))
+	dkBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle)))
 	uaBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)))
 	why := strings.TrimSpace(n.WhyItMatters)
 
@@ -247,7 +255,7 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		sb.WriteString("💬 <b>" + tldr + "</b>")
 		sb.WriteString("\n\n")
 	}
-	sb.WriteString("🇩🇰 <b>" + strings.TrimSpace(n.Title) + "</b>")
+	sb.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
 	if dkBody != "" {
 		sb.WriteString("\n" + dkBody)
 	}

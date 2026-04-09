@@ -54,7 +54,7 @@ CONTENT: %s
 "danish": News body in Danish. MAX %d chars.
   • AVOID vague generic sentences. EXACT facts (who, what, when, where, WHY, WHAT exactly).
   • Structure (3-5 sentences):
-    1. Core fact with specific details.
+    1. Core fact with specific details (DO NOT paraphrase the title, give new information right away).
     2. Background/Details: what exactly led to this.
     3. Impact: who is affected and how.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
@@ -63,6 +63,8 @@ CONTENT: %s
   • Mirror EXACT facts, deep context, and structure of Danish version.
   • Provide EXACT reason/subject; NO empty phrases like "Це вплине на життя".
   • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
+
+"title_danish": Danish headline. MAX 85 chars.
 
 "title_ukrainian": Ukrainian headline. MAX 85 chars.
 
@@ -87,7 +89,7 @@ CONTENT: %s
 
 "tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. (e.g. "податки", "робота").
 
-"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words.
+"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be distinct from the main title, focus on the broader picture).
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
   • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
@@ -102,7 +104,8 @@ CONTENT: %s
 ━━━ PROHIBITIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - NO translator notes ("Примітка:").
 - NO hashtags inside danish/ukrainian/tldr fields.
-- DO NOT repeat the title in the body.
+- DO NOT start the body ("danish" or "ukrainian") by paraphrasing or repeating the title. The first sentence MUST continue the story with new details.
+- DO NOT make TLDR, Title, and the first sentence of the body say the exact same thing.
 - Output ONLY valid JSON, no markdown outside JSON.
 `, title, content,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,

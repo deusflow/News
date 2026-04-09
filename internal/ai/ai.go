@@ -15,6 +15,7 @@ type Response struct {
 	Summary        string   `json:"summary"`
 	Danish         string   `json:"danish"`
 	Ukrainian      string   `json:"ukrainian"`
+	TitleDanish    string   `json:"title_danish"`
 	TitleUkrainian string   `json:"title_ukrainian"`
 	Mood           string   `json:"mood"`
 	Category       string   `json:"category"` // AI выбирает из фиксированного списка в prompt

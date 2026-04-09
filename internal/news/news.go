@@ -39,6 +39,7 @@ type News struct {
 	Summary          string
 	SummaryDanish    string
 	SummaryUkrainian string
+	TitleDanish      string
 	TitleUkrainian   string
 	Mood             string
 	Tags             []string
@@ -698,6 +699,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		Summary:          resp.Summary,
 		SummaryDanish:    resp.Danish,
 		SummaryUkrainian: resp.Ukrainian,
+		TitleDanish:      resp.TitleDanish,
 		TitleUkrainian:   resp.TitleUkrainian,
 		Mood:             resp.Mood, // уже нормализован в Validate()
 		Tags:             resp.Tags,

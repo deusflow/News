@@ -271,8 +271,8 @@ func extractGenericContent(doc *goquery.Document) string {
 	// Limits chosen to feed LLM enough context but avoid capturing whole page/footer.
 	const (
 		minParagraphLen = 40
-		maxParagraphs   = 25
-		maxChars        = 3500
+		maxParagraphs   = 40
+		maxChars        = 8500
 	)
 
 	currentChars := 0
@@ -346,7 +346,7 @@ func extractGenericContent(doc *goquery.Document) string {
 		})
 
 		// If we collected enough meaningful content, stop early.
-		if stop || currentChars >= 900 || len(paragraphs) >= 6 {
+		if stop || currentChars >= 8000 || len(paragraphs) >= 30 {
 			break
 		}
 	}
@@ -488,13 +488,13 @@ func cleanContent(content string) string {
 	resultText = strings.TrimSpace(resultText)
 
 	// Limit length, keep full paragraphs
-	if len(resultText) > 1800 {
+	if len(resultText) > 8500 {
 		paragraphs := strings.Split(resultText, "\n\n")
 		var selectedParagraphs []string
 		totalLength := 0
 
 		for _, paragraph := range paragraphs {
-			if totalLength+len(paragraph) < 1600 {
+			if totalLength+len(paragraph) < 8000 {
 				selectedParagraphs = append(selectedParagraphs, paragraph)
 				totalLength += len(paragraph) + 2
 			} else {
