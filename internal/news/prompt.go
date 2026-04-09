@@ -95,7 +95,7 @@ CONTENT: %s
   • If purely trivial, write exactly: 'Не впливає на повсякденне життя'
   • FORBIDDEN: vague impact ("може вплинути").
 
-"fun_fact": ONE fact about Denmark. STRICT MAX %d chars. Start with ONE emoji in Ukrainian.
+"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji.
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
   • Add context, do not repeat the news. Avoid clichés like "Denmark is happiest".
 
