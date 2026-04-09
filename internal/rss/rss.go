@@ -19,6 +19,7 @@ type FeedSource struct {
 	Name       string   `yaml:"name"`
 	Lang       string   `yaml:"lang"`
 	Priority   int      `yaml:"priority"`
+	Weight     int      `yaml:"weight"`
 	Active     bool     `yaml:"active"`
 	Categories []string `yaml:"categories"`
 }

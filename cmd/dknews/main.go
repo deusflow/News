@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,6 +41,25 @@ func main() {
 	}
 
 	application.Run(ctx)
+
+	if summaryFile := os.Getenv("GITHUB_STEP_SUMMARY"); summaryFile != "" {
+		writeGitHubSummary(summaryFile, m)
+	}
+}
+
+func writeGitHubSummary(path string, m *metrics.Metrics) {
+	stats := m.GetStats()
+	content := fmt.Sprintf(`### 📊 Run Metrics (Danish News Bot)
+- **Total News Evaluated:** %v
+- **Duplicates Ignored:** %v
+- **Successfully Processed by AI:** %v
+- **Failed AI Processing:** %v
+- **AI API Retries / Rate Limits:** %v
+- **Telegram Messages Sent (Published):** %v
+`, stats["total_news_processed"], stats["duplicates_filtered"], stats["successful_translations"], stats["failed_translations"], stats["ai_retries"], stats["telegram_messages_sent"])
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		logger.Error("Failed to write GitHub summary", "error", err)
+	}
 }
 
 func startMonitoringServer(ctx context.Context, port string, m *metrics.Metrics, a *app.App) {

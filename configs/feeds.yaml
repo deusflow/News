@@ -4,6 +4,7 @@ feeds:
     name: DR Nyheder
     lang: da
     priority: 100
+    weight: 5
     active: true
     categories: [denmark, news, official]
     # Главный национальный источник новостей Дании
@@ -12,6 +13,7 @@ feeds:
     name: TV Midtvest
     lang: da
     priority: 90
+    weight: -2
     active: true
     categories: [local, news]
     # Локальные новости (Midtvest)
@@ -20,6 +22,7 @@ feeds:
     name: TV2 Østjylland
     lang: da
     priority: 85
+    weight: -2
     active: true
     categories: [local, news]
     # Локальные новости (Østjylland)

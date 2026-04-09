@@ -174,6 +174,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			}
 			kwScore, kwCat, kwCategoryWeights, kwMatches = opts.Keywords.CalculateScoreDetailedWithMatches(text)
 		}
+
+		// Apply explicit source authority bonus/penalty
+		kwScore += item.Source.Weight
+
 		scored = append(scored, preScored{
 			item:              item,
 			kwScore:           kwScore,
@@ -326,6 +330,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					fullText += " " + s.content
 				}
 				fullKwScore, fullKwCat, fullKwWeights, fullMatches := opts.Keywords.CalculateScoreDetailedWithMatches(fullText)
+				fullKwScore += s.item.Source.Weight // Re-apply source weight to full-text score
+
 				if fullKwScore > kwScore {
 					kwScore = fullKwScore
 					kwCat = fullKwCat
