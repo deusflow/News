@@ -29,7 +29,7 @@ func GetMoodEmoji(mood string) string {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// formatHeader — строка ТЕМЫ (первая строка поста).
+// formatHeader — строка ТЕМЫ (перша строка поста).
 //
 //	💻 ТЕХНОЛОГІЇ
 //	🏙️ VIBORG
@@ -38,7 +38,11 @@ func GetMoodEmoji(mood string) string {
 // ──────────────────────────────────────────────────────────────────────
 func formatHeader(n News) string {
 	cat := ValidateCategory(n.Category)
-	return fmt.Sprintf("%s <b>%s</b>", CategoryEmoji(cat), CategoryLabel(cat))
+	header := fmt.Sprintf("%s <b>%s</b>", CategoryEmoji(cat), CategoryLabel(cat))
+	if n.IsExclusive {
+		header += "\n💎 <b>Ексклюзив (знайдено лише тут)</b>"
+	}
+	return header
 }
 
 // ──────────────────────────────────────────────────────────────────────

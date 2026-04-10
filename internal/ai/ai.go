@@ -23,6 +23,7 @@ type Response struct {
 	TLDR           string   `json:"tldr"`
 	FunFact        string   `json:"fun_fact"`
 	WhyItMatters   string   `json:"why_it_matters"`
+	IsExclusive    bool     `json:"is_exclusive"`
 }
 
 // validMoods — whitelist допустимых значений mood.

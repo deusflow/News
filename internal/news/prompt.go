@@ -91,6 +91,8 @@ CONTENT: %s
 
 "tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be distinct from the main title, focus on the broader picture).
 
+"is_exclusive": true | false. Set to true ONLY IF this news is a massive, shocking, groundbreaking, or highly unique story. Otherwise (for 99%% of news), set to false.
+
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
   • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
   • If no direct impact, explain what to watch out for.
@@ -106,6 +108,8 @@ CONTENT: %s
 - NO hashtags inside danish/ukrainian/tldr fields.
 - DO NOT start the body ("danish" or "ukrainian") by paraphrasing or repeating the title. The first sentence MUST continue the story with new details.
 - DO NOT make TLDR, Title, and the first sentence of the body say the exact same thing.
+- DO NOT use cliché engagement phrases like "Чи чекаєте ви", "час покаже", "що ви думаєте", "побачимо".
+- IGNORE metadata blocks like 'Original link:', 'Score:', 'Preview', or 'Source:' at the end of the text. Do not include them in your output.
 - Output ONLY valid JSON, no markdown outside JSON.
 `, title, content,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,

@@ -36,16 +36,17 @@ type News struct {
 	SourceName string
 	SourceLang string
 
-	Summary          string
-	SummaryDanish    string
-	SummaryUkrainian string
-	TitleDanish      string
-	TitleUkrainian   string
-	Mood             string
-	Tags             []string
-	TLDR             string
-	FunFact          string
-	WhyItMatters     string
+	Summary          string   `json:"summary"`
+	SummaryDanish    string   `json:"danish"`
+	SummaryUkrainian string   `json:"ukrainian"`
+	TitleDanish      string   `json:"title_danish"`
+	TitleUkrainian   string   `json:"title_ukrainian"`
+	Mood             string   `json:"mood"`
+	Tags             []string `json:"tags"`
+	TLDR             string   `json:"tldr"`
+	FunFact          string   `json:"fun_fact"`
+	WhyItMatters     string   `json:"why_it_matters"`
+	IsExclusive      bool     `json:"is_exclusive"`
 
 	ImageURL string
 	ImageAlt string
@@ -706,6 +707,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		TLDR:             resp.TLDR,
 		FunFact:          resp.FunFact,
 		WhyItMatters:     resp.WhyItMatters,
+		IsExclusive:      resp.IsExclusive,
 	}
 
 	// Картинка: скрапер (фаза 1) → RSS image → Enclosures
