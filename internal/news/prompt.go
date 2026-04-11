@@ -45,13 +45,13 @@ CONTENT: %s
 ━━━ STYLE & LENGTH ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Tone: journalistic, neutral, factual, dynamic. No opinions.
 - Proper nouns UNCHANGED: names, brands, orgs, cities, countries. (e.g., "Folketing", "NATO").
-- "danish" body: STRICT MAX %d characters.
-- "ukrainian" body: STRICT MAX %d characters.
+- "danish" body: Keep under %d characters. Finish your sentences.
+- "ukrainian" body: Keep under %d characters. Finish your sentences.
 - Both bodies MUST be approx equal length (±15%%).
 
 ━━━ TASKS (RETURN VALID JSON ONLY) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-"danish": News body in Danish. MAX %d chars.
+"danish": News body in Danish. Be concise (under %d chars) and complete your sentences.
   • AVOID vague generic sentences. EXACT facts (who, what, when, where, WHY, WHAT exactly).
   • Structure (3-5 sentences):
     1. Core fact with specific details (DO NOT paraphrase the title, give new information right away).
@@ -59,7 +59,7 @@ CONTENT: %s
     3. Impact: who is affected and how.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
 
-"ukrainian": Same news in Ukrainian. MAX %d chars.
+"ukrainian": Same news in Ukrainian. Be concise (under %d chars) and complete your sentences.
   • Mirror EXACT facts, deep context, and structure of Danish version.
   • Provide EXACT reason/subject; NO empty phrases like "Це вплине на життя".
   • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
@@ -91,7 +91,7 @@ CONTENT: %s
 
 "tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be distinct from the main title, focus on the broader picture).
 
-"is_exclusive": true | false. Set to true ONLY IF this news is a massive, shocking, groundbreaking, or highly unique story. Otherwise (for 99%% of news), set to false.
+"is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, or announcements.
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
   • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
@@ -103,17 +103,4 @@ CONTENT: %s
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
   • Add context, do not repeat the news. Avoid clichés like "Denmark is happiest".
 
-━━━ PROHIBITIONS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- NO translator notes ("Примітка:").
-- NO hashtags inside danish/ukrainian/tldr fields.
-- DO NOT start the body ("danish" or "ukrainian") by paraphrasing or repeating the title. The first sentence MUST continue the story with new details.
-- DO NOT make TLDR, Title, and the first sentence of the body say the exact same thing.
-- DO NOT use cliché engagement phrases like "Чи чекаєте ви", "час покаже", "що ви думаєте", "побачимо".
-- IGNORE metadata blocks like 'Original link:', 'Score:', 'Preview', or 'Source:' at the end of the text. Do not include them in your output.
-- Output ONLY valid JSON, no markdown outside JSON.
-`, title, content,
-		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
-		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
-		BuildValidCategoryList(),
-		DefaultBudget.TLDRChars, DefaultBudget.WhyItMattersChars, DefaultBudget.FunFactChars)
-}
+━
