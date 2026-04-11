@@ -87,11 +87,11 @@ CONTENT: %s
   "lifestyle" → Culture, festivals, food, entertainment.
   "sport"     → Sports leagues, athletes, tournaments.
 
-"tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. (e.g. "податки", "робота").
+"tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. Use double quotes. (e.g. "податки", "робота").
 
 "tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be distinct from the main title, focus on the broader picture).
 
-"is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, or announcements.
+"is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, or games.
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
   • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
@@ -101,6 +101,19 @@ CONTENT: %s
 
 "fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji.
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
-  • Add context, do not repeat the news. Avoid clichés like "Denmark is happiest".
+  • Add context, do not repeat the news. Avoid clichés.
 
-━
+━━━ PROHIBITIONS & CRITICAL STYLE RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- NO cliché engagement phrases: "Час покаже", "Чи стане це хітом", "Чи чекаєте ви", "Побачимо".
+- NO rhetorical questions at the end ("Що ви думаєте?", "А як вважаєте ви?").
+- NO repeating the title in the first sentence. Start immediately with new facts.
+- DO NOT generate any metadata like 'Original link:', 'Score:', 'Preview', 'Source:', 'Author:', or 'Title:' in your output. If you see them in the source text, IGNORE THEM.
+- Your output MUST be 100%% natural journalistic text. No meta-commentary.
+- NO hashtags inside text fields. NO translator notes ("Примітка:").
+- Output ONLY valid JSON, no markdown outside JSON.
+`, title, content,
+		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
+		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
+		BuildValidCategoryList(),
+		DefaultBudget.TLDRChars, DefaultBudget.WhyItMattersChars, DefaultBudget.FunFactChars)
+}
