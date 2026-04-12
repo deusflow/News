@@ -57,12 +57,14 @@ CONTENT: %s
     1. Core fact with specific details (DO NOT paraphrase the title, give new information right away).
     2. Background/Details: what exactly led to this.
     3. Impact: who is affected and how.
+  • The FIRST SENTENCE MUST NOT repeat the title! It must start with facts NOT mentioned in the title.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
 
 "ukrainian": Same news in Ukrainian. Be concise (under %d chars) and complete your sentences.
   • Mirror EXACT facts, deep context, and structure of Danish version.
   • Provide EXACT reason/subject; NO empty phrases like "Це вплине на життя".
   • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
+  • The FIRST SENTENCE MUST NOT repeat the title!
 
 "title_danish": Danish headline. MAX 85 chars.
 
@@ -89,9 +91,9 @@ CONTENT: %s
 
 "tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. Use double quotes. (e.g. "податки", "робота").
 
-"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be distinct from the main title, focus on the broader picture).
+"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title).
 
-"is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, or games.
+"is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
   • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
