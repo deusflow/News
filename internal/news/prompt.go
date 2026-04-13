@@ -109,6 +109,7 @@ CONTENT: %s
 - NO cliché engagement phrases: "Час покаже", "Чи стане це хітом", "Чи чекаєте ви", "Побачимо".
 - NO rhetorical questions at the end ("Що ви думаєте?", "А як вважаєте ви?").
 - NO repeating the title in the first sentence. Start immediately with new facts.
+- NO repetitive subjects/names: Do not begin every header and paragraph with the exact same name (e.g., Mette Frederiksen). Use titles, pronouns, or roles (e.g., "Прем'єр-міністр", "Вона", "Очільниця уряду") after the first mention.
 - DO NOT generate any metadata like 'Original link:', 'Score:', 'Preview', 'Source:', 'Author:', or 'Title:' in your output. If you see them in the source text, IGNORE THEM.
 - Your output MUST be 100%% natural journalistic text. No meta-commentary.
 - NO hashtags inside text fields. NO translator notes ("Примітка:").
