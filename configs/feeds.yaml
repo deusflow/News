@@ -3,7 +3,7 @@ feeds:
   - url: https://www.dr.dk/nyheder/service/feeds/allenyheder
     name: DR Nyheder
     lang: da
-    priority: 100
+    priority: 110
     weight: 5
     active: true
     categories: [denmark, news, official]
