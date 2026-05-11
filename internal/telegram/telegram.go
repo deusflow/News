@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -216,4 +217,84 @@ type InlineButton struct {
 	Text         string `json:"text"`
 	URL          string `json:"url,omitempty"`
 	CallbackData string `json:"callback_data,omitempty"`
+}
+
+// SendVideoStream uploads video from an io.Reader via multipart/form-data.
+// Used for YouTube streams read into memory pipe.
+// caption max 1024 chars (Telegram video caption limit).
+func SendVideoStream(token, chatID string, reader io.Reader, size int64, filename, caption string, buttons [][]InlineButton) error {
+	apiURL := fmt.Sprintf("%s%s/sendVideo", telegramAPIBase, token)
+
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+
+	go func() {
+		defer pw.Close()
+		defer mw.Close()
+
+		// chat_id
+		_ = mw.WriteField("chat_id", chatID)
+		_ = mw.WriteField("parse_mode", "HTML")
+		_ = mw.WriteField("supports_streaming", "true")
+		if caption != "" {
+			_ = mw.WriteField("caption", caption)
+		}
+		if len(buttons) > 0 {
+			markup, _ := json.Marshal(map[string]interface{}{
+				"inline_keyboard": buttons,
+			})
+			_ = mw.WriteField("reply_markup", string(markup))
+		}
+
+		part, err := mw.CreateFormFile("video", filename)
+		if err != nil {
+			return
+		}
+		_, _ = io.Copy(part, reader)
+	}()
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, apiURL, pr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	// Use longer timeout for video upload
+	uploadClient := &http.Client{Timeout: 120 * time.Second}
+	resp, err := uploadClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram sendVideo error %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// SendVideoEmbed sends a message with large video link preview above text.
+// Works when bot IP is banned by YouTube — Telegram fetches preview itself.
+func SendVideoEmbed(token, chatID, videoURL, text string, buttons [][]InlineButton) (int, error) {
+	return SendMessageWithButtons(token, chatID, text, buttons, true, 0)
+	// Note: extractPreviewURL inside sendMessage will extract videoURL from text.
+	// Ensure videoURL is embedded as <a href="videoURL"> or plain URL in text before calling.
+}
+
+// SendVideoURL sends a video via a direct URL to Telegram.
+func SendVideoURL(token, chatID, videoURL, caption string, buttons [][]InlineButton) error {
+	apiURL := fmt.Sprintf("%s%s/sendVideo", telegramAPIBase, token)
+	body := map[string]interface{}{
+		"chat_id":            chatID,
+		"video":              videoURL,
+		"caption":            caption,
+		"parse_mode":         "HTML",
+		"supports_streaming": true,
+	}
+	if len(buttons) > 0 {
+		body["reply_markup"] = map[string]interface{}{"inline_keyboard": buttons}
+	}
+	_, err := executeRequest(context.Background(), apiURL, body)
+	return err
 }

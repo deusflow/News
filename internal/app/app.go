@@ -251,7 +251,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 func (a *App) Run(ctx context.Context) {
 	logger.Info("Starting Danish News Bot Run")
 	runStartedAt := time.Now()
-	defer a.metrics.RecordProcessingTime(time.Since(runStartedAt))
+	defer func() { a.metrics.RecordProcessingTime(time.Since(runStartedAt)) }()
 
 	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
 		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
@@ -434,19 +434,94 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		}
 	}
 
-	if canPhoto {
-		outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-		if len(buttons) > 0 {
-			err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
+	const maxVideoSeconds = 180
+
+	// ── Video pipeline ──────────────────────────────────────────
+	videoSent := false
+
+	if n.VideoURL != "" {
+		duration, err := telegram.GetVideoDurationSeconds(n.VideoURL)
+		if err != nil {
+			logger.Warn("[VIDEO] Duration unknown, skipping video", "url", n.VideoURL, "err", err)
+		} else if duration > maxVideoSeconds {
+			logger.Info("[VIDEO] Too long, skipping", "duration_sec", duration)
 		} else {
-			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
+			logger.Info("[VIDEO] Short video detected", "duration_sec", duration)
+
+			// Determine caption
+			videoCaption := ""
+			if canPhoto { // Or we can format as caption explicitly since it's a media
+				videoCaption = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+			} else {
+				videoCaption = news.FormatCaptionForPhoto(n, 1024)
+			}
+
+			// Level 1: native stream upload
+			if telegram.IsYouTubeURL(n.VideoURL) {
+				reader, size, streamErr := telegram.GetYouTubeStream(n.VideoURL)
+				if streamErr != nil {
+					logger.Warn("[VIDEO L1] YouTube stream failed", "err", streamErr)
+				} else {
+					defer reader.Close()
+					err = telegram.SendVideoStream(
+						cfg.Telegram.Token, cfg.Telegram.ChatID,
+						reader, size, "video.mp4",
+						videoCaption, buttons,
+					)
+					if err != nil {
+						logger.Warn("[VIDEO L1] Upload failed", "err", err)
+					} else {
+						logger.Info("[VIDEO L1] Sent natively")
+						videoSent = true
+					}
+				}
+			} else if telegram.IsDRDirectVideo(n.VideoURL) {
+				// DR direct .mp4 — try as URL first (Telegram fetches it)
+				err = telegram.SendVideoURL(
+					cfg.Telegram.Token, cfg.Telegram.ChatID,
+					n.VideoURL, videoCaption, buttons,
+				)
+				if err != nil {
+					logger.Warn("[VIDEO L1] DR direct URL failed", "err", err)
+				} else {
+					logger.Info("[VIDEO L1] DR video sent via URL")
+					videoSent = true
+				}
+			}
+
+			// Level 2: embed preview (if Level 1 failed or not applicable)
+			if !videoSent {
+				videoCaption = news.FormatNewsWithImage(n) // embed context usually expects full text
+				textWithLink := videoCaption + "\n\n🎥 " + n.VideoURL
+				_, err = telegram.SendVideoEmbed(
+					cfg.Telegram.Token, cfg.Telegram.ChatID,
+					n.VideoURL, textWithLink, buttons,
+				)
+				if err != nil {
+					logger.Warn("[VIDEO L2] Embed failed, falling to photo", "err", err)
+				} else {
+					logger.Info("[VIDEO L2] Sent as embed preview")
+					videoSent = true
+				}
+			}
 		}
-	} else {
-		outText = news.FormatNewsWithImage(n)
-		if len(buttons) > 0 {
-			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
+	}
+
+	if !videoSent {
+		if canPhoto {
+			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+			if len(buttons) > 0 {
+				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
+			} else {
+				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
+			}
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
+			outText = news.FormatNewsWithImage(n)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
+			}
 		}
 	}
 

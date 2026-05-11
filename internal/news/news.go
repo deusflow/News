@@ -50,6 +50,7 @@ type News struct {
 
 	ImageURL string
 	ImageAlt string
+	VideoURL string `json:"video_url,omitempty"`
 
 	// Legacy поля для совместимости
 	ImportanceDanish    string
@@ -721,11 +722,16 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		n.ImageURL = scrapeImageURL
 	} else if item.Image != nil {
 		n.ImageURL = item.Image.URL
-	} else if len(item.Enclosures) > 0 {
+	}
+
+	if len(item.Enclosures) > 0 {
 		for _, enc := range item.Enclosures {
-			if strings.HasPrefix(enc.Type, "image/") {
+			if strings.HasPrefix(enc.Type, "image/") && n.ImageURL == "" {
 				n.ImageURL = enc.URL
-				break
+			} else if strings.HasPrefix(enc.Type, "video/") && n.VideoURL == "" {
+				n.VideoURL = enc.URL
+			} else if n.VideoURL == "" && (strings.Contains(enc.URL, "youtube.com") || strings.Contains(enc.URL, "youtu.be") || strings.HasSuffix(strings.ToLower(enc.URL), ".mp4")) {
+				n.VideoURL = enc.URL
 			}
 		}
 	}
