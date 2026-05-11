@@ -112,6 +112,9 @@ func normalizeVideoLinksForTelegram(text string) string {
 
 // ExtractVideoURL returns the first YouTube URL found in news fields.
 func ExtractVideoURL(n News) string {
+	if strings.TrimSpace(n.VideoURL) != "" {
+		return strings.TrimRight(strings.TrimSpace(n.VideoURL), ".,;:!?)")
+	}
 	searchSpace := []string{
 		n.Title,
 		n.Summary,
