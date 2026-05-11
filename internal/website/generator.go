@@ -117,7 +117,7 @@ func (g *Generator) generateMarkdown(post NewsPost) string {
 
 	// Front matter
 	sb.WriteString("---\n")
-	sb.WriteString(fmt.Sprintf("title: %q\n", escapeYAML(post.Title)))
+	sb.WriteString(fmt.Sprintf("title: \"%s\"\n", escapeYAML(post.Title)))
 	sb.WriteString(fmt.Sprintf("date: %s\n", post.PublishedAt.Format(time.RFC3339)))
 	sb.WriteString("draft: false\n")
 
@@ -152,11 +152,11 @@ func (g *Generator) generateMarkdown(post NewsPost) string {
 
 	// TLDR
 	if post.TLDR != "" {
-		sb.WriteString(fmt.Sprintf("tldr: %q\n", escapeYAML(post.TLDR)))
+		sb.WriteString(fmt.Sprintf("tldr: \"%s\"\n", escapeYAML(post.TLDR)))
 	} else if post.SummaryUkrainian != "" {
 		// Use first sentence of Ukrainian summary as TLDR
 		tldr := getFirstSentence(post.SummaryUkrainian)
-		sb.WriteString(fmt.Sprintf("tldr: %q\n", escapeYAML(tldr)))
+		sb.WriteString(fmt.Sprintf("tldr: \"%s\"\n", escapeYAML(tldr)))
 	}
 
 	// Mood

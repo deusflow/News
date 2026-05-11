@@ -315,10 +315,16 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
 		if err != nil {
 			logger.Error("AI failed for item", "index", s.index+1, "title", s.item.Title, "error", err)
+			if opts.Metrics != nil {
+				opts.Metrics.IncrementFailedTranslations()
+			}
 			aiErrors++
 			continue
 		}
 		if n != nil {
+			if opts.Metrics != nil {
+				opts.Metrics.IncrementSuccessfulTranslations()
+			}
 			kwScore := topCandidates[idx].kwScore
 			kwCat := topCandidates[idx].kwCat
 			kwCategoryWeights := topCandidates[idx].kwCategoryWeights

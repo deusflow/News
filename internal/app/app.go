@@ -634,6 +634,8 @@ func generateWebsitePost(gen *website.Generator, n news.News) {
 		Title:            n.Title,
 		TitleUkrainian:   n.TitleUkrainian,
 		Content:          n.Content,
+		ContentUkrainian: n.SummaryUkrainian,
+		ContentDanish:    n.SummaryDanish,
 		SummaryUkrainian: n.SummaryUkrainian,
 		SummaryDanish:    n.SummaryDanish,
 		Link:             n.Link,
@@ -763,11 +765,26 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 			continue
 		}
 
+		var buttons [][]telegram.InlineButton
+		if cfg.Feature.EnableInlineButtons && item.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: item.Link},
+			})
+		}
+
 		var err error
 		if item.ImageURL != "" {
-			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
+			if len(buttons) > 0 {
+				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText, buttons)
+			} else {
+				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
+			}
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, item.MessageText)
+			}
 		}
 
 		if err != nil {
