@@ -322,7 +322,7 @@ func Load() (*Config, error) {
 			TextSentencesPerLangMax: 4,
 			MinSummaryTotalRunes:    180,
 			PhotoTextLimit:          1024,
-			VideoURLMaxBytes:        20 * 1024 * 1024,
+			VideoURLMaxBytes:        40 * 1024 * 1024,
 			VideoMaxSeconds:         180,
 		},
 		Scraper: ScraperConfig{
