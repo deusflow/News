@@ -44,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.x' # Используем свежую версию, как в go.mod
+          go-version: '1.26.x' # Используем свежую версию, как в go.mod
 
       - name: Prepare deps
         run: |
