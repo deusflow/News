@@ -212,6 +212,59 @@ func sleepWithContext(ctx context.Context, d time.Duration) {
 	}
 }
 
+// GetRemoteContentLength tries to determine remote content length using HEAD first,
+// then a ranged GET as a fallback for servers that don't honor HEAD.
+func GetRemoteContentLength(url string) (int64, error) {
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := httpClient.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			if cl := resp.Header.Get("Content-Length"); cl != "" {
+				if size, parseErr := strconv.ParseInt(cl, 10, 64); parseErr == nil && size > 0 {
+					return size, nil
+				}
+			}
+		}
+	}
+
+	rangeReq, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	rangeReq.Header.Set("Range", "bytes=0-0")
+	rangeResp, err := httpClient.Do(rangeReq)
+	if err != nil {
+		return 0, err
+	}
+	defer rangeResp.Body.Close()
+	if rangeResp.StatusCode != http.StatusPartialContent {
+		return 0, fmt.Errorf("range request failed: status %d", rangeResp.StatusCode)
+	}
+	if cr := rangeResp.Header.Get("Content-Range"); cr != "" {
+		if size, parseErr := parseContentRangeTotal(cr); parseErr == nil && size > 0 {
+			return size, nil
+		}
+	}
+	return 0, fmt.Errorf("content length unknown")
+}
+
+func parseContentRangeTotal(contentRange string) (int64, error) {
+	// Expected: "bytes 0-0/12345"
+	parts := strings.Split(contentRange, "/")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid content-range: %s", contentRange)
+	}
+	total := strings.TrimSpace(parts[1])
+	if total == "*" {
+		return 0, fmt.Errorf("content length unspecified")
+	}
+	return strconv.ParseInt(total, 10, 64)
+}
+
 // InlineButton struct
 type InlineButton struct {
 	Text         string `json:"text"`

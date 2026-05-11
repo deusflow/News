@@ -26,6 +26,8 @@ type PostingConfig struct {
 	TextSentencesPerLangMax int    // 4 by default
 	MinSummaryTotalRunes    int    // minimal informativeness threshold to consider content "full"
 	PhotoTextLimit          int    // limit for photo text (1024)
+	VideoURLMaxBytes        int64  // max size for SendVideoURL (bytes)
+	VideoMaxSeconds         int    // max duration for native video upload (seconds)
 }
 
 type AIConfig struct {
@@ -320,6 +322,8 @@ func Load() (*Config, error) {
 			TextSentencesPerLangMax: 4,
 			MinSummaryTotalRunes:    180,
 			PhotoTextLimit:          1024,
+			VideoURLMaxBytes:        20 * 1024 * 1024,
+			VideoMaxSeconds:         180,
 		},
 		Scraper: ScraperConfig{
 			Concurrency: 1,
@@ -399,6 +403,8 @@ func Load() (*Config, error) {
 			cfg.Posting.MinSummaryTotalRunes = val
 		}
 	}
+	cfg.Posting.VideoURLMaxBytes = getEnvInt64OrDefault("VIDEO_URL_MAX_BYTES", cfg.Posting.VideoURLMaxBytes)
+	cfg.Posting.VideoMaxSeconds = getEnvIntOrDefault("VIDEO_MAX_SECONDS", cfg.Posting.VideoMaxSeconds)
 
 	if v := os.Getenv("SCRAPE_CONCURRENCY"); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
@@ -507,6 +513,15 @@ func getEnvOrDefault(key, defaultValue string) string {
 func getEnvIntOrDefault(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return intValue
 		}
 	}

@@ -124,6 +124,9 @@ type App struct {
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	logger.Init()
 	logger.Info("Initializing Danish News Bot")
+	logger.Info("Video config",
+		"video_url_max_bytes", cfg.Posting.VideoURLMaxBytes,
+		"video_max_seconds", cfg.Posting.VideoMaxSeconds)
 
 	// 1. Инициализация кэша
 	var cacheAdapter CacheAdapter
@@ -434,20 +437,32 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 		}
 	}
 
-	const maxVideoSeconds = 180
+	maxVideoSeconds := cfg.Posting.VideoMaxSeconds
+	if maxVideoSeconds <= 0 {
+		maxVideoSeconds = 180
+	}
+	maxTelegramURLVideoBytes := cfg.Posting.VideoURLMaxBytes
+	if maxTelegramURLVideoBytes <= 0 {
+		maxTelegramURLVideoBytes = 20 * 1024 * 1024
+	}
 
 	// ── Video pipeline ──────────────────────────────────────────
 	videoSent := false
 
 	if n.VideoURL != "" {
 		duration, err := telegram.GetVideoDurationSeconds(n.VideoURL)
+		allowNative := false
 		if err != nil {
-			logger.Warn("[VIDEO] Duration unknown, skipping video", "url", n.VideoURL, "err", err)
+			logger.Warn("[VIDEO] Duration unknown, skipping native upload", "url", n.VideoURL, "err", err)
 		} else if duration > maxVideoSeconds {
-			logger.Info("[VIDEO] Too long, skipping", "duration_sec", duration)
+			logger.Info("[VIDEO] Too long for native upload", "duration_sec", duration, "max_sec", maxVideoSeconds)
 		} else {
 			logger.Info("[VIDEO] Short video detected", "duration_sec", duration)
+			allowNative = true
+		}
 
+		// Level 1: native stream upload (only for short videos)
+		if allowNative {
 			// Determine caption
 			videoCaption := ""
 			if canPhoto { // Or we can format as caption explicitly since it's a media
@@ -456,7 +471,6 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 				videoCaption = news.FormatCaptionForPhoto(n, 1024)
 			}
 
-			// Level 1: native stream upload
 			if telegram.IsYouTubeURL(n.VideoURL) {
 				reader, size, streamErr := telegram.GetYouTubeStream(n.VideoURL)
 				if streamErr != nil {
@@ -476,33 +490,39 @@ func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Conf
 					}
 				}
 			} else if telegram.IsDRDirectVideo(n.VideoURL) {
-				// DR direct .mp4 — try as URL first (Telegram fetches it)
-				err = telegram.SendVideoURL(
-					cfg.Telegram.Token, cfg.Telegram.ChatID,
-					n.VideoURL, videoCaption, buttons,
-				)
-				if err != nil {
-					logger.Warn("[VIDEO L1] DR direct URL failed", "err", err)
+				size, sizeErr := telegram.GetRemoteContentLength(n.VideoURL)
+				if sizeErr != nil {
+					logger.Warn("[VIDEO L1] DR direct size unknown, skipping URL send", "err", sizeErr)
+				} else if size > maxTelegramURLVideoBytes {
+					logger.Info("[VIDEO L1] DR direct too large for URL send", "size_bytes", size, "limit_bytes", maxTelegramURLVideoBytes)
 				} else {
-					logger.Info("[VIDEO L1] DR video sent via URL")
-					videoSent = true
+					err = telegram.SendVideoURL(
+						cfg.Telegram.Token, cfg.Telegram.ChatID,
+						n.VideoURL, videoCaption, buttons,
+					)
+					if err != nil {
+						logger.Warn("[VIDEO L1] DR direct URL failed", "err", err)
+					} else {
+						logger.Info("[VIDEO L1] DR video sent via URL")
+						videoSent = true
+					}
 				}
 			}
+		}
 
-			// Level 2: embed preview (if Level 1 failed or not applicable)
-			if !videoSent {
-				videoCaption = news.FormatNewsWithImage(n) // embed context usually expects full text
-				textWithLink := videoCaption + "\n\n🎥 " + n.VideoURL
-				_, err = telegram.SendVideoEmbed(
-					cfg.Telegram.Token, cfg.Telegram.ChatID,
-					n.VideoURL, textWithLink, buttons,
-				)
-				if err != nil {
-					logger.Warn("[VIDEO L2] Embed failed, falling to photo", "err", err)
-				} else {
-					logger.Info("[VIDEO L2] Sent as embed preview")
-					videoSent = true
-				}
+		// Level 2: embed preview (if Level 1 failed or not applicable)
+		if !videoSent {
+			videoCaption := news.FormatNewsWithImage(n) // embed context usually expects full text
+			textWithLink := videoCaption + "\n\n🎥 " + n.VideoURL
+			_, err = telegram.SendVideoEmbed(
+				cfg.Telegram.Token, cfg.Telegram.ChatID,
+				n.VideoURL, textWithLink, buttons,
+			)
+			if err != nil {
+				logger.Warn("[VIDEO L2] Embed failed, falling to photo", "err", err)
+			} else {
+				logger.Info("[VIDEO L2] Sent as embed preview")
+				videoSent = true
 			}
 		}
 	}
