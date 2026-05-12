@@ -4,7 +4,7 @@ feeds:
     name: DR Nyheder
     lang: da
     priority: 110
-    weight: 5
+    weight: 8
     active: true
     categories: [denmark, news, official]
     # Главный национальный источник новостей Дании
@@ -32,6 +32,7 @@ feeds:
     name: ECRE (беженцы, права, законы ЕС)
     lang: en
     priority: 85
+    weight: 3
     active: true
     categories: [eu, ukraine, visas, rights]
     # Главный независимый источник про права беженцев в Европе (Успешно работает)
@@ -40,6 +41,7 @@ feeds:
     name: EU Observer
     lang: en
     priority: 80
+    weight: 3
     active: true
     categories: [eu, politics, visas]
     # Новости Евросоюза и политики

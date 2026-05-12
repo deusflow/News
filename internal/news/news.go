@@ -3,7 +3,9 @@ package news
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,7 +85,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("starting news fetch cycle")
 	logger.Info("received raw items from RSS", "count", len(items))
 
-	const minKeywordScoreForAI = 8
+	minKeywordScoreForAI := getMinKeywordScoreForAI()
 
 	// ── Шаг 1: фильтрация по дате ────────────────────────────────────────────
 	var recent []*rss.FeedItem
@@ -200,7 +202,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	for _, s := range scored {
 		if opts.Keywords != nil && s.kwScore < minKeywordScoreForAI {
 			logger.Info("pre-filter: skipping non-relevant keyword score",
-				"title", s.item.Title, "kw_score", s.kwScore)
+				"title", s.item.Title,
+				"source", s.item.Source.Name,
+				"lang", s.item.Source.Lang,
+				"kw_score", s.kwScore,
+				"threshold", minKeywordScoreForAI)
 			continue
 		}
 		topCandidates = append(topCandidates, s)
@@ -750,4 +756,14 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 	logger.Info("category assigned", "title", title, "category", n.Category, "score", n.Score)
 
 	return &n, nil
+}
+
+func getMinKeywordScoreForAI() int {
+	const defaultMin = 8
+	if v := os.Getenv("MIN_KEYWORD_SCORE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultMin
 }

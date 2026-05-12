@@ -2,14 +2,12 @@ name: Danish News Bot - Scheduled
 
 on:
   schedule:
-    # Adjust schedule as you like (UTC). Example: every 6 hours
-    - cron: '30 5  * * *'   # 07:30 — утро, до работы
-    - cron: '0  10 * * *'   # 12:00 — обед
-    - cron: '0  12 * * *'   # 14:00 — после обеда, сонная зона
-    - cron: '0  14 * * *'   # 16:00 — конец рабочего дня
-    - cron: '0  17 * * *'   # 19:00 — после ужина
-    - cron: '0  19 * * *'   # 21:00 — вечерний диван
-  workflow_dispatch: {}
+    # Adjust schedule as you like (UTC)
+    - cron: '0 6 * * *'    # 08:00 Denmark — утренние новости
+    - cron: '0 11 * * *'   # 13:00 Denmark — обеденный выпуск
+    - cron: '0 15 * * *'   # 17:00 Denmark — конец рабочего дня
+    - cron: '0 19 * * *'   # 21:00 Denmark — вечерний прайм
+  workflow_dispatch: { }
 
 jobs:
   run-bot:
@@ -47,10 +45,13 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash-lite
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       AI_PROVIDERS: "gemini,groq"
       COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
       MISTRALAI_API_KEY: ${{ secrets.MISTRALAI_API_KEY }}
+      AI_REQUEST_DELAY_SECONDS: '8'
+      MIN_KEYWORD_SCORE: '6'
 
       # Supabase (for website archive) - AUTO-ENABLED when credentials present
       # Bot saves all news here, website pulls from this database

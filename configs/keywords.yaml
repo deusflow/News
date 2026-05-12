@@ -1161,3 +1161,103 @@ keywords:
   - word: "lokal"
     category: "local"
     weight: -5
+
+  # =======================================================
+  # EN: EU, REFUGEES, MIGRATION, RIGHTS (Weight 15-30)
+  # =======================================================
+  - word: "european union"
+    category: "eu"
+    weight: 22
+  - word: "eu"
+    category: "eu"
+    weight: 18
+  - word: "eu council"
+    category: "politics"
+    weight: 18
+  - word: "council of the eu"
+    category: "politics"
+    weight: 20
+  - word: "european commission"
+    category: "politics"
+    weight: 20
+  - word: "eu parliament"
+    category: "politics"
+    weight: 18
+  - word: "european parliament"
+    category: "politics"
+    weight: 20
+  - word: "european court"
+    category: "politics"
+    weight: 18
+  - word: "court of justice"
+    category: "politics"
+    weight: 18
+  - word: "human rights"
+    category: "society"
+    weight: 20
+  - word: "fundamental rights"
+    category: "society"
+    weight: 18
+
+  - word: "refugee"
+    category: "society"
+    weight: 20
+  - word: "refugees"
+    category: "society"
+    weight: 22
+  - word: "asylum"
+    category: "visas"
+    weight: 22
+  - word: "asylum seeker"
+    category: "visas"
+    weight: 25
+  - word: "asylum seekers"
+    category: "visas"
+    weight: 25
+  - word: "international protection"
+    category: "visas"
+    weight: 22
+  - word: "temporary protection"
+    category: "visas"
+    weight: 25
+  - word: "residence permit"
+    category: "visas"
+    weight: 20
+  - word: "resettlement"
+    category: "visas"
+    weight: 20
+  - word: "relocation"
+    category: "visas"
+    weight: 18
+  - word: "deportation"
+    category: "visas"
+    weight: 18
+  - word: "return policy"
+    category: "visas"
+    weight: 16
+
+  - word: "migration"
+    category: "society"
+    weight: 16
+  - word: "migrant"
+    category: "society"
+    weight: 14
+  - word: "migrants"
+    category: "society"
+    weight: 16
+  - word: "border control"
+    category: "politics"
+    weight: 18
+  - word: "border policy"
+    category: "politics"
+    weight: 16
+  - word: "frontex"
+    category: "politics"
+    weight: 22
+  - word: "unhcr"
+    category: "society"
+    weight: 20
+  - word: "ecre"
+    category: "society"
+    weight: 18
+
