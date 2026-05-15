@@ -488,6 +488,12 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	incidentScore := categoryWeights["transport"] + categoryWeights["local"]
 	if structural < 5 && incidentScore > 10 {
 		impact -= min(10, incidentScore/2) // Penalty for pure traffic/local incident
+	} else if categoryWeights["local"] > 0 {
+		// local-with-policy synergy: local news + strong policy/money/housing context
+		policyWeights := categoryWeights["work"] + categoryWeights["money"] + categoryWeights["visas"] + categoryWeights["housing"] + categoryWeights["society"]
+		if policyWeights >= 5 {
+			impact += min(15, policyWeights) // solid boost for local law/money/society news
+		}
 	}
 
 	crimeScore := categoryWeights["crime"]
@@ -588,6 +594,11 @@ func PassesPublicImpactGate(n News) bool {
 // PassesAudienceRelevanceGate is a strict filter ensuring we do not publish empty noise.
 // It allows structural/country-wide news, good lifestyle stories, but drops bare local incidents.
 func PassesAudienceRelevanceGate(n News) bool {
+	// If AI evaluated the news and gave it a low relevance score for Ukrainians, block it immediately
+	if n.AudienceScore > 0 && n.AudienceScore < 4 {
+		return false
+	}
+
 	if PassesPublicImpactGate(n) {
 		return true // Structural news passes
 	}
