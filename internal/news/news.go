@@ -466,6 +466,7 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	impact += categoryWeights["politics"]
 	impact += categoryWeights["society"]
 	impact += categoryWeights["work"]
+	impact += categoryWeights["eu"]
 	impact += categoryWeights["economy"] / 2
 	impact += categoryWeights["visas"] / 2
 	impact += categoryWeights["money"] / 2
@@ -483,10 +484,24 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	}
 
 	// Contextual filter: limit raw local/transport incidents without structural framing.
-	structural := categoryWeights["politics"] + categoryWeights["work"] + categoryWeights["money"] + categoryWeights["visas"] + categoryWeights["economy"] + categoryWeights["education"]
+	structural := categoryWeights["politics"] + categoryWeights["work"] + categoryWeights["money"] + categoryWeights["visas"] + categoryWeights["economy"] + categoryWeights["education"] + categoryWeights["eu"]
 	incidentScore := categoryWeights["transport"] + categoryWeights["local"]
 	if structural < 5 && incidentScore > 10 {
 		impact -= min(10, incidentScore/2) // Penalty for pure traffic/local incident
+	}
+
+	crimeScore := categoryWeights["crime"]
+	if crimeScore > 0 {
+		if structural < 5 {
+			impact -= min(8, crimeScore/3) // Penalize isolated crime without structural context
+		} else {
+			impact += min(6, crimeScore/4) // Allow limited boost when crime has broader context
+		}
+	}
+
+	scaleBoost := categoryWeights["politics"] + categoryWeights["economy"] + categoryWeights["eu"]
+	if scaleBoost > 0 {
+		impact += min(12, scaleBoost/4)
 	}
 
 	if impact > 40 {
@@ -512,6 +527,7 @@ func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, 
 	coreImpact += categoryWeights["education"]
 	coreImpact += categoryWeights["health"]
 	coreImpact += categoryWeights["housing"]
+	coreImpact += categoryWeights["eu"]
 
 	// Local and transport contribute less directly to structural CoreImpact unless accompanied by context.
 	incidentImpact := categoryWeights["local"] + categoryWeights["transport"]
@@ -536,6 +552,11 @@ func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, 
 	}
 
 	adjustment = coreBoost - softPenalty
+
+	policyFocus := categoryWeights["visas"] + categoryWeights["work"] + categoryWeights["money"] + categoryWeights["housing"] + categoryWeights["society"]
+	if policyFocus > 0 {
+		adjustment += min(12, policyFocus/4)
+	}
 	return coreImpact, softScore, adjustment
 }
 

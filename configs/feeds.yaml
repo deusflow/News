@@ -4,7 +4,7 @@ feeds:
     name: DR Nyheder
     lang: da
     priority: 110
-    weight: 8
+    weight: 12
     active: true
     categories: [denmark, news, official]
     # Главный национальный источник новостей Дании
@@ -13,7 +13,7 @@ feeds:
     name: TV Midtvest
     lang: da
     priority: 90
-    weight: -2
+    weight: -5
     active: true
     categories: [local, news]
     # Локальные новости (Midtvest)
@@ -22,7 +22,7 @@ feeds:
     name: TV2 Østjylland
     lang: da
     priority: 85
-    weight: -2
+    weight: -5
     active: true
     categories: [local, news]
     # Локальные новости (Østjylland)
@@ -32,7 +32,7 @@ feeds:
     name: ECRE (беженцы, права, законы ЕС)
     lang: en
     priority: 85
-    weight: 3
+    weight: 6
     active: true
     categories: [eu, ukraine, visas, rights]
     # Главный независимый источник про права беженцев в Европе (Успешно работает)
@@ -41,7 +41,7 @@ feeds:
     name: EU Observer
     lang: en
     priority: 80
-    weight: 3
+    weight: 6
     active: true
     categories: [eu, politics, visas]
     # Новости Евросоюза и политики
