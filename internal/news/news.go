@@ -34,6 +34,7 @@ type News struct {
 	CoreImpactScore     int
 	SoftScore           int
 	EditorialAdjustment int
+	AudienceScore       int
 
 	SourceName string
 	SourceLang string
@@ -65,11 +66,21 @@ type Options struct {
 	ScrapeMaxArticles int
 	ScrapeConcurrency int
 
+	// Dedupe allows skipping already-sent items before AI.
+	Dedupe DedupeChecker
+
 	// ГЛАВНОЕ ИЗМЕНЕНИЕ: Используем интерфейс, а не конкретные клиенты
 	AI       ai.Provider
 	Config   *config.Config
 	Metrics  *metrics.Metrics
 	Keywords *config.KeywordsConfig
+}
+
+// DedupeChecker provides pre-AI duplicate checks without importing app.
+type DedupeChecker interface {
+	GenerateNewsHash(title, link string) string
+	IsAlreadySent(hash string) bool
+	IsSourceURLSent(sourceURL string) bool
 }
 
 // scrapedItem хранит результат первого этапа — параллельного скрейпинга.
@@ -133,6 +144,29 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		if len(filtered) < len(candidates) {
 			logger.Info("PerSource limit applied",
 				"per_source", opts.PerSource,
+				"before", len(candidates),
+				"after", len(filtered))
+		}
+		candidates = filtered
+	}
+
+	// ── Шаг 2в: дедупликация ДО AI (экономия запросов) ───────────────────────
+	if opts.Dedupe != nil {
+		filtered := candidates[:0]
+		for _, item := range candidates {
+			if opts.Dedupe.IsSourceURLSent(item.Link) {
+				logger.Info("pre-AI dedup: source URL already sent", "title", item.Title, "source", item.Source.Name)
+				continue
+			}
+			hash := opts.Dedupe.GenerateNewsHash(item.Title, item.Link)
+			if opts.Dedupe.IsAlreadySent(hash) {
+				logger.Info("pre-AI dedup: hash already sent", "title", item.Title, "source", item.Source.Name)
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) < len(candidates) {
+			logger.Info("pre-AI dedup applied",
 				"before", len(candidates),
 				"after", len(filtered))
 		}
@@ -332,6 +366,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			if opts.Metrics != nil {
 				opts.Metrics.IncrementSuccessfulTranslations()
 			}
+
+			if n.AudienceScore < 4 {
+				logger.Info("audience_score below threshold, skipping",
+					"title", n.Title,
+					"source", n.SourceName,
+					"audience_score", n.AudienceScore)
+				continue
+			}
+
 			kwScore := topCandidates[idx].kwScore
 			kwCat := topCandidates[idx].kwCat
 			kwCategoryWeights := topCandidates[idx].kwCategoryWeights
@@ -357,6 +400,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 			impactScore := calculateImpactScore(kwCategoryWeights)
 			coreImpact, softScore, editorialAdjustment := calculateEditorialSignals(kwCategoryWeights)
+
+			// Audience relevance tuning: boost high relevance.
+			if n.AudienceScore >= 7 {
+				impactScore += n.AudienceScore * 3
+			}
 
 			// Keywords remain primary. Impact is a separate architectural signal.
 			// AI (mood/freshness) stays secondary via n.Score from processItemWithContent().
@@ -384,6 +432,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					"core_impact_score", n.CoreImpactScore,
 					"soft_score", n.SoftScore,
 					"editorial_adjustment", n.EditorialAdjustment,
+					"audience_score", n.AudienceScore,
 					"final_score", n.Score,
 					"passes_public_impact_gate", PassesPublicImpactGate(*n),
 					"keyword_top_matches", topKeywordMatchesForLog(kwMatches, 8),
@@ -557,7 +606,15 @@ func sortByPublishPriority(items []News) {
 		if iImpact && items[i].ImpactScore != items[j].ImpactScore {
 			return items[i].ImpactScore > items[j].ImpactScore
 		}
-		return items[i].Score > items[j].Score
+		if items[i].Score != items[j].Score {
+			return items[i].Score > items[j].Score
+		}
+		iHasImage := items[i].ImageURL != ""
+		jHasImage := items[j].ImageURL != ""
+		if iHasImage != jHasImage {
+			return iHasImage
+		}
+		return false
 	})
 }
 
@@ -681,6 +738,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		"title", title,
 		"category_raw", resp.Category,
 		"mood", resp.Mood,
+		"audience_score", resp.AudienceScore,
 		"dk_len", len([]rune(strings.TrimSpace(resp.Danish))),
 		"ua_len", len([]rune(strings.TrimSpace(resp.Ukrainian))),
 		"tldr_len", len([]rune(strings.TrimSpace(resp.TLDR))),
@@ -721,6 +779,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		FunFact:          resp.FunFact,
 		WhyItMatters:     resp.WhyItMatters,
 		IsExclusive:      resp.IsExclusive,
+		AudienceScore:    resp.AudienceScore,
 	}
 
 	// Картинка: скрапер (фаза 1) → RSS image → Enclosures

@@ -24,6 +24,7 @@ type Response struct {
 	FunFact        string   `json:"fun_fact"`
 	WhyItMatters   string   `json:"why_it_matters"`
 	IsExclusive    bool     `json:"is_exclusive"`
+	AudienceScore  int      `json:"audience_score"`
 }
 
 // validMoods — whitelist допустимых значений mood.
@@ -63,6 +64,13 @@ func (r *Response) Validate() error {
 	r.WhyItMatters = strings.TrimSpace(r.WhyItMatters)
 	if r.WhyItMatters == "" {
 		r.WhyItMatters = strings.TrimSpace(r.TLDR)
+	}
+
+	// Clamp audience_score into 0..10 if provided outside range.
+	if r.AudienceScore < 0 {
+		r.AudienceScore = 0
+	} else if r.AudienceScore > 10 {
+		r.AudienceScore = 10
 	}
 
 	return nil

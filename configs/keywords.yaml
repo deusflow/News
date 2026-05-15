@@ -1217,12 +1217,6 @@ keywords:
   - word: "international protection"
     category: "visas"
     weight: 22
-  - word: "temporary protection"
-    category: "visas"
-    weight: 25
-  - word: "residence permit"
-    category: "visas"
-    weight: 20
   - word: "resettlement"
     category: "visas"
     weight: 20
@@ -1254,9 +1248,6 @@ keywords:
   - word: "frontex"
     category: "politics"
     weight: 22
-  - word: "unhcr"
-    category: "society"
-    weight: 20
   - word: "ecre"
     category: "society"
     weight: 18

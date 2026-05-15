@@ -57,18 +57,20 @@ func (f *RSSFetcher) Fetch(ctx context.Context) ([]*rss.FeedItem, error) {
 
 // NewsFilterProcessor implements NewsProcessor
 type NewsFilterProcessor struct {
-	cfg      *config.Config
-	aiMgr    *ai.Manager
-	metrics  *metrics.Metrics
-	keywords *config.KeywordsConfig
+	cfg          *config.Config
+	aiMgr        *ai.Manager
+	metrics      *metrics.Metrics
+	keywords     *config.KeywordsConfig
+	cacheAdapter CacheAdapter
 }
 
-func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Metrics, keywords *config.KeywordsConfig) *NewsFilterProcessor {
+func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Metrics, keywords *config.KeywordsConfig, cacheAdapter CacheAdapter) *NewsFilterProcessor {
 	return &NewsFilterProcessor{
-		cfg:      cfg,
-		aiMgr:    aiMgr,
-		metrics:  m,
-		keywords: keywords,
+		cfg:          cfg,
+		aiMgr:        aiMgr,
+		metrics:      m,
+		keywords:     keywords,
+		cacheAdapter: cacheAdapter,
 	}
 }
 
@@ -82,6 +84,7 @@ func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem
 		Config:            p.cfg,
 		AI:                p.aiMgr,
 		Metrics:           p.metrics,
+		Dedupe:            p.cacheAdapter,
 	})
 }
 
@@ -240,7 +243,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		cacheAdapter:     cacheAdapter,
 		aiManager:        aiManager,
 		fetcher:          NewRSSFetcher(feeds),
-		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords),
+		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords, cacheAdapter),
 		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient),
 		keywords:         keywords,
 		websiteGenerator: websiteGen,

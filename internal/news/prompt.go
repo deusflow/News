@@ -101,6 +101,27 @@ CONTENT: %s
   • If purely trivial, write exactly: 'Не впливає на повсякденне життя'
   • FORBIDDEN: vague impact ("може вплинути").
 
+"audience_score": INTEGER from 0 to 10.
+  How relevant is this news SPECIFICALLY for a Ukrainian living in Denmark?
+  
+  10 = Direct impact: visa rules, særlov, work permit, money from state, 
+       housing rights, CPR, MitID, deportation risk, school for kids.
+  
+  7-9 = Important context: Danish law changes that affect daily life,
+        EU decisions about refugees, job market changes, cost of living.
+  
+  4-6 = Useful to know: local Viborg/Aarhus news with real consequences,
+        Danish politics that may affect foreigners, economy news.
+  
+  1-3 = Weak connection: general Danish society news, culture, 
+        national events without direct impact on Ukrainians.
+  
+  0   = Irrelevant: sport results, weather, celebrity gossip, 
+        local incidents without broader meaning, recipes.
+  
+  BE STRICT. Most news should score 3-5. Only real visa/law/money 
+  news gets 8+. A mayor opening an exhibition = 1.
+
 "fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji.
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
   • Add context, do not repeat the news. Avoid clichés.
