@@ -165,7 +165,8 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	for _, pName := range cfg.AI.Providers {
 		switch strings.TrimSpace(strings.ToLower(pName)) {
 		case "gemini":
-			client, err := gemini.NewClient(cfg.AI.GeminiAPIKey, cfg.AI.GeminiModel)
+			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
+			client, err := gemini.NewClient(keys, cfg.AI.GeminiModel)
 			if err != nil {
 				logger.Error("Failed to init Gemini", "error", err)
 				continue // Не падаем, пробуем следующего

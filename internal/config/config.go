@@ -32,6 +32,8 @@ type PostingConfig struct {
 
 type AIConfig struct {
 	GeminiAPIKey      string
+	GeminiAPIKey2     string
+	GeminiAPIKey3     string
 	GeminiModel       string // model name, e.g. "gemini-2.5-flash"
 	GroqModel         string // model name, e.g. "llama-3.3-70b-versatile" (default if empty)
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
@@ -358,6 +360,8 @@ func Load() (*Config, error) {
 	cfg.Telegram.Token = os.Getenv("TELEGRAM_TOKEN")
 	cfg.Telegram.ChatID = os.Getenv("TELEGRAM_CHAT_ID")
 	cfg.AI.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	cfg.AI.GeminiAPIKey2 = os.Getenv("GEMINI_API_KEY_2")
+	cfg.AI.GeminiAPIKey3 = os.Getenv("GEMINI_API_KEY_3")
 	cfg.AI.GeminiModel = getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash")
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	cfg.AI.GroqAPIKey = os.Getenv("GROQ_API_KEY")
