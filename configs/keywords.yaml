@@ -459,23 +459,43 @@ keywords:
     category: "spam"
     weight: -10
 
-  # Криминал (Мягкий фильтр: -5)
-  # Это позволит показать криминал, если он связан с Виборгом (+25 - 5 = +20)
-  - word: "voldtægt"
-    category: "spam"
-    weight: 0
-  - word: "knivstik"
-    category: "spam"
-    weight: -5
+  # Криминал и ЧП (Повышенный приоритет для национальных инцидентов)
+  - word: "terror"
+    category: "crime"
+    weight: 25
   - word: "skyderi"
-    category: "spam"
-    weight: 5
+    category: "crime"
+    weight: 20
+  - word: "skud"
+    category: "crime"
+    weight: 20
+  - word: "politi"
+    category: "crime"
+    weight: 15
+  - word: "drab"
+    category: "crime"
+    weight: 15
+  - word: "voldtgt"
+    category: "crime"
+    weight: 10
+  - word: "knivstik"
+    category: "crime"
+    weight: 10
   - word: "mord"
-    category: "spam"
-    weight: -5
-  - word: "fængsel"
-    category: "spam"
-    weight: -5
+    category: "crime"
+    weight: 10
+  - word: "fngsel"
+    category: "crime"
+    weight: 10
+  - word: "anholdt"
+    category: "crime"
+    weight: 10
+  - word: "alarm"
+    category: "crime"
+    weight: 15
+  - word: "udrykning"
+    category: "crime"
+    weight: 15
 
   # Рецепты
   - word: "opskrift"
@@ -1251,4 +1271,3 @@ keywords:
   - word: "ecre"
     category: "society"
     weight: 18
-

@@ -110,14 +110,16 @@ CONTENT: %s
   7-9 = Important context: Danish law changes that affect daily life,
         EU decisions about refugees, job market changes, cost of living.
   
-  4-6 = Useful to know: local Viborg/Aarhus news with real consequences,
-        Danish politics that may affect foreigners, economy news.
+  4-6 = Important general news: Major national events, high-profile crime 
+        (shootings, major court cases), significant emergencies, and major 
+        Danish politics. These are important for ANY resident of Denmark 
+        to know, even if they don't directly affect visas.
   
-  1-3 = Weak connection: general Danish society news, culture, 
-        national events without direct impact on Ukrainians.
+  1-3 = Weak connection: general Danish society news, culture, weather, 
+        national events of purely symbolic nature.
   
-  0   = Irrelevant: sport results, weather, celebrity gossip, 
-        local incidents without broader meaning, recipes.
+  0   = Irrelevant: sport results, celebrity gossip, local incidents 
+        without broader meaning, recipes, TV show recaps.
   
   BE STRICT. Most news should score 3-5. Only real visa/law/money 
   news gets 8+. A mayor opening an exhibition = 1.

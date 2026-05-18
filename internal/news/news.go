@@ -130,27 +130,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	})
 	logger.Info("unique items after dedup", "count", len(candidates))
 
-	// ── Шаг 2б: лимит новостей с одного источника ────────────────────────────
-	if opts.PerSource > 0 {
-		sourceCounts := make(map[string]int, len(candidates))
-		filtered := candidates[:0]
-		for _, item := range candidates {
-			name := item.Source.Name
-			if sourceCounts[name] < opts.PerSource {
-				filtered = append(filtered, item)
-				sourceCounts[name]++
-			}
-		}
-		if len(filtered) < len(candidates) {
-			logger.Info("PerSource limit applied",
-				"per_source", opts.PerSource,
-				"before", len(candidates),
-				"after", len(filtered))
-		}
-		candidates = filtered
-	}
-
-	// ── Шаг 2в: дедупликация ДО AI (экономия запросов) ───────────────────────
+	// ── Шаг 2б: дедупликация ДО AI (экономия запросов) ───────────────────────
 	if opts.Dedupe != nil {
 		filtered := candidates[:0]
 		for _, item := range candidates {
@@ -214,8 +194,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			kwScore, kwCat, kwCategoryWeights, kwMatches = opts.Keywords.CalculateScoreDetailedWithMatches(text)
 		}
 
-		// Apply explicit source authority bonus/penalty
-		kwScore += item.Source.Weight
+		// Apply source authority multiplier instead of raw additive
+		// Weight 12 -> +60% multiplier
+		// Weight -5 -> -25% multiplier
+		multiplier := 1.0 + (float64(item.Source.Weight) * 0.05)
+		if multiplier < 0.5 {
+			multiplier = 0.5
+		}
+		kwScore = int(float64(kwScore) * multiplier)
 
 		scored = append(scored, preScored{
 			item:              item,
@@ -231,8 +217,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		return scored[i].kwScore > scored[j].kwScore
 	})
 
-	// Отсекаем явный мусор (score < 0) и берём топ maxAICandidates
+	// Отсекаем явный мусор (score < 0), лимитируем по ПерСорс и берём топ maxAICandidates
 	var topCandidates []preScored
+	sourceCounts := make(map[string]int)
+
 	for _, s := range scored {
 		if opts.Keywords != nil && s.kwScore < minKeywordScoreForAI {
 			logger.Info("pre-filter: skipping non-relevant keyword score",
@@ -243,6 +231,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				"threshold", minKeywordScoreForAI)
 			continue
 		}
+
+		if opts.PerSource > 0 {
+			if sourceCounts[s.item.Source.Name] >= opts.PerSource {
+				continue // Skip if this source already has enough top candidates
+			}
+			sourceCounts[s.item.Source.Name]++
+		}
+
 		topCandidates = append(topCandidates, s)
 		if len(topCandidates) >= maxAICandidates {
 			break
@@ -388,7 +384,12 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					fullText += " " + s.content
 				}
 				fullKwScore, fullKwCat, fullKwWeights, fullMatches := opts.Keywords.CalculateScoreDetailedWithMatches(fullText)
-				fullKwScore += s.item.Source.Weight // Re-apply source weight to full-text score
+
+				multiplier := 1.0 + (float64(s.item.Source.Weight) * 0.05)
+				if multiplier < 0.5 {
+					multiplier = 0.5
+				}
+				fullKwScore = int(float64(fullKwScore) * multiplier)
 
 				if fullKwScore > kwScore {
 					kwScore = fullKwScore
