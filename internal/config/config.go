@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"gopkg.in/yaml.v3"
+	"sort"
 )
 
 type TelegramConfig struct {
@@ -165,8 +166,6 @@ func (kc *KeywordsConfig) CalculateScoreDetailedWithMatches(text string) (int, s
 	}
 
 	lowerText := strings.ToLower(text)
-	totalScore := 0
-	categoryWeights := make(map[string]int, 16) // category -> accumulated weight
 	matches := make([]KeywordMatch, 0, 12)
 
 	for i := range kc.Keywords {
@@ -183,8 +182,6 @@ func (kc *KeywordsConfig) CalculateScoreDetailedWithMatches(text string) (int, s
 		}
 
 		if matched {
-			totalScore += kw.Weight
-			categoryWeights[kw.Category] += kw.Weight
 			matches = append(matches, KeywordMatch{
 				Word:      kw.Word,
 				Category:  kw.Category,
@@ -192,6 +189,24 @@ func (kc *KeywordsConfig) CalculateScoreDetailedWithMatches(text string) (int, s
 				WholeWord: kw.wholeWordMatch,
 			})
 		}
+	}
+
+	// Sort matches by weight descending
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Weight > matches[j].Weight
+	})
+
+	// Take only top 10 matches
+	if len(matches) > 10 {
+		matches = matches[:10]
+	}
+
+	totalScore := 0
+	categoryWeights := make(map[string]int, 16) // category -> accumulated weight
+
+	for _, m := range matches {
+		totalScore += m.Weight
+		categoryWeights[m.Category] += m.Weight
 	}
 
 	// Pick category with highest accumulated weight (ignore "spam" - it is a filter, not a label)

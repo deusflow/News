@@ -101,28 +101,23 @@ CONTENT: %s
   • If purely trivial, write exactly: 'Не впливає на повсякденне життя'
   • FORBIDDEN: vague impact ("може вплинути").
 
-"audience_score": INTEGER from 0 to 10.
+"audience_score": INTEGER from 1 to 12.
   How relevant is this news SPECIFICALLY for a Ukrainian living in Denmark?
+  Use the EXACT priority logic:
   
-  10 = Direct impact: visa rules, særlov, work permit, money from state, 
-       housing rights, CPR, MitID, deportation risk, school for kids.
+  11-12 = Absolute Priority / Unique Value: Changes in visa rules, work/residence permit changes for SL1 temp refugees, critical government decisions explicitly affecting Ukrainian refugees in DK.
   
-  7-9 = Important context: Danish law changes that affect daily life,
-        EU decisions about refugees, job market changes, cost of living.
+  9-10  = Very High Impact: Important Danish law changes that alter daily life, taxes, state financial aids, major housing right changes, school/healthcare reforms directly affecting residents.
   
-  4-6 = Important general news: Major national events, high-profile crime 
-        (shootings, major court cases), significant emergencies, and major 
-        Danish politics. These are important for ANY resident of Denmark 
-        to know, even if they don't directly affect visas.
+  7-8   = Good Context: Labor market dynamics, standard political shifts in Folketing, general EU decisions impacting Denmark, economic changes (inflation, major company shifts affecting society).
   
-  1-3 = Weak connection: general Danish society news, culture, weather, 
-        national events of purely symbolic nature.
+  5-6   = General Danish News: High-profile national news, significant emergencies, large infrastructure projects. Good to know, but no direct visa/life impact.
   
-  0   = Irrelevant: sport results, celebrity gossip, local incidents 
-        without broader meaning, recipes, TV show recaps.
+  3-4   = Weak Connection: Ordinary crime, local incidents with nationwide mention, soft politics, standard social/cultural events.
   
-  BE STRICT. Most news should score 3-5. Only real visa/law/money 
-  news gets 8+. A mayor opening an exhibition = 1.
+  1-2   = Baseline / Irrelevant: Minor news, celebrity/sports, extreme local events, weather reports, purely symbolic actions.
+  
+  IMPORTANT: Evaluate strictly from 1 to 12. Do NOT lump scores. Spread the scores out truthfully so every news article gets its exact rank.
 
 "fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji.
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).

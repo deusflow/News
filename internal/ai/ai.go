@@ -66,11 +66,11 @@ func (r *Response) Validate() error {
 		r.WhyItMatters = strings.TrimSpace(r.TLDR)
 	}
 
-	// Clamp audience_score into 0..10 if provided outside range.
-	if r.AudienceScore < 0 {
-		r.AudienceScore = 0
-	} else if r.AudienceScore > 10 {
-		r.AudienceScore = 10
+	// Clamp audience_score into 1..12 if provided outside range.
+	if r.AudienceScore < 1 {
+		r.AudienceScore = 1
+	} else if r.AudienceScore > 12 {
+		r.AudienceScore = 12
 	}
 
 	return nil

@@ -363,7 +363,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				opts.Metrics.IncrementSuccessfulTranslations()
 			}
 
-			if n.AudienceScore < 4 {
+			if n.AudienceScore < 3 {
 				logger.Info("audience_score below threshold, skipping",
 					"title", n.Title,
 					"source", n.SourceName,
@@ -402,10 +402,9 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			impactScore := calculateImpactScore(kwCategoryWeights)
 			coreImpact, softScore, editorialAdjustment := calculateEditorialSignals(kwCategoryWeights)
 
-			// Audience relevance tuning: boost high relevance.
-			if n.AudienceScore >= 7 {
-				impactScore += n.AudienceScore * 3
-			}
+			// Audience relevance tuning: integrate fully.
+			// Since AudienceScore is 1..12 and extremely accurate about relevance, scale it strongly.
+			impactScore += n.AudienceScore * 5
 
 			// Keywords remain primary. Impact is a separate architectural signal.
 			// AI (mood/freshness) stays secondary via n.Score from processItemWithContent().
@@ -596,7 +595,8 @@ func PassesPublicImpactGate(n News) bool {
 // It allows structural/country-wide news, good lifestyle stories, but drops bare local incidents.
 func PassesAudienceRelevanceGate(n News) bool {
 	// If AI evaluated the news and gave it a low relevance score for Ukrainians, block it immediately
-	if n.AudienceScore > 0 && n.AudienceScore < 4 {
+	// 1-3 scores correspond to weak/irrelevant connection.
+	if n.AudienceScore > 0 && n.AudienceScore <= 3 {
 		return false
 	}
 
@@ -638,6 +638,9 @@ func sortByPublishPriority(items []News) {
 		}
 		if iImpact && items[i].ImpactScore != items[j].ImpactScore {
 			return items[i].ImpactScore > items[j].ImpactScore
+		}
+		if items[i].AudienceScore != items[j].AudienceScore {
+			return items[i].AudienceScore > items[j].AudienceScore
 		}
 		if items[i].Score != items[j].Score {
 			return items[i].Score > items[j].Score
