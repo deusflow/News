@@ -29,12 +29,16 @@ type News struct {
 
 	// KeywordScore and ImpactScore are explicit ranking signals.
 	// Score remains the final combined value used for ordering.
-	KeywordScore        int
-	ImpactScore         int
-	CoreImpactScore     int
-	SoftScore           int
-	EditorialAdjustment int
-	AudienceScore       int
+	KeywordScore           int
+	ImpactScore            int
+	CoreImpactScore        int
+	SoftScore              int
+	EditorialAdjustment    int
+	AudienceScore          int
+	KeywordCategoryWeights map[string]int
+	KeywordMatches         []config.KeywordMatch
+	HasDenmarkContext      bool
+	HasUkraineContext      bool
 
 	SourceName string
 	SourceLang string
@@ -399,6 +403,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				}
 			}
 
+			n.KeywordCategoryWeights = kwCategoryWeights
+			n.KeywordMatches = kwMatches
+			n.HasDenmarkContext = hasDenmarkContext(kwCategoryWeights, kwMatches)
+			n.HasUkraineContext = hasUkraineContext(kwMatches)
+
 			impactScore := calculateImpactScore(kwCategoryWeights)
 			coreImpact, softScore, editorialAdjustment := calculateEditorialSignals(kwCategoryWeights)
 
@@ -435,6 +444,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 					"audience_score", n.AudienceScore,
 					"final_score", n.Score,
 					"passes_public_impact_gate", PassesPublicImpactGate(*n),
+					"has_denmark_context", n.HasDenmarkContext,
+					"has_ukraine_context", n.HasUkraineContext,
 					"keyword_top_matches", topKeywordMatchesForLog(kwMatches, 8),
 					"category_weights", formatCategoryWeightsForLog(kwCategoryWeights))
 			}
@@ -600,12 +611,32 @@ func PassesAudienceRelevanceGate(n News) bool {
 		return false
 	}
 
+	if !n.HasDenmarkContext && !n.HasUkraineContext {
+		return false
+	}
+
+	cat := ValidateCategory(n.Category)
+	if cat == CategoryCrime {
+		if !n.HasDenmarkContext {
+			return false
+		}
+		policySignal := 0
+		if len(n.KeywordCategoryWeights) > 0 {
+			policySignal += n.KeywordCategoryWeights["politics"]
+			policySignal += n.KeywordCategoryWeights["visas"]
+			policySignal += n.KeywordCategoryWeights["work"]
+			policySignal += n.KeywordCategoryWeights["money"]
+			policySignal += n.KeywordCategoryWeights["housing"]
+			policySignal += n.KeywordCategoryWeights["society"]
+		}
+		return policySignal >= 20
+	}
+
 	if PassesPublicImpactGate(n) {
 		return true // Structural news passes
 	}
 
 	// If it's a weak local/transport incident, ruthlessly cut it
-	cat := ValidateCategory(n.Category)
 	if cat == CategoryLocal || cat == CategoryCrime {
 		return false // No structural impact = rejected
 	}
@@ -861,4 +892,27 @@ func getMinKeywordScoreForAI() int {
 		}
 	}
 	return defaultMin
+}
+
+func hasDenmarkContext(categoryWeights map[string]int, matches []config.KeywordMatch) bool {
+	if len(categoryWeights) > 0 && categoryWeights["local"] > 0 {
+		return true
+	}
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "danmark", "denmark", "i danmark", "dansk", "danske", "danskere", "folketing", "regeringen", "statsminister", "kommune", "kommunen", "kommunerne", "region", "regioner":
+			return true
+		}
+	}
+	return false
+}
+
+func hasUkraineContext(matches []config.KeywordMatch) bool {
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "ukrainsk", "ukrainer", "ukrainske flygtninge", "ukrainsk statsborger", "sl1", "paragraf 24":
+			return true
+		}
+	}
+	return false
 }

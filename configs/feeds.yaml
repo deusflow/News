@@ -27,21 +27,51 @@ feeds:
     categories: [local, news]
     # Локальные новости (Østjylland)
 
-  # ИСТОЧНИКИ ДЛЯ УКРАИНЦЕВ / ЕС
-  - url: https://ecre.org/feed/
-    name: ECRE (беженцы, права, законы ЕС)
+  - url: https://feeds.thelocal.com/rss/dk
+    name: The Local Denmark
+    lang: en
+    priority: 100
+    weight: 9
+    active: true
+    categories: [ denmark, society, integration, ukraine ]
+
+  - url: https://www.kristeligt-dagblad.dk/rss/nyheder
+    name: Kristeligt Dagblad
+    lang: da
+    priority: 90
+    weight: 7
+    active: true
+    categories: [ denmark, society, rights ]
+
+  - url: https://cphpost.dk/?feed=rss2
+    name: Copenhagen Post
     lang: en
     priority: 85
-    weight: 6
+    weight: 7
     active: true
-    categories: [eu, ukraine, visas, rights]
-    # Главный независимый источник про права беженцев в Европе (Успешно работает)
+    categories: [ denmark, society, integration ]
 
-  - url: https://euobserver.com/rss
-    name: EU Observer
-    lang: en
-    priority: 80
-    weight: 6
+  - url: https://nyheder.tv2.dk/feed
+    name: TV 2 Nyheder
+    lang: da
+    priority: 105
+    weight: 10
     active: true
-    categories: [eu, politics, visas]
-    # Новости Евросоюза и политики
+    categories: [denmark, news, society]
+    # Главная лента TV 2
+
+  - url: https://www.information.dk/rss
+    name: Information
+    lang: da
+    priority: 100
+    weight: 9
+    active: true
+    categories: [denmark, society, politics]
+
+  - url: https://politiken.dk/rss/seneste
+    name: Politiken
+    lang: da
+    priority: 100
+    weight: 9
+    active: true
+    categories: [denmark, society, politics]
