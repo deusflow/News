@@ -13,7 +13,7 @@ import (
 
 // defaultDelay is the minimum pause between consecutive AI API calls.
 //
-// Gemini Free Tier limits (gemini-2.5-flash, as of 2026):
+// Gemini Free Tier limits (gemini-3.5-flash, as of 2026):
 //   - 10 RPM  (requests per minute)  → minimum 6s between calls
 //   - 250 RPD (requests per day)
 //   - 1 000 000 TPM (tokens per minute)

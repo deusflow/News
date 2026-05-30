@@ -27,7 +27,7 @@ func NewClient(apiKeys []string, modelName string) (*Client, error) {
 	ctx := context.Background()
 
 	if modelName == "" {
-		modelName = "gemini-1.5-flash"
+		modelName = "gemini-2.5-flash"
 	}
 
 	var clients []*genai.Client

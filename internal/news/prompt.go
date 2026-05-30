@@ -55,7 +55,7 @@ CONTENT: %s
   • AVOID vague generic sentences. EXACT facts (who, what, when, where, WHY, WHAT exactly).
   • Structure (3-5 sentences):
     1. Core fact with specific details (DO NOT paraphrase the title, give new information right away).
-    2. Background/Details: what exactly led to this.
+    2. Background/Details: what exactly led to this. If the source lacks context, ACT AS IF YOU USED A BUILT-IN WEB SEARCH TOOL to retrieve and add the necessary background/context from your knowledge.
     3. Impact: who is affected and how.
   • The FIRST SENTENCE MUST NOT repeat the title! It must start with facts NOT mentioned in the title.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
@@ -91,7 +91,7 @@ CONTENT: %s
 
 "tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. Use double quotes. (e.g. "податки", "робота").
 
-"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title).
+"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title. DO NOT use country flags like 🇩🇰 or 🇺🇦).
 
 "is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
@@ -119,9 +119,9 @@ CONTENT: %s
   
   IMPORTANT: Evaluate strictly from 1 to 12. Do NOT lump scores. Spread the scores out truthfully so every news article gets its exact rank.
 
-"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji.
+"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇩🇰 or 🇺🇦).
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
-  • Add context, do not repeat the news. Avoid clichés.
+  • Add context, do not repeat the news. Avoid clichs.
 
 ━━━ PROHIBITIONS & CRITICAL STYLE RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - NO cliché engagement phrases: "Час покаже", "Чи стане це хітом", "Чи чекаєте ви", "Побачимо".

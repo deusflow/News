@@ -900,7 +900,7 @@ func hasDenmarkContext(categoryWeights map[string]int, matches []config.KeywordM
 	}
 	for _, m := range matches {
 		switch strings.ToLower(m.Word) {
-		case "danmark", "denmark", "i danmark", "dansk", "danske", "danskere", "folketing", "regeringen", "statsminister", "kommune", "kommunen", "kommunerne", "region", "regioner":
+		case "danmark", "denmark", "danish", "i danmark", "dansk", "danske", "danskere", "folketing", "regeringen", "statsminister", "kommune", "kommunen", "kommunerne", "region", "regioner":
 			return true
 		}
 	}
