@@ -476,6 +476,10 @@ func Load() (*Config, error) {
 		}
 		cfg.AI.Providers = parts
 	}
+	cfg.AI.Providers = normalizeProviders(cfg.AI.Providers)
+	if len(cfg.AI.Providers) == 0 {
+		return nil, fmt.Errorf("AI_PROVIDERS is empty after normalization")
+	}
 
 	if v := os.Getenv("ENABLE_HTTP_MONITORING"); v == "true" {
 		cfg.Monitoring.EnableHTTPMonitoring = true
@@ -545,6 +549,29 @@ func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
 		}
 	}
 	return defaultValue
+}
+
+func normalizeProviders(providers []string) []string {
+	allowed := map[string]bool{"gemini": true, "groq": true}
+	seen := map[string]bool{}
+	ordered := make([]string, 0, len(providers))
+
+	for _, p := range providers {
+		p = strings.TrimSpace(strings.ToLower(p))
+		if p == "" || !allowed[p] || seen[p] {
+			continue
+		}
+		ordered = append(ordered, p)
+		seen[p] = true
+	}
+
+	if seen["gemini"] && seen["groq"] {
+		return []string{"gemini", "groq"}
+	}
+	if len(ordered) == 0 {
+		return []string{"gemini", "groq"}
+	}
+	return ordered
 }
 
 func (c *Config) Validate() error {

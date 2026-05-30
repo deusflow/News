@@ -43,6 +43,11 @@ if [ -z "$TELEGRAM_CHAT_ID" ]; then
     exit 1
 fi
 
+if [ -z "$GEMINI_MODEL" ]; then
+    export GEMINI_MODEL="gemini-3.5-flash"
+    echo "ℹ️ GEMINI_MODEL не задан, используем $GEMINI_MODEL"
+fi
+
 echo "✅ Переменные окружения загружены"
 echo "🎯 Канал: $TELEGRAM_CHAT_ID"
 

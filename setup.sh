@@ -42,7 +42,7 @@ mkdir -p bin
 echo "🎉 Настройка завершена!"
 echo ""
 echo "📋 Следующие шаги:"
-echo "1. Отредактируйте .env файл (добавьте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID)"
+echo "1. Отредактируйте .env файл (добавьте TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, GEMINI_MODEL)"
 echo "2. Запустите: make run-local"
 echo "3. Для GitHub Actions добавьте секреты в репозиторий"
 echo ""
