@@ -60,16 +60,19 @@ type groqResponse struct {
 	} `json:"choices"`
 }
 
-func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*ai.Response, error) {
+func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content))
 
 	// Для Groq лучше явно добавить инструкцию про JSON в конец
-	finalPrompt := prompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown formatting."
+	finalPrompt := userPrompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown formatting."
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = "You are a helpful news assistant. Output valid JSON only."
+	}
 
 	reqBody := groqRequest{
 		Model: c.model,
 		Messages: []message{
-			{Role: "system", Content: "You are a helpful news assistant. Output valid JSON only."},
+			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: finalPrompt},
 		},
 		Temperature: 0.3,

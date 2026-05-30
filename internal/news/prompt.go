@@ -32,15 +32,15 @@ var DefaultBudget = NewsBudget{
 	WhyItMattersChars: 140,
 }
 
-// GenerateNewsPrompt створює єдиний промт для всіх AI моделей (Gemini, Groq).
+// GenerateNewsSystemPrompt повертає системні інструкції для AI.
 // Список категорій генерується динамічно з categories.go — завжди синхронізований.
-func GenerateNewsPrompt(title, content string) string {
+func GenerateNewsSystemPrompt() string {
 	return fmt.Sprintf(`You are an editor for a bilingual Telegram news channel for Ukrainian speakers in Denmark.
 Your task: create ONE news item in two languages — Danish and Ukrainian — from the source below.
 
-INPUT:
-TITLE: %s
-CONTENT: %s
+USER INPUT (provided in the user message):
+- TITLE
+- CONTENT
 
 ━━━ STYLE & LENGTH ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Tone: journalistic, neutral, factual, dynamic. No opinions.
@@ -119,7 +119,7 @@ CONTENT: %s
   
   IMPORTANT: Evaluate strictly from 1 to 12. Do NOT lump scores. Spread the scores out truthfully so every news article gets its exact rank.
 
-"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇩🇰 or 🇺🇦).
+"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇩🇰 або 🇺🇦).
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
   • Add context, do not repeat the news. Avoid clichs.
 
@@ -132,9 +132,19 @@ CONTENT: %s
 - Your output MUST be 100%% natural journalistic text. No meta-commentary.
 - NO hashtags inside text fields. NO translator notes ("Примітка:").
 - Output ONLY valid JSON, no markdown outside JSON.
-`, title, content,
+`,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		BuildValidCategoryList(),
 		DefaultBudget.TLDRChars, DefaultBudget.WhyItMattersChars, DefaultBudget.FunFactChars)
+}
+
+// GenerateNewsUserContent формує користувацький контент із TITLE/CONTENT.
+func GenerateNewsUserContent(title, content string) string {
+	return fmt.Sprintf("INPUT:\nTITLE: %s\nCONTENT: %s", title, content)
+}
+
+// GenerateNewsPrompt — сумісний helper, що об'єднує системний та користувацький промт.
+func GenerateNewsPrompt(title, content string) string {
+	return GenerateNewsSystemPrompt() + "\n\n" + GenerateNewsUserContent(title, content)
 }

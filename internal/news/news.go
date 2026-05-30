@@ -788,9 +788,10 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		logger.Warn("no scraped content, AI works from title only", "index", index+1, "title", title)
 	}
 
-	prompt := GenerateNewsPrompt(title, content)
+	systemPrompt := GenerateNewsSystemPrompt()
+	userPrompt := GenerateNewsUserContent(title, content)
 
-	resp, aiErr := opts.AI.Generate(ctx, title, content, prompt)
+	resp, aiErr := opts.AI.Generate(ctx, title, content, systemPrompt, userPrompt)
 	if aiErr != nil {
 		logger.Error("all AI providers failed", "title", title, "error", aiErr)
 		return nil, aiErr

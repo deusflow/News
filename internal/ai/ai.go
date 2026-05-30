@@ -79,7 +79,7 @@ func (r *Response) Validate() error {
 // Provider - интерфейс, который должны реализовать все модели
 type Provider interface {
 	Name() string
-	Generate(ctx context.Context, title, content, prompt string) (*Response, error)
+	Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error)
 	Close()
 }
 

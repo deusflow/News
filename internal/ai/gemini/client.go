@@ -70,14 +70,19 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) Generate(ctx context.Context, title, content, prompt string) (*ai.Response, error) {
+func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content))
 
 	attempts := len(c.models)
 
 	for i := 0; i < attempts; i++ {
 		model := c.models[c.keyIdx]
-		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+		if strings.TrimSpace(systemPrompt) != "" {
+			model.SystemInstruction = &genai.Content{Parts: []genai.Part{genai.Text(systemPrompt)}}
+		} else {
+			model.SystemInstruction = nil
+		}
+		resp, err := model.GenerateContent(ctx, genai.Text(userPrompt))
 
 		if err == nil {
 			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {

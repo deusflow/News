@@ -24,11 +24,12 @@ const defaultDelay = 7 * time.Second
 
 // aiJob - структура задачи для очереди
 type aiJob struct {
-	ctx     context.Context
-	title   string
-	content string
-	prompt  string
-	result  chan aiResult
+	ctx          context.Context
+	title        string
+	content      string
+	systemPrompt string
+	userPrompt   string
+	result       chan aiResult
 }
 
 // aiResult - структура ответа от ИИ
@@ -137,7 +138,7 @@ func (m *Manager) worker(ctx context.Context) {
 			}
 
 			start := time.Now()
-			resp, err := m.executeWithFallback(job.ctx, job.title, job.content, job.prompt)
+			resp, err := m.executeWithFallback(job.ctx, job.title, job.content, job.systemPrompt, job.userPrompt)
 			lastCall = time.Now()
 
 			if err == nil {
@@ -154,7 +155,7 @@ func (m *Manager) worker(ctx context.Context) {
 // executeWithFallback пробует каждого провайдера по очереди.
 // Если провайдер вернул 429 с Retry-After — ждём ровно столько, сколько просят,
 // и повторяем этого же провайдера один раз перед переходом к следующему.
-func (m *Manager) executeWithFallback(ctx context.Context, title, content, prompt string) (*Response, error) {
+func (m *Manager) executeWithFallback(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error) {
 	var lastErr error
 
 	for _, provider := range m.providers {
@@ -165,10 +166,10 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 		logger.Info("trying AI provider", "provider", provider.Name())
 
 		m.requestCount++
-		resp, err := provider.Generate(ctx, title, content, prompt)
+		rsp, err := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 		if err == nil {
 			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount)
-			return resp, nil
+			return rsp, nil
 		}
 
 		retryAfter := 0
@@ -199,7 +200,7 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 			}
 
 			m.requestCount++
-			resp2, err2 := provider.Generate(ctx, title, content, prompt)
+			resp2, err2 := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 			if err2 == nil {
 				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount)
 				return resp2, nil
@@ -218,15 +219,16 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, promp
 // Generate ставит задачу в очередь и блокируется до получения результата.
 // Вызывается из горутин worker-pool в news.go — все они сериализуются через
 // единственного воркера Manager'а, что и обеспечивает соблюдение RPM-лимита.
-func (m *Manager) Generate(ctx context.Context, title, content, prompt string) (*Response, error) {
+func (m *Manager) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error) {
 	resultCh := make(chan aiResult, 1)
 
 	job := aiJob{
-		ctx:     ctx,
-		title:   title,
-		content: content,
-		prompt:  prompt,
-		result:  resultCh,
+		ctx:          ctx,
+		title:        title,
+		content:      content,
+		systemPrompt: systemPrompt,
+		userPrompt:   userPrompt,
+		result:       resultCh,
 	}
 
 	select {
