@@ -837,7 +837,33 @@ keywords:
   - word: "skud"
     category: "crime"
     weight: 15
-  # alarm и udrykning УБРАНЫ — срабатывали на любой пожар/ЧП
+  - word: "voldtægt"
+    category: "crime"
+    weight: 25
+  - word: "seksuelt overgreb"
+    category: "crime"
+    weight: 22
+  - word: "overgreb"
+    category: "crime"
+    weight: 18
+  - word: "grooming"
+    category: "crime"
+    weight: 18
+  - word: "udvisning"
+    category: "visas"
+    weight: 30
+  - word: "udvises"
+    category: "visas"
+    weight: 25
+  - word: "udviste"
+    category: "visas"
+    weight: 20
+  - word: "forsvindelse"
+    category: "visas"
+    weight: 25
+  - word: "forsvinder"
+    category: "visas"
+    weight: 20
 
 
   # =======================================================
@@ -893,6 +919,48 @@ keywords:
     category: "spam"
     weight: -8
   - word: "træner"
+    category: "spam"
+    weight: -8
+
+
+  # =======================================================
+  # ШТРАФЫ: МЕЛКАЯ ЭКОЛОГИЯ И БЮДЖЕТНАЯ РУТИНА
+  # =======================================================
+
+  - word: "klima"
+    category: "spam"
+    weight: -12
+  - word: "miljø"
+    category: "spam"
+    weight: -12
+  - word: "co2"
+    category: "spam"
+    weight: -12
+  - word: "grøn omstilling"
+    category: "spam"
+    weight: -10
+  - word: "klimaplan"
+    category: "spam"
+    weight: -10
+  - word: "klimaprojekt"
+    category: "spam"
+    weight: -10
+  - word: "budgetforlig"
+    category: "spam"
+    weight: -12
+  - word: "budgetaftale"
+    category: "spam"
+    weight: -12
+  - word: "kommunebudget"
+    category: "spam"
+    weight: -12
+  - word: "budgetforhandlinger"
+    category: "spam"
+    weight: -10
+  - word: "fordeling af midler"
+    category: "spam"
+    weight: -10
+  - word: "pulje"
     category: "spam"
     weight: -8
 

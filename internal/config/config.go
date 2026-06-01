@@ -343,8 +343,8 @@ func Load() (*Config, error) {
 			VideoMaxSeconds:         180,
 		},
 		Scraper: ScraperConfig{
-			Concurrency: 1,
-			MaxArticles: 10,
+			Concurrency: 2,
+			MaxArticles: 15,
 		},
 		Database: DatabaseConfig{
 			TTL: 48, // default TTL for database records

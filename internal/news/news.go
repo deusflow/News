@@ -221,38 +221,102 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		return scored[i].kwScore > scored[j].kwScore
 	})
 
-	// Отсекаем явный мусор (score < 0), лимитируем по ПерСорс и берём топ maxAICandidates
-	var topCandidates []preScored
+	// 50/50 prefilter: половина слотов под строгие keyword матчи,
+	// остальное — VIP/пограничные кейсы (аккуратно, чтобы не сжечь AI лимит).
+	primarySlots := maxAICandidates
+	reserveSlots := 0
+	if maxAICandidates >= 4 {
+		primarySlots = maxAICandidates / 2
+		reserveSlots = maxAICandidates - primarySlots
+	}
+
+	primary := make([]preScored, 0, primarySlots)
+	reserve := make([]preScored, 0, reserveSlots)
+	picked := make(map[string]bool, maxAICandidates)
 	sourceCounts := make(map[string]int)
 
-	for _, s := range scored {
-		if opts.Keywords != nil && s.kwScore < minKeywordScoreForAI {
-			logger.Info("pre-filter: skipping non-relevant keyword score",
-				"title", s.item.Title,
-				"source", s.item.Source.Name,
-				"lang", s.item.Source.Lang,
-				"kw_score", s.kwScore,
-				"threshold", minKeywordScoreForAI)
-			continue
+	appendCandidate := func(target *[]preScored, s preScored) bool {
+		if picked[s.item.Link] {
+			return false
 		}
-
 		if opts.PerSource > 0 {
 			if sourceCounts[s.item.Source.Name] >= opts.PerSource {
-				continue // Skip if this source already has enough top candidates
+				return false
 			}
 			sourceCounts[s.item.Source.Name]++
 		}
+		picked[s.item.Link] = true
+		*target = append(*target, s)
+		return true
+	}
 
-		topCandidates = append(topCandidates, s)
-		if len(topCandidates) >= maxAICandidates {
-			break
+	for _, s := range scored {
+		if s.kwScore >= minKeywordScoreForAI {
+			if len(primary) >= primarySlots {
+				continue
+			}
+			appendCandidate(&primary, s)
+		}
+	}
+
+	if reserveSlots > 0 {
+		for _, s := range scored {
+			if len(reserve) >= reserveSlots {
+				break
+			}
+			if s.kwScore >= minKeywordScoreForAI {
+				continue
+			}
+			if !isVIPKeywordMatch(s.kwMatches) {
+				continue
+			}
+			appendCandidate(&reserve, s)
+		}
+
+		if len(reserve) < reserveSlots {
+			for _, s := range scored {
+				if len(reserve) >= reserveSlots {
+					break
+				}
+				if s.kwScore >= minKeywordScoreForAI {
+					continue
+				}
+				if isVIPKeywordMatch(s.kwMatches) {
+					continue
+				}
+				if !isBorderlineKeywordScore(s.kwScore, minKeywordScoreForAI) {
+					continue
+				}
+				if !hasDenmarkContext(s.kwCategoryWeights, s.kwMatches) && !hasUkraineContext(s.kwMatches) {
+					continue
+				}
+				appendCandidate(&reserve, s)
+			}
+		}
+	}
+
+	topCandidates := append(primary, reserve...)
+	if len(topCandidates) < maxAICandidates {
+		for _, s := range scored {
+			if len(topCandidates) >= maxAICandidates {
+				break
+			}
+			if s.kwScore < minKeywordScoreForAI {
+				continue
+			}
+			appendCandidate(&topCandidates, s)
 		}
 	}
 
 	logger.Info("keyword pre-filter done",
 		"total_candidates", len(candidates),
 		"passed_filter", len(topCandidates),
-		"rejected", len(candidates)-len(topCandidates))
+		"rejected", len(candidates)-len(topCandidates),
+		"primary_slots", primarySlots,
+		"reserve_slots", reserveSlots,
+		"primary_used", len(primary),
+		"reserve_used", len(reserve),
+		"min_keyword_score", minKeywordScoreForAI)
 
 	if len(topCandidates) == 0 {
 		logger.Info("no candidates passed keyword pre-filter")
@@ -893,6 +957,24 @@ func getMinKeywordScoreForAI() int {
 		}
 	}
 	return defaultMin
+}
+
+func isVIPKeywordMatch(matches []config.KeywordMatch) bool {
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "voldtægt", "seksuelt overgreb", "overgreb", "grooming",
+			"udvisning", "udvises", "udviste", "deportation":
+			return true
+		}
+	}
+	return false
+}
+
+func isBorderlineKeywordScore(score, min int) bool {
+	if min <= 0 {
+		return false
+	}
+	return score >= min-3 && score < min
 }
 
 func hasDenmarkContext(categoryWeights map[string]int, matches []config.KeywordMatch) bool {
