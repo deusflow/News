@@ -8,8 +8,8 @@
  */
 
 const RSS_FEEDS = [
-  "https://www.dr.dk/nyheder/service/feeds/allenyheder",
-  "https://nyheder.tv2.dk/rss"
+  "https://www.dr.dk/nyheder/service/feeds/senestenyt",
+  "https://feeds.services.tv2.dk/api/feeds/nyheder/rss"
 ];
 
 // Ключевые слова, которые триггерят "Молнию"
@@ -37,7 +37,15 @@ async function checkFeeds(env) {
 
   for (const feedUrl of RSS_FEEDS) {
     try {
-      const response = await fetch(feedUrl);
+      const response = await fetch(feedUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; DK-NewsRadar/1.0)" }
+      });
+      
+      if (!response.ok) {
+        console.error(`${feedUrl} вернул ${response.status}`);
+        continue;
+      }
+      
       const text = await response.text();
 
       // Очень простой парсинг RSS (ищем теги <item> ... <title> ... </item>)
@@ -92,6 +100,7 @@ async function triggerGitHubAction(title, url, pat) {
     headers: {
       "Accept": "application/vnd.github.v3+json",
       "Authorization": `token ${pat}`,
+      "Content-Type": "application/json",
       "User-Agent": "Cloudflare-Worker-Radar"
     },
     body: JSON.stringify({
