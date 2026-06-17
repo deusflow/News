@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/deusflow/News/internal/app"
+	"github.com/deusflow/News/internal/breaking"
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
@@ -42,16 +43,27 @@ func main() {
 		if arg == "-mode=reddit" || arg == "--mode=reddit" {
 			botMode = "reddit"
 		}
+		if arg == "-mode=breaking" || arg == "--mode=breaking" {
+			botMode = "breaking"
+		}
 		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
 			botMode = os.Args[i+1]
 		}
 	}
 
+	aiMgr := application.GetAIManager()
+
 	if botMode == "reddit" {
-		// Initialize AI Manager for Reddit mode
-		aiMgr := application.GetAIManager() // We need to add this getter to app
 		if err := reddit.Run(ctx, cfg, aiMgr); err != nil {
 			logger.Error("Reddit mode failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if botMode == "breaking" {
+		if err := breaking.Run(ctx, cfg, aiMgr); err != nil {
+			logger.Error("Breaking mode failed", "error", err)
 			os.Exit(1)
 		}
 		return

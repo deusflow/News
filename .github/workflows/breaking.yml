@@ -1,0 +1,65 @@
+name: Danish News Bot - Breaking News
+
+on:
+  repository_dispatch:
+    types: [breaking_news]
+  workflow_dispatch:
+    inputs:
+      title:
+        description: 'Breaking News Title'
+        required: true
+      url:
+        description: 'Breaking News URL'
+        required: true
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USE_POSTGRES: 'true'
+
+      # Breaking data comes either from dispatch payload or manual input
+      BREAKING_TITLE: ${{ github.event.client_payload.title || github.event.inputs.title }}
+      BREAKING_URL: ${{ github.event.client_payload.url || github.event.inputs.url }}
+
+      # AI settings
+      MAX_GEMINI_REQUESTS: 2
+      BOT_MODE: breaking
+
+      # API Keys and Tokens
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash-lite
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      AI_PROVIDERS: "gemini,groq"
+
+      GO111MODULE: 'on'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Prepare deps and build
+        run: |
+          go mod download
+          mkdir -p bin
+          go build -o bin/dknews ./cmd/dknews
+        working-directory: ${{ github.workspace }}
+
+      - name: Publish Breaking News
+        run: |
+          echo "🚨 Starting Danish News Bot (Breaking Mode)..."
+          ./bin/dknews -mode=breaking
+        working-directory: ${{ github.workspace }}
