@@ -13,6 +13,7 @@ import (
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
+	"github.com/deusflow/News/internal/reddit"
 )
 
 func main() {
@@ -34,6 +35,27 @@ func main() {
 	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Check for Reddit mode
+	botMode := os.Getenv("BOT_MODE")
+	for i, arg := range os.Args {
+		if arg == "-mode=reddit" || arg == "--mode=reddit" {
+			botMode = "reddit"
+		}
+		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
+			botMode = os.Args[i+1]
+		}
+	}
+
+	if botMode == "reddit" {
+		// Initialize AI Manager for Reddit mode
+		aiMgr := application.GetAIManager() // We need to add this getter to app
+		if err := reddit.Run(ctx, cfg, aiMgr); err != nil {
+			logger.Error("Reddit mode failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Check if we should start HTTP server for monitoring
 	if cfg.Monitoring.EnableHTTPMonitoring {

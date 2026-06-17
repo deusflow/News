@@ -14,8 +14,9 @@ import (
 )
 
 type TelegramConfig struct {
-	Token  string
-	ChatID string
+	Token       string
+	ChatID      string
+	AdminChatID string
 }
 
 type PostingConfig struct {
@@ -374,6 +375,7 @@ func Load() (*Config, error) {
 	// Load from environment
 	cfg.Telegram.Token = os.Getenv("TELEGRAM_TOKEN")
 	cfg.Telegram.ChatID = os.Getenv("TELEGRAM_CHAT_ID")
+	cfg.Telegram.AdminChatID = os.Getenv("TELEGRAM_ADMIN_ID")
 	cfg.AI.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	cfg.AI.GeminiAPIKey2 = os.Getenv("GEMINI_API_KEY_2")
 	cfg.AI.GeminiAPIKey3 = os.Getenv("GEMINI_API_KEY_3")

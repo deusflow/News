@@ -124,6 +124,11 @@ type App struct {
 	supabaseClient   *storage.SupabaseClient
 }
 
+// GetAIManager returns the AI Manager instance.
+func (a *App) GetAIManager() *ai.Manager {
+	return a.aiManager
+}
+
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	logger.Init()
 	logger.Info("Initializing Danish News Bot")
@@ -312,6 +317,7 @@ func (a *App) Run(ctx context.Context) {
 	if err != nil {
 		a.metrics.SetError(err.Error())
 		logger.Error("Fetch error", "err", err)
+		_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to fetch RSS feeds:\n%v", err))
 		return
 	}
 
@@ -325,6 +331,7 @@ func (a *App) Run(ctx context.Context) {
 	if err != nil {
 		a.metrics.SetError(err.Error())
 		logger.Error("Filter error", "err", err)
+		_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to filter/process news (AI API issue?):\n%v", err))
 		return
 	}
 

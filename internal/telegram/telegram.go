@@ -28,6 +28,29 @@ var (
 	plainURLRegex = regexp.MustCompile(`https?://[^\s<>"]+`)
 )
 
+// SendAdminAlert sends a plain text alert to the admin chat ID (bypasses html parsing to prevent tag breakage in logs)
+func SendAdminAlert(token string, adminChatID string, text string) error {
+	if adminChatID == "" {
+		return nil
+	}
+	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, token)
+	body := map[string]interface{}{
+		"chat_id":                  adminChatID,
+		"text":                     "🚨 <b>NewsBot Alert:</b>\n\n" + escapeHTML(text),
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+	}
+	_, err := executeRequest(context.Background(), url, body)
+	return err
+}
+
+func escapeHTML(text string) string {
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
+}
+
 // SendMessageAllowPreview sends a message allowing web preview
 func SendMessageAllowPreview(token string, chatID string, text string) (int, error) {
 	return sendMessage(context.Background(), token, chatID, text, nil, true, 0)
