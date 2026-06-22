@@ -16,6 +16,7 @@ import (
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/news"
 	"github.com/deusflow/News/internal/rss"
+	"github.com/deusflow/News/internal/scraper"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
 	"github.com/deusflow/News/internal/website"
@@ -127,6 +128,11 @@ type App struct {
 // GetAIManager returns the AI Manager instance.
 func (a *App) GetAIManager() *ai.Manager {
 	return a.aiManager
+}
+
+// GetSupabase returns the Supabase client instance.
+func (a *App) GetSupabase() *storage.SupabaseClient {
+	return a.supabaseClient
 }
 
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
@@ -312,13 +318,32 @@ func (a *App) Run(ctx context.Context) {
 		syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
 	}
 
-	// 5. Скачивание новостей
+	// 5. Скачивание новостей RSS
 	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
 		a.metrics.SetError(err.Error())
 		logger.Error("Fetch error", "err", err)
 		_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to fetch RSS feeds:\n%v", err))
 		return
+	}
+
+	// 5.5. Скачивание новостей Nyidanmark
+	nyScraper := scraper.NewNyidanmarkScraper()
+	nyLinks, err := nyScraper.ScrapeFrontpage(ctx)
+	if err == nil {
+		for _, link := range nyLinks {
+			// Проверяем, не отправляли ли мы уже этот URL!
+			if !a.cacheAdapter.IsSourceURLSent(link) {
+				nyItem, err := nyScraper.ScrapeArticle(ctx, link)
+				if err == nil && nyItem != nil {
+					items = append(items, nyItem)
+				}
+			} else {
+				logger.Info("Nyidanmark URL already sent, skipping scrape", "url", link)
+			}
+		}
+	} else {
+		logger.Warn("Failed to scrape Nyidanmark frontpage", "err", err)
 	}
 
 	// Обновляем метрики
@@ -397,6 +422,13 @@ func (a *App) ReloadConfig() error {
 // sendOneNews formats and sends a single news item to Telegram.
 // On failure the item is saved to DLQ for retry on next run.
 func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	// Если нет картинки, подставляем красивую заготовку по категории
+	if n.ImageURL == "" {
+		c := news.ValidateCategory(n.Category)
+		n.ImageURL = news.GetCategoryImage(c)
+		logger.Info("Using default category image", "category", c, "url", n.ImageURL)
+	}
+
 	funFactOriginal := strings.TrimSpace(n.FunFact)
 	if funFactOriginal == "" {
 		logger.Info("fun_fact missing from AI response", "title", n.Title)

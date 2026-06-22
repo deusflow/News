@@ -12,6 +12,7 @@ import (
 	"github.com/deusflow/News/internal/app"
 	"github.com/deusflow/News/internal/breaking"
 	"github.com/deusflow/News/internal/config"
+	"github.com/deusflow/News/internal/digest"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/reddit"
@@ -46,6 +47,9 @@ func main() {
 		if arg == "-mode=breaking" || arg == "--mode=breaking" {
 			botMode = "breaking"
 		}
+		if arg == "-mode=digest" || arg == "--mode=digest" {
+			botMode = "digest"
+		}
 		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
 			botMode = os.Args[i+1]
 		}
@@ -64,6 +68,14 @@ func main() {
 	if botMode == "breaking" {
 		if err := breaking.Run(ctx, cfg, aiMgr); err != nil {
 			logger.Error("Breaking mode failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if botMode == "digest" {
+		if err := digest.RunDigest(ctx, cfg, aiMgr, application.GetSupabase()); err != nil {
+			logger.Error("Digest mode failed", "error", err)
 			os.Exit(1)
 		}
 		return
