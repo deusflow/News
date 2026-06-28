@@ -41,3 +41,22 @@ func TestFormatNewsWithImage_IncludesWhyItMatters(t *testing.T) {
 		t.Fatalf("expected why-it-matters block in output, got: %q", out)
 	}
 }
+
+func TestSanitizeStartFlag(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"🇸🇪 Новина про Данію", "🇩🇰 Новина про Данію"},
+		{"🇳🇴 Новина про Норвегію", "🇩🇰 Новина про Норвегію"},
+		{"🇩🇰 Новина про Данію", "🇩🇰 Новина про Данію"},
+		{"Сьюзан 🇸🇪 Кронборг", "Сьюзан 🇸🇪 Кронборг"}, // inside string shouldn't be affected
+	}
+
+	for _, tt := range tests {
+		got := sanitizeStartFlag(tt.input)
+		if got != tt.expected {
+			t.Errorf("sanitizeStartFlag(%q) = %q; expected %q", tt.input, got, tt.expected)
+		}
+	}
+}

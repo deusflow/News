@@ -92,7 +92,7 @@ USER INPUT (provided in the user message):
 
 "tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. Use double quotes. (e.g. "податки", "робота").
 
-"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title. DO NOT use country flags like 🇩🇰 or 🇺🇦).
+"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title. DO NOT use country flags like 🇸🇪, 🇳🇴, or 🇺🇦. If a flag is absolutely needed, use ONLY the Danish flag 🇩🇰, but prefer standard symbolic emojis like 🏛️, 💼, 📈, etc. Never use 🇸🇪 for Danish news).
 
 "is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
@@ -120,7 +120,7 @@ USER INPUT (provided in the user message):
   
   IMPORTANT: Evaluate strictly from 1 to 12. Do NOT lump scores. Spread the scores out truthfully so every news article gets its exact rank.
 
-"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇩🇰 або 🇺🇦).
+"fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇸🇪, 🇳🇴, or 🇺🇦. If a flag is needed, use ONLY the Danish flag 🇩🇰, but prefer standard symbolic emojis).
   • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
   • Add context, do not repeat the news. Avoid clichs.
 

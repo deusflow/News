@@ -160,6 +160,9 @@ func ExtractVideoURL(n News) string {
 // поэтому в тексте её нет.
 // ──────────────────────────────────────────────────────────────────────
 func FormatNewsWithImage(n News) string {
+	n.TLDR = sanitizeStartFlag(n.TLDR)
+	n.FunFact = sanitizeStartFlag(n.FunFact)
+
 	var b strings.Builder
 
 	// 1. Тема
@@ -236,6 +239,9 @@ func FormatNewsWithImage(n News) string {
 //
 // ──────────────────────────────────────────────────────────────────────
 func FormatCaptionForPhoto(n News, maxLen int) string {
+	n.TLDR = sanitizeStartFlag(n.TLDR)
+	n.FunFact = sanitizeStartFlag(n.FunFact)
+
 	// Telegram API hard limit for photo captions is 1024 characters.
 	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
 	if maxLen <= 0 || maxLen > 1024 {
@@ -353,4 +359,16 @@ func ShouldUsePhoto(n News, maxLen int) bool {
 	}
 	caption := FormatCaptionForPhoto(n, maxLen)
 	return caption != ""
+}
+
+func sanitizeStartFlag(s string) string {
+	s = strings.TrimSpace(s)
+	// Replace Sweden and Norway flag emojis with Denmark flag if they are at the start of the string
+	if strings.HasPrefix(s, "🇸🇪") {
+		return "🇩🇰" + strings.TrimPrefix(s, "🇸🇪")
+	}
+	if strings.HasPrefix(s, "🇳🇴") {
+		return "🇩🇰" + strings.TrimPrefix(s, "🇳🇴")
+	}
+	return s
 }
