@@ -1,9 +1,9 @@
-name: Danish News Bot - Reddit Weekly Digest
+name: Danish News Bot - Weekly Sunday Digest
 
 on:
   schedule:
-    # Run every Sunday at 12:00 UTC (14:00 in Denmark)
-    - cron: '0 12 * * 0'
+    # Run every Sunday at 18:00 UTC (20:00 in Denmark)
+    - cron: '0 18 * * 0'
   workflow_dispatch: { }
 
 jobs:
@@ -16,15 +16,21 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       USE_POSTGRES: 'true'
 
+      # Supabase (for website archive and digest primary source)
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
       # AI settings
-      MAX_GEMINI_REQUESTS: 2
-      BOT_MODE: reddit
+      MAX_GEMINI_REQUESTS: 3
+      BOT_MODE: digest
 
       # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+      GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
       GEMINI_MODEL: gemini-2.5-flash-lite
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       AI_PROVIDERS: "gemini,groq"
@@ -48,8 +54,8 @@ jobs:
           go build -o bin/dknews ./cmd/dknews
         working-directory: ${{ github.workspace }}
 
-      - name: Run Reddit Digest
+      - name: Run Sunday Digest
         run: |
-          echo "🚀 Starting Danish News Bot (Reddit Mode)..."
-          ./bin/dknews -mode=reddit
+          echo "🚀 Starting Danish News Bot (Sunday Digest Mode)..."
+          ./bin/dknews -mode=digest
         working-directory: ${{ github.workspace }}

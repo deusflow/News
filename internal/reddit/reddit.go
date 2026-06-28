@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -163,15 +164,15 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 	// 4. Публикация в Telegram
 	digestText := strings.TrimSpace(aiResponse.Ukrainian)
-	if digestText == "" {
+	if !hasTextContent(digestText) {
 		digestText = strings.TrimSpace(aiResponse.Summary)
 	}
-	if digestText == "" {
+	if !hasTextContent(digestText) {
 		digestText = strings.TrimSpace(aiResponse.Danish)
 	}
 
-	if digestText == "" {
-		return fmt.Errorf("AI returned empty digest content (both ukrainian and summary fields are empty)")
+	if !hasTextContent(digestText) {
+		return fmt.Errorf("AI returned empty digest content (both ukrainian and summary fields are empty/invalid)")
 	}
 
 	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, digestText)
@@ -181,6 +182,16 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 	logger.Info("Successfully published Weekly Digest", "source", sourceName)
 	return nil
+}
+
+func hasTextContent(s string) bool {
+	// Remove HTML tags
+	re := regexp.MustCompile(`<[^>]*>`)
+	stripped := re.ReplaceAllString(s, "")
+	// Also remove HTML space entities
+	stripped = strings.ReplaceAll(stripped, "&nbsp;", "")
+	stripped = strings.ReplaceAll(stripped, "&#8203;", "")
+	return strings.TrimSpace(stripped) != ""
 }
 
 type RedditPost struct {
