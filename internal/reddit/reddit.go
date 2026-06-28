@@ -22,7 +22,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 	logger.Info("Starting Reddit Weekly Digest Run")
 
 	var sb strings.Builder
-	var prompt string
+	var systemPrompt string
+	var userPrompt string
 	var sourceName string
 
 	// 1. Сбор постов с Reddit (Основной план)
@@ -33,8 +34,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 			sb.WriteString(fmt.Sprintf("Post %d: %s\nContent: %s\nScore: %d\nComments: %d\n---\n", i+1, p.Title, truncateString(p.Selftext, 500), p.Score, p.NumComments))
 		}
 
-		prompt = fmt.Sprintf(`Ты - аналитик и журналист. Твоя задача сделать еженедельный дайджест "Что обсуждали датчане на Reddit на этой неделе". 
-Проанализируй следующие популярные посты с r/Denmark. 
+		systemPrompt = `Ты - аналитик и журналист. Твоя задача сделать еженедельный дайджест "Что обсуждали датчане на Reddit на этой неделе". 
+Проанализируй популярные посты с r/Denmark. 
 Игнорируй токсичные выбросы, троллинг и бессмысленные посты. 
 Сделай выжимку только по темам: Украина/украинцы, политика, экономика, деньги, налоги, образование, важные социальные проблемы.
 
@@ -46,8 +47,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 Используй HTML-теги <b> <i> для форматирования.
 
-Вот данные:
-%s`, sb.String())
+УВАГА: Ты должен вернуть ВАЛИДНЫЙ JSON! Текст готового поста на украинском языке помести в поле "ukrainian". Все остальные поля оставь пустыми.`
+		userPrompt = "Вот данные с Reddit для анализа:\n\n" + sb.String()
 	} else {
 		if err != nil {
 			logger.Warn("Reddit fetch failed, activating Plan B (Database news fallback)", "error", err)
@@ -102,8 +103,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 				sb.WriteString(fmt.Sprintf("News %d: %s\nSummary: %s\nURL: %s\n---\n", i+1, n.Title, truncateString(n.Content, 400), n.Link))
 			}
 
-			prompt = fmt.Sprintf(`Ты - аналитик и журналист. Твоя задача сделать недільний дайджест головних новин Данії за тиждень. 
-Проанализируй следующие новости, которые уже выходили в нашем канале на этой неделе.
+			systemPrompt = `Ты - аналитик и журналист. Твоя задача сделать недільний дайджест головних новин Данії за тиждень. 
+Проанализируй предоставленные новости, которые уже выходили в нашем канале на этой неделе.
 Сделай красивую выжимку самых важных событий и трендов в Дании.
 
 Твой ответ должен быть готовым постом для Telegram на украинском языке, с эмодзи. 
@@ -115,8 +116,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 Используй HTML-теги <b> <i> для форматирования.
 
-Вот данные:
-%s`, sb.String())
+УВАГА: Ты должен вернуть ВАЛИДНЫЙ JSON! Текст готового поста на украинском языке помести в поле "ukrainian". Все остальные поля оставь пустыми.`
+			userPrompt = "Вот список новостей за неделю для анализа:\n\n" + sb.String()
 		} else {
 			logger.Warn("Plan B failed or empty, activating Plan C (dr.dk RSS fallback)")
 
@@ -129,8 +130,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 					sb.WriteString(fmt.Sprintf("News %d: %s\nDescription: %s\nURL: %s\n---\n", i+1, n.Title, truncateString(n.Selftext, 400), n.Link))
 				}
 
-				prompt = fmt.Sprintf(`Ты - аналитик и журналист. Твоя задача сделать недільний дайджест головних новин Данії за тиждень. 
-Проанализируй следующие свежие новости с главного датского новостного портала dr.dk.
+				systemPrompt = `Ты - аналитик и журналист. Твоя задача сделать недільний дайджест головних новин Данії за тиждень. 
+Проанализируй предоставленные свежие новости с главного датского новостного портала dr.dk.
 Сделай красивую выжимку самых важных событий и трендов в Дании.
 
 Твой ответ должен быть готовым постом для Telegram на украинском языке, с эмодзи. 
@@ -142,8 +143,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 Используй HTML-теги <b> <i> для форматирования.
 
-Вот данные:
-%s`, sb.String())
+УВАГА: Ты должен вернуть ВАЛИДНЫЙ JSON! Текст готового поста на украинском языке помести в поле "ukrainian". Все остальные поля оставь пустыми.`
+				userPrompt = "Вот свежие новости с портала dr.dk для анализа:\n\n" + sb.String()
 			} else {
 				if drErr != nil {
 					return fmt.Errorf("all fallbacks failed (Reddit, DB, dr.dk): %w", drErr)
@@ -155,13 +156,25 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 	// 3. Генерация через Gemini
 	logger.Info("Sending to AI", "source", sourceName, "context_length", len(sb.String()))
-	aiResponse, err := aiManager.Generate(ctx, sourceName, sb.String(), prompt, "")
+	aiResponse, err := aiManager.Generate(ctx, sourceName, sb.String(), systemPrompt, userPrompt)
 	if err != nil {
 		return fmt.Errorf("failed to generate digest with AI: %w", err)
 	}
 
 	// 4. Публикация в Telegram
-	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, aiResponse.Ukrainian)
+	digestText := strings.TrimSpace(aiResponse.Ukrainian)
+	if digestText == "" {
+		digestText = strings.TrimSpace(aiResponse.Summary)
+	}
+	if digestText == "" {
+		digestText = strings.TrimSpace(aiResponse.Danish)
+	}
+
+	if digestText == "" {
+		return fmt.Errorf("AI returned empty digest content (both ukrainian and summary fields are empty)")
+	}
+
+	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, digestText)
 	if err != nil {
 		return fmt.Errorf("failed to send telegram message: %w", err)
 	}
