@@ -30,7 +30,7 @@
             {{ range .Pages }}
             <article class="news-card">
                 <div class="news-card__image-wrapper">
-                    {{ $img := .Params.image | default "https://placehold.co/400x250/222/FFF?text=News" }}
+                    {{ $img := .Params.image | default "https://images.unsplash.com/photo-1513622470522-26c308a371e5?w=800&h=500&fit=crop" }}
                     <img src="{{ $img }}" alt="{{ .Title }}" class="news-card__image">
                     {{ $cat := "Новини" }}
                     {{ with .Params.categories }}{{ $rawCat := index . 0 }}{{ $cat = index $categoryMap $rawCat | default $rawCat }}{{ end }}
