@@ -273,7 +273,23 @@ func fetchDRNews() ([]RedditPost, error) {
 		Timeout: 15 * time.Second,
 	}
 
-	feed, err := fp.ParseURL(searchURL)
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", redditUserAgent)
+
+	resp, err := fp.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dr.dk returned %d", resp.StatusCode)
+	}
+
+	feed, err := fp.Parse(resp.Body)
 	if err != nil {
 		return nil, err
 	}
