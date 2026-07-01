@@ -23,17 +23,34 @@ func Init() {
 }
 
 func Info(msg string, args ...any) {
+	if Logger == nil {
+		slog.Info(msg, args...)
+		return
+	}
 	Logger.Info(msg, args...)
 }
 
 func Error(msg string, args ...any) {
+	if Logger == nil {
+		slog.Error(msg, args...)
+		return
+	}
 	Logger.Error(msg, args...)
 }
 
 func Debug(msg string, args ...any) {
+	if Logger == nil {
+		slog.Debug(msg, args...)
+		return
+	}
 	Logger.Debug(msg, args...)
 }
 
 func Warn(msg string, args ...any) {
+	if Logger == nil {
+		slog.Warn(msg, args...)
+		return
+	}
 	Logger.Warn(msg, args...)
 }
+

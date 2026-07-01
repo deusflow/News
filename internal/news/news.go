@@ -96,6 +96,16 @@ type scrapedItem struct {
 	scrapeImageURL string // og:image из скрапера (может быть "")
 }
 
+// preScored holds a candidate after cheap keyword evaluation but before AI.
+// Package-level so helpers like applyCrossSourceBoost can operate on it.
+type preScored struct {
+	item              *rss.FeedItem
+	kwScore           int
+	kwCat             string
+	kwCategoryWeights map[string]int
+	kwMatches         []config.KeywordMatch
+}
+
 func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, opts Options) ([]News, error) {
 	logger.Info("starting news fetch cycle")
 	logger.Info("received raw items from RSS", "count", len(items))
@@ -175,13 +185,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		maxAICandidates = 5
 	}
 
-	type preScored struct {
-		item              *rss.FeedItem
-		kwScore           int
-		kwCat             string
-		kwCategoryWeights map[string]int
-		kwMatches         []config.KeywordMatch
-	}
+	// preScored is defined at package level (below) so it can be used
+	// by applyCrossSourceBoost and other helpers.
 
 	var scored []preScored
 	for _, item := range candidates {
@@ -215,6 +220,12 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			kwMatches:         kwMatches,
 		})
 	}
+
+	// ── Шаг 3а: Cross-source boost ────────────────────────────────────────
+	// If multiple RSS sources report the same story, it's a strong editorial
+	// signal. We use bigram Jaccard similarity on titles to cluster stories.
+	// Each extra source mention adds +15 to keyword score (free, no AI).
+	applyCrossSourceBoost(scored)
 
 	// Сортируем по keyword score (лучшие первые)
 	sort.SliceStable(scored, func(i, j int) bool {
@@ -318,8 +329,52 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		"reserve_used", len(reserve),
 		"min_keyword_score", minKeywordScoreForAI)
 
+	// ── Шаг 3б: AI Triage — дешёвая rescue отвергнутых заголовков ─────────
+	// Один batch-запрос (~200 input tokens) оценивает ВСЕ заголовки,
+	// не прошедшие keyword filter, и спасает до 3 потенциально важных.
+	if opts.AI != nil && len(topCandidates) < maxAICandidates {
+		rejected := collectRejectedHeadlines(candidates, picked)
+		if len(rejected) > 0 {
+			triageSlots := maxAICandidates - len(topCandidates)
+			if triageSlots > 3 {
+				triageSlots = 3
+			}
+			rescued := runTriage(ctx, rejected, opts.AI)
+			if len(rescued) > 0 {
+				// Map rescued indices back to original candidates
+				rejectedItems := make([]*rss.FeedItem, 0, len(rejected))
+				for _, item := range candidates {
+					if !picked[item.Link] {
+						rejectedItems = append(rejectedItems, item)
+					}
+				}
+				added := 0
+				for _, rIdx := range rescued {
+					if added >= triageSlots {
+						break
+					}
+					if rIdx < len(rejectedItems) {
+						item := rejectedItems[rIdx]
+						// Find the preScored entry for this item
+						for _, s := range scored {
+							if s.item.Link == item.Link {
+								if appendCandidate(&topCandidates, s) {
+									added++
+								}
+								break
+							}
+						}
+					}
+				}
+				logger.Info("AI triage added candidates",
+					"rescued", added,
+					"total_after_triage", len(topCandidates))
+			}
+		}
+	}
+
 	if len(topCandidates) == 0 {
-		logger.Info("no candidates passed keyword pre-filter")
+		logger.Info("no candidates passed keyword pre-filter or AI triage")
 		return nil, nil
 	}
 
@@ -471,6 +526,13 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			n.KeywordMatches = kwMatches
 			n.HasDenmarkContext = hasDenmarkContext(kwCategoryWeights, kwMatches)
 			n.HasUkraineContext = hasUkraineContext(kwMatches)
+
+			// Auto-DK context: Danish-language sources are by definition about Denmark.
+			// Danish media don't write "i Danmark" in every article about local events
+			// (e.g. "Skuddrab i Nørrebro"), so keyword-based detection misses them.
+			if s.item.Source.Lang == "da" {
+				n.HasDenmarkContext = true
+			}
 
 			impactScore := calculateImpactScore(kwCategoryWeights)
 			coreImpact, softScore, editorialAdjustment := calculateEditorialSignals(kwCategoryWeights)
@@ -673,6 +735,14 @@ func PassesAudienceRelevanceGate(n News) bool {
 	// 1-3 scores correspond to weak/irrelevant connection.
 	if n.AudienceScore > 0 && n.AudienceScore <= 3 {
 		return false
+	}
+
+	// High-profile national news bypass: AI scored this as important (5+).
+	// Scores 5-6 = "High-profile national news, significant emergencies".
+	// This prevents blocking major crimes, disasters, and emergencies
+	// that don't have explicit policy/structural keywords.
+	if n.AudienceScore >= 5 {
+		return true
 	}
 
 	if !n.HasDenmarkContext && !n.HasUkraineContext {
@@ -998,4 +1068,94 @@ func hasUkraineContext(matches []config.KeywordMatch) bool {
 		}
 	}
 	return false
+}
+
+// applyCrossSourceBoost detects when multiple RSS sources report the same
+// story and adds a bonus to each item in the cluster. This is a strong
+// editorial signal: if DR, Berlingske, and BT all publish about the same
+// event within the same cycle, it's clearly major news.
+//
+// Algorithm: pairwise bigram Jaccard similarity on lowercased titles.
+// Threshold: 0.30 (empirically, same-story titles share ~30-60% bigrams).
+// Bonus: +15 per additional source mention (capped at +45).
+func applyCrossSourceBoost(scored []preScored) {
+	if len(scored) < 2 {
+		return
+	}
+
+	const similarityThreshold = 0.30
+	const boostPerSource = 15
+	const maxBoost = 45
+
+	type bigramSet map[string]struct{}
+	bigrams := make([]bigramSet, len(scored))
+	for i, s := range scored {
+		bigrams[i] = titleBigrams(s.item.Title)
+	}
+
+	// For each item, count how many OTHER sources cover the same story.
+	for i := range scored {
+		extraSources := 0
+		seenSources := map[string]bool{scored[i].item.Source.Name: true}
+
+		for j := range scored {
+			if i == j {
+				continue
+			}
+			// Same source doesn't count as cross-source
+			if seenSources[scored[j].item.Source.Name] {
+				continue
+			}
+
+			sim := jaccardBigrams(bigrams[i], bigrams[j])
+			if sim >= similarityThreshold {
+				extraSources++
+				seenSources[scored[j].item.Source.Name] = true
+			}
+		}
+
+		if extraSources > 0 {
+			boost := extraSources * boostPerSource
+			if boost > maxBoost {
+				boost = maxBoost
+			}
+			scored[i].kwScore += boost
+			logger.Info("cross-source boost applied",
+				"title", scored[i].item.Title,
+				"source", scored[i].item.Source.Name,
+				"extra_sources", extraSources,
+				"boost", boost,
+				"new_kw_score", scored[i].kwScore)
+		}
+	}
+}
+
+// titleBigrams extracts character bigrams from a lowercased title.
+func titleBigrams(title string) map[string]struct{} {
+	lower := strings.ToLower(title)
+	runes := []rune(lower)
+	set := make(map[string]struct{}, len(runes))
+	for i := 0; i+1 < len(runes); i++ {
+		bg := string(runes[i : i+2])
+		set[bg] = struct{}{}
+	}
+	return set
+}
+
+// jaccardBigrams computes Jaccard similarity between two bigram sets.
+func jaccardBigrams(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for bg := range a {
+		if _, ok := b[bg]; ok {
+			intersection++
+		}
+	}
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
 }

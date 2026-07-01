@@ -56,9 +56,35 @@ feeds:
     lang: da
     priority: 105
     weight: 10
-    active: true
+    active: false  # ❌ RSS фид мёртв с ~2019, возвращает 404
     categories: [denmark, news, society]
-    # Главная лента TV 2
+
+  - url: https://www.berlingske.dk/next-api/feeds/alle
+    name: Berlingske
+    lang: da
+    priority: 105
+    weight: 10
+    active: true
+    categories: [denmark, news, politics, society]
+    # Крупнейшая газета Дании (Berlingske Media)
+
+  - url: https://www.bt.dk/next-api/feeds/kategori/nyheder
+    name: BT Nyheder
+    lang: da
+    priority: 85
+    weight: 3
+    active: true
+    categories: [denmark, crime, society]
+    # Таблоид (Berlingske Media) — хорош для crime/emergency
+
+  - url: https://ekstrabladet.dk/rssfeed/all/
+    name: Ekstra Bladet
+    lang: da
+    priority: 80
+    weight: -2
+    active: true
+    categories: [denmark, crime, society]
+    # Таблоид (JP/Politikens Hus) — много мусора, ценен для crime
 
   - url: https://www.information.dk/rss
     name: Information

@@ -1,6 +1,13 @@
 package news
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/rss"
+	"github.com/mmcdole/gofeed"
+)
 
 func TestCalculateImpactScore_PoliticsDominates(t *testing.T) {
 	weights := map[string]int{
@@ -67,3 +74,111 @@ func TestSortByPublishPriority_ImpactGroupOrdersByImpactThenScore(t *testing.T) 
 		t.Fatalf("expected non-impact item last, got %q", items[2].Title)
 	}
 }
+
+func TestPassesAudienceRelevanceGate_Bypass(t *testing.T) {
+	// A crime news item without any structural/policy signals and no Denmark/Ukraine context in matches
+	// but having AudienceScore >= 5 (e.g. 5 or 6, representing significant emergencies/national news).
+	// It should pass because of the national news bypass.
+	newsItemPass := News{
+		Title:             "Skuddrab på Selinevej",
+		Category:          "crime",
+		AudienceScore:     6,
+		HasDenmarkContext: true,
+	}
+
+	if !PassesAudienceRelevanceGate(newsItemPass) {
+		t.Error("expected crime news with AudienceScore=6 to pass the gate")
+	}
+
+	// However, a crime news item with AudienceScore=3 should still be blocked unless it has structural policy context.
+	newsItemBlock := News{
+		Title:             "Lille tyveri i supermarked",
+		Category:          "crime",
+		AudienceScore:     3,
+		HasDenmarkContext: true,
+	}
+
+	if PassesAudienceRelevanceGate(newsItemBlock) {
+		t.Error("expected crime news with AudienceScore=3 to be blocked by the gate")
+	}
+}
+
+func TestApplyCrossSourceBoost(t *testing.T) {
+	// Mock preScored items. Two items should have highly similar titles and different sources.
+	items := []preScored{
+		{
+			item: &rss.FeedItem{
+				Item: &gofeed.Item{Title: "Politiet efterforsker skuddrab på Amager"},
+				Source: &rss.FeedSource{Name: "DR Nyheder"},
+			},
+			kwScore: 10,
+		},
+		{
+			item: &rss.FeedItem{
+				Item: &gofeed.Item{Title: "Efterforskning i gang efter skuddrab på Amager"},
+				Source: &rss.FeedSource{Name: "Berlingske"},
+			},
+			kwScore: 10,
+		},
+		{
+			item: &rss.FeedItem{
+				Item: &gofeed.Item{Title: "Helt urelateret nyhed om vejret i Jylland"},
+				Source: &rss.FeedSource{Name: "TV Midtvest"},
+			},
+			kwScore: 10,
+		},
+	}
+
+	// Run applyCrossSourceBoost.
+	// Since items[0] and items[1] have a very similar title, they should receive a boost of +15.
+	// items[2] should remain unchanged.
+	applyCrossSourceBoost(items)
+
+	if items[0].kwScore != 25 {
+		t.Errorf("expected items[0] score to be boosted to 25, got %d", items[0].kwScore)
+	}
+	if items[1].kwScore != 25 {
+		t.Errorf("expected items[1] score to be boosted to 25, got %d", items[1].kwScore)
+	}
+	if items[2].kwScore != 10 {
+		t.Errorf("expected items[2] score to remain 10, got %d", items[2].kwScore)
+	}
+}
+
+type MockTriageAI struct {
+	ResponseText string
+}
+
+func (m *MockTriageAI) Name() string { return "mock-triage-ai" }
+func (m *MockTriageAI) Close() {}
+func (m *MockTriageAI) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
+	return &ai.Response{
+		Summary: m.ResponseText,
+	}, nil
+}
+
+func TestRunTriage(t *testing.T) {
+	rejected := []triageHeadline{
+		{Index: 0, Title: "Politiet undersøger skuddrab på Amager", Source: "DR Nyheder"},
+		{Index: 1, Title: "Urelateret vejrudsigt for i morgen", Source: "TV Midtvest"},
+		{Index: 2, Title: "Stor demonstration på Nørrebro mod nye regler", Source: "Berlingske"},
+	}
+
+	mockAI := &MockTriageAI{
+		ResponseText: `{"selected": [0, 2]}`,
+	}
+
+	rescued := runTriage(context.Background(), rejected, mockAI)
+
+	if len(rescued) != 2 {
+		t.Fatalf("expected 2 rescued candidates, got %d", len(rescued))
+	}
+	if rescued[0] != 0 {
+		t.Errorf("expected first rescued index to be 0, got %d", rescued[0])
+	}
+	if rescued[1] != 2 {
+		t.Errorf("expected second rescued index to be 2, got %d", rescued[1])
+	}
+}
+
+

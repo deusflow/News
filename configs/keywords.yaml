@@ -849,6 +849,49 @@ keywords:
   - word: "grooming"
     category: "crime"
     weight: 18
+  - word: "dræbt"
+    category: "crime"
+    weight: 18
+  - word: "dræbte"
+    category: "crime"
+    weight: 18
+  - word: "død"
+    category: "crime"
+    weight: 12
+    whole_word: true
+  - word: "døde"
+    category: "crime"
+    weight: 12
+  - word: "vold"
+    category: "crime"
+    weight: 14
+    whole_word: true
+  - word: "voldsepisode"
+    category: "crime"
+    weight: 18
+  - word: "kniv"
+    category: "crime"
+    weight: 10
+    whole_word: true
+  - word: "bande"
+    category: "crime"
+    weight: 15
+    whole_word: true
+  - word: "bandekrig"
+    category: "crime"
+    weight: 20
+  - word: "skuddrab"
+    category: "crime"
+    weight: 20
+  - word: "røveri"
+    category: "crime"
+    weight: 12
+  - word: "ildspåsættelse"
+    category: "crime"
+    weight: 12
+  - word: "eksplosion"
+    category: "crime"
+    weight: 18
   - word: "udvisning"
     category: "visas"
     weight: 30
@@ -879,6 +922,112 @@ keywords:
   - word: "strejke"
     category: "society"
     weight: 18
+  - word: "optog"
+    category: "society"
+    weight: 14
+  - word: "march"
+    category: "society"
+    weight: 12
+    whole_word: true
+  - word: "religion"
+    category: "society"
+    weight: 12
+  - word: "muslimsk"
+    category: "society"
+    weight: 14
+  - word: "islamisk"
+    category: "society"
+    weight: 14
+  - word: "moské"
+    category: "society"
+    weight: 12
+  - word: "bøn"
+    category: "society"
+    weight: 8
+    whole_word: true
+  - word: "hadforbrydelse"
+    category: "society"
+    weight: 20
+  - word: "racisme"
+    category: "society"
+    weight: 14
+  - word: "diskrimination"
+    category: "society"
+    weight: 14
+  - word: "flygtninge"
+    category: "society"
+    weight: 12
+
+
+  # =======================================================
+  # БЛОК 13: ПОЗИТИВНЫЕ И ВАЖНЫЕ ИЗМЕНЕНИЯ (ИНВЕСТИЦИИ, ПОДДЕРЖКА, УЛУЧШЕНИЯ)
+  # =======================================================
+
+  - word: "milliard"
+    category: "economy"
+    weight: 15
+  - word: "milliarder"
+    category: "economy"
+    weight: 15
+  - word: "million"
+    category: "economy"
+    weight: 10
+  - word: "millioner"
+    category: "economy"
+    weight: 10
+  - word: "investering"
+    category: "economy"
+    weight: 18
+  - word: "investeringer"
+    category: "economy"
+    weight: 18
+  - word: "investere"
+    category: "economy"
+    weight: 15
+  - word: "gratis"
+    category: "money"
+    weight: 20
+    whole_word: true
+  - word: "tilskud"
+    category: "money"
+    weight: 16
+  - word: "støtte"
+    category: "money"
+    weight: 15
+    whole_word: true
+  - word: "skattelettelse"
+    category: "money"
+    weight: 25
+  - word: "skattelettelser"
+    category: "money"
+    weight: 25
+  - word: "fradrag"
+    category: "money"
+    weight: 18
+  - word: "lempelse"
+    category: "visas"
+    weight: 20
+  - word: "lempelser"
+    category: "visas"
+    weight: 20
+  - word: "forbedring"
+    category: "society"
+    weight: 15
+  - word: "forbedringer"
+    category: "society"
+    weight: 15
+  - word: "tildeling"
+    category: "economy"
+    weight: 12
+  - word: "gratis tandpleje"
+    category: "money"
+    weight: 22
+  - word: "su-styrelsen"
+    category: "education"
+    weight: 20
+  - word: "su-modtager"
+    category: "education"
+    weight: 20
 
 
   # =======================================================
