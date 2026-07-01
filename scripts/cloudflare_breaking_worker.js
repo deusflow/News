@@ -99,7 +99,7 @@ async function triggerGitHubAction(title, url, pat) {
     method: "POST",
     headers: {
       "Accept": "application/vnd.github.v3+json",
-      "Authorization": `token ${pat}`,
+      "Authorization": `Bearer ${pat}`,
       "Content-Type": "application/json",
       "User-Agent": "Cloudflare-Worker-Radar"
     },
