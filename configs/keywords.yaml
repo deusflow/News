@@ -977,23 +977,26 @@ keywords:
     weight: 10
   - word: "investering"
     category: "economy"
-    weight: 18
+    weight: 20
   - word: "investeringer"
     category: "economy"
-    weight: 18
+    weight: 20
   - word: "investere"
     category: "economy"
-    weight: 15
+    weight: 18
+  - word: "stor investering"
+    category: "economy"
+    weight: 25
   - word: "gratis"
     category: "money"
-    weight: 20
+    weight: 22
     whole_word: true
   - word: "tilskud"
     category: "money"
-    weight: 16
+    weight: 20
   - word: "støtte"
     category: "money"
-    weight: 15
+    weight: 18
     whole_word: true
   - word: "skattelettelse"
     category: "money"
@@ -1001,32 +1004,74 @@ keywords:
   - word: "skattelettelser"
     category: "money"
     weight: 25
-  - word: "fradrag"
-    category: "money"
-    weight: 18
-  - word: "lempelse"
-    category: "visas"
-    weight: 20
-  - word: "lempelser"
-    category: "visas"
-    weight: 20
-  - word: "forbedring"
-    category: "society"
-    weight: 15
-  - word: "forbedringer"
-    category: "society"
-    weight: 15
-  - word: "tildeling"
-    category: "economy"
-    weight: 12
-  - word: "gratis tandpleje"
+  - word: "skatterabat"
     category: "money"
     weight: 22
+  - word: "fradrag"
+    category: "money"
+    weight: 20
+  - word: "lempelse"
+    category: "visas"
+    weight: 22
+  - word: "lempelser"
+    category: "visas"
+    weight: 22
+  - word: "forbedring"
+    category: "society"
+    weight: 18
+  - word: "forbedringer"
+    category: "society"
+    weight: 18
+  - word: "tildeling"
+    category: "economy"
+    weight: 15
+  - word: "gratis tandpleje"
+    category: "money"
+    weight: 25
+  - word: "gratis pasning"
+    category: "family"
+    weight: 25
   - word: "su-styrelsen"
     category: "education"
     weight: 20
   - word: "su-modtager"
     category: "education"
+    weight: 20
+  - word: "su-forhøjelse"
+    category: "education"
+    weight: 25
+  - word: "su-forhøjes"
+    category: "education"
+    weight: 25
+  - word: "rekordmange i arbejde"
+    category: "work"
+    weight: 25
+  - word: "rekordhøj beskæftigelse"
+    category: "work"
+    weight: 25
+  - word: "rekordlav arbejdsløshed"
+    category: "work"
+    weight: 25
+  - word: "flere i job"
+    category: "work"
+    weight: 22
+  - word: "rekordsøgning"
+    category: "education"
+    weight: 20
+  - word: "lønforhøjelse"
+    category: "money"
+    weight: 22
+  - word: "lønstigning"
+    category: "money"
+    weight: 22
+  - word: "historisk aftale"
+    category: "politics"
+    weight: 22
+  - word: "ny aftale sikrer"
+    category: "politics"
+    weight: 20
+  - word: "flere penge til"
+    category: "money"
     weight: 20
 
 

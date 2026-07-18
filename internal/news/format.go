@@ -160,8 +160,11 @@ func ExtractVideoURL(n News) string {
 // поэтому в тексте её нет.
 // ──────────────────────────────────────────────────────────────────────
 func FormatNewsWithImage(n News) string {
-	n.TLDR = sanitizeStartFlag(n.TLDR)
-	n.FunFact = sanitizeStartFlag(n.FunFact)
+	n.TLDR = sanitizeAIField(n.TLDR)
+	n.FunFact = sanitizeAIField(n.FunFact)
+	n.WhyItMatters = sanitizeAIField(n.WhyItMatters)
+	n.SummaryDanish = sanitizeAIField(n.SummaryDanish)
+	n.SummaryUkrainian = sanitizeAIField(n.SummaryUkrainian)
 
 	var b strings.Builder
 
@@ -239,8 +242,11 @@ func FormatNewsWithImage(n News) string {
 //
 // ──────────────────────────────────────────────────────────────────────
 func FormatCaptionForPhoto(n News, maxLen int) string {
-	n.TLDR = sanitizeStartFlag(n.TLDR)
-	n.FunFact = sanitizeStartFlag(n.FunFact)
+	n.TLDR = sanitizeAIField(n.TLDR)
+	n.FunFact = sanitizeAIField(n.FunFact)
+	n.WhyItMatters = sanitizeAIField(n.WhyItMatters)
+	n.SummaryDanish = sanitizeAIField(n.SummaryDanish)
+	n.SummaryUkrainian = sanitizeAIField(n.SummaryUkrainian)
 
 	// Telegram API hard limit for photo captions is 1024 characters.
 	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
@@ -361,14 +367,21 @@ func ShouldUsePhoto(n News, maxLen int) bool {
 	return caption != ""
 }
 
-func sanitizeStartFlag(s string) string {
+// sanitizeAIField cleans up common AI hallucinations from text fields:
+// - Removes unwanted bolding (**)
+// - Replaces common wrong flags with the Danish flag if they appear at the start
+func sanitizeAIField(s string) string {
 	s = strings.TrimSpace(s)
-	// Replace Sweden and Norway flag emojis with Denmark flag if they are at the start of the string
-	if strings.HasPrefix(s, "🇸🇪") {
-		return "🇩🇰" + strings.TrimPrefix(s, "🇸🇪")
+	// Remove markdown bolding and italics
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "*", "")
+
+	// Fix wrong flags at the start (AI sometimes confuses Scandinavian flags)
+	wrongFlags := []string{"🇸🇪", "🇳🇴", "🇫🇮", "🇮🇸"}
+	for _, flag := range wrongFlags {
+		if strings.HasPrefix(s, flag) {
+			s = "🇩🇰" + strings.TrimPrefix(s, flag)
+		}
 	}
-	if strings.HasPrefix(s, "🇳🇴") {
-		return "🇩🇰" + strings.TrimPrefix(s, "🇳🇴")
-	}
-	return s
+	return strings.TrimSpace(s)
 }

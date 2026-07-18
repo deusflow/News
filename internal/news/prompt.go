@@ -68,7 +68,8 @@ USER INPUT (provided in the user message):
 "ukrainian": Same news body in Ukrainian. Be concise (under %d chars).
   • Mirror EXACT facts, deep context, and structure of the Danish version.
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
-  • Provide EXACT reason/subject; NO empty phrases like "Це вплине на життя".
+  • PLAIN-LANGUAGE EXPLANATION: If the news contains specialized, legal, statistical, or financial terms (e.g., "tvangsauktioner", "skattelettelse", "lempelser"), you MUST translate and explain what the term means in plain Ukrainian (e.g. "tvangsauktioner — примусовий продаж житла через борги перед банками").
+  • PRACTICAL IMPACT: Explain clearly what this news means in practice for residents in Denmark (e.g., "Це свідчить про те, що фінансовий стан родин залишається стабільним, а жителі спроможні вчасно сплачувати іпотеку попри інфляцію").
   • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
 
 "mood": ONE of: "positive" | "negative" | "neutral" | "shocking" | "urgent"
@@ -108,9 +109,9 @@ USER INPUT (provided in the user message):
   
   11-12 = Absolute Priority / Unique Value: Changes in visa rules, work/residence permit changes for SL1 temp refugees, critical government decisions explicitly affecting Ukrainian refugees in DK.
   
-  9-10  = Very High Impact: Important Danish law changes that alter daily life, taxes, state financial aids, major housing right changes, school/healthcare reforms directly affecting residents.
+  9-10  = Very High Impact: Important Danish law changes that alter daily life, taxes, state financial aids, major housing right changes, school/healthcare reforms, or MAJOR POSITIVE NATIONAL DEVELOPMENTS (tax relief/skattelettelser, free public services like dental care, major student/family benefit increases, large state support programs).
   
-  7-8   = Good Context: Labor market dynamics, standard political shifts in Folketing, general EU decisions impacting Denmark, economic changes (inflation, major company shifts affecting society).
+  7-8   = Good Context: Labor market dynamics, positive employment trends (record high jobs, new trainee/elevplads programs), standard political shifts in Folketing, general EU decisions impacting Denmark, economic changes (inflation, major company shifts affecting society).
   
   5-6   = General Danish News: High-profile national news, significant emergencies, large infrastructure projects. Good to know, but no direct visa/life impact.
   

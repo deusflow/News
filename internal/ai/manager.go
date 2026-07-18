@@ -29,13 +29,15 @@ type aiJob struct {
 	content      string
 	systemPrompt string
 	userPrompt   string
+	rawMode      bool
 	result       chan aiResult
 }
 
 // aiResult - структура ответа от ИИ
 type aiResult struct {
-	resp *Response
-	err  error
+	resp    *Response
+	rawText string
+	err     error
 }
 
 // Manager serialises all AI calls through a single background worker.
@@ -111,7 +113,7 @@ func (m *Manager) worker(ctx context.Context) {
 		case job := <-m.jobQueue:
 			// Если вызывающий уже отказался от задачи — пропускаем без задержки.
 			if job.ctx.Err() != nil {
-				job.result <- aiResult{nil, job.ctx.Err()}
+				job.result <- aiResult{nil, "", job.ctx.Err()}
 				continue
 			}
 
@@ -130,7 +132,7 @@ func (m *Manager) worker(ctx context.Context) {
 					return
 				case <-job.ctx.Done():
 					timer.Stop()
-					job.result <- aiResult{nil, job.ctx.Err()}
+					job.result <- aiResult{nil, "", job.ctx.Err()}
 					continue
 				case <-timer.C:
 					// пауза выдержана
@@ -138,16 +140,27 @@ func (m *Manager) worker(ctx context.Context) {
 			}
 
 			start := time.Now()
-			resp, err := m.executeWithFallback(job.ctx, job.title, job.content, job.systemPrompt, job.userPrompt)
+			
+			var resp *Response
+			var rawText string
+			var err error
+			
+			if job.rawMode {
+				rawText, err = m.executeRawWithFallback(job.ctx, job.systemPrompt, job.userPrompt)
+			} else {
+				resp, err = m.executeWithFallback(job.ctx, job.title, job.content, job.systemPrompt, job.userPrompt)
+			}
+			
 			lastCall = time.Now()
 
 			if err == nil {
 				logger.Info("AI request done",
 					"duration_sec", fmt.Sprintf("%.1f", time.Since(start).Seconds()),
-					"next_allowed_in", m.delay)
+					"next_allowed_in", m.delay,
+					"raw_mode", job.rawMode)
 			}
 
-			job.result <- aiResult{resp, err}
+			job.result <- aiResult{resp: resp, rawText: rawText, err: err}
 		}
 	}
 }
@@ -216,9 +229,52 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 	return nil, fmt.Errorf("all AI providers failed, last error: %v", lastErr)
 }
 
-// Generate ставит задачу в очередь и блокируется до получения результата.
-// Вызывается из горутин worker-pool в news.go — все они сериализуются через
-// единственного воркера Manager'а, что и обеспечивает соблюдение RPM-лимита.
+// executeRawWithFallback tries each provider in turn for a raw text response.
+func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	var lastErr error
+
+	for _, provider := range m.providers {
+		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
+			return "", fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
+		}
+
+		m.requestCount++
+		logger.Debug("AI Request Raw", "provider", provider.Name())
+
+		rawText, err := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			logger.Error("Provider Raw failed", "provider", provider.Name(), "error", err)
+
+			if rlErr, ok := err.(*ProviderError); ok && rlErr.Kind == ErrorKindRateLimited {
+				logger.Warn("Rate limited Raw", "provider", provider.Name(), "wait_sec", rlErr.RetryAfter.Seconds())
+				select {
+				case <-time.After(rlErr.RetryAfter):
+					m.requestCount++
+					rawText, retryErr := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
+					if retryErr == nil {
+						return rawText, nil
+					}
+					lastErr = retryErr
+					continue
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+
+			lastErr = err
+			continue
+		}
+
+		return rawText, nil
+	}
+
+	if lastErr != nil {
+		return "", fmt.Errorf("all providers failed. last error: %w", lastErr)
+	}
+	return "", fmt.Errorf("no AI providers available")
+}
+
+// Generate requests a standard JSON-parsed AI response.
 func (m *Manager) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error) {
 	resultCh := make(chan aiResult, 1)
 
@@ -228,19 +284,36 @@ func (m *Manager) Generate(ctx context.Context, title, content, systemPrompt, us
 		content:      content,
 		systemPrompt: systemPrompt,
 		userPrompt:   userPrompt,
+		rawMode:      false,
 		result:       resultCh,
 	}
 
 	select {
 	case m.jobQueue <- job:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-
-	select {
-	case res := <-resultCh:
+		res := <-resultCh
 		return res.resp, res.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// GenerateRaw requests a pure string response from the AI.
+func (m *Manager) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	resultCh := make(chan aiResult, 1)
+
+	job := aiJob{
+		ctx:          ctx,
+		systemPrompt: systemPrompt,
+		userPrompt:   userPrompt,
+		rawMode:      true,
+		result:       resultCh,
+	}
+
+	select {
+	case m.jobQueue <- job:
+		res := <-resultCh
+		return res.rawText, res.err
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }

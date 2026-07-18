@@ -54,9 +54,9 @@ func TestSanitizeStartFlag(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := sanitizeStartFlag(tt.input)
+		got := sanitizeAIField(tt.input)
 		if got != tt.expected {
-			t.Errorf("sanitizeStartFlag(%q) = %q; expected %q", tt.input, got, tt.expected)
+			t.Errorf("sanitizeAIField(%q) = %q; expected %q", tt.input, got, tt.expected)
 		}
 	}
 }

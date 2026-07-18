@@ -4,6 +4,7 @@ on:
   schedule:
     # Adjust schedule as you like (UTC)
     - cron: '0 6 * * *'    # 08:00 Denmark — утренние новости
+    - cron: '0 8 * * *'    # 10:00 Denmark — утренний дополнительный
     - cron: '0 11 * * *'   # 13:00 Denmark — обеденный выпуск
     - cron: '0 15 * * *'   # 17:00 Denmark — конец рабочего дня
     - cron: '0 19 * * *'   # 21:00 Denmark — вечерний прайм
@@ -24,7 +25,7 @@ jobs:
       CACHE_FILE_PATH: sent_news.json
       CACHE_TTL_HOURS: 48
 
-      # Bot configuration — publish limit is hardcoded (1 per run) in app.go
+      # Bot configuration — publish limit is hardcoded (2 per run) in app.go
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 1

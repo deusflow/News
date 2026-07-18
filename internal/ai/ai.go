@@ -80,6 +80,7 @@ func (r *Response) Validate() error {
 type Provider interface {
 	Name() string
 	Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error)
+	GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 	Close()
 }
 

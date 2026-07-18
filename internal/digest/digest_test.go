@@ -28,6 +28,10 @@ func (m *MockAIProvider) Generate(ctx context.Context, title, content, systemPro
 	}, nil
 }
 
+func (m *MockAIProvider) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return m.ResponseText, nil
+}
+
 func (m *MockAIProvider) Close() {}
 
 func TestRunDigest_FallbackToRSS(t *testing.T) {

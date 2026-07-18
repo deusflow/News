@@ -119,7 +119,7 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 	// 1. Попытка получить из Supabase
 	if supabase != nil {
 		logger.Info("Attempting to fetch news for digest from Supabase")
-		activeNews, err := supabase.GetActiveNews(100)
+		activeNews, err := supabase.GetActiveNews(ctx, 100)
 		if err == nil && len(activeNews) > 0 {
 			sevenDaysAgo := time.Now().Add(-7 * 24 * time.Hour)
 			for _, n := range activeNews {

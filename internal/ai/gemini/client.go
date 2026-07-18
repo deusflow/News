@@ -131,3 +131,42 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 	// so the manager directly skips to Groq
 	return nil, fmt.Errorf("all gemini keys exhausted due to rate limits")
 }
+
+// GenerateRaw returns the raw text output from the model without attempting JSON unmarshaling.
+func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	attempts := len(c.models)
+
+	for i := 0; i < attempts; i++ {
+		model := c.models[c.keyIdx]
+		if strings.TrimSpace(systemPrompt) != "" {
+			model.SystemInstruction = &genai.Content{Parts: []genai.Part{genai.Text(systemPrompt)}}
+		} else {
+			model.SystemInstruction = nil
+		}
+		resp, err := model.GenerateContent(ctx, genai.Text(userPrompt))
+
+		if err == nil {
+			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+				return "", fmt.Errorf("gemini returned empty response")
+			}
+
+			var sb strings.Builder
+			for _, part := range resp.Candidates[0].Content.Parts {
+				if txt, ok := part.(genai.Text); ok {
+					sb.WriteString(string(txt))
+				}
+			}
+			return sb.String(), nil
+		}
+
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") {
+			c.keyIdx = (c.keyIdx + 1) % len(c.models)
+			continue
+		}
+
+		return "", fmt.Errorf("gemini generate error: %w", err)
+	}
+
+	return "", fmt.Errorf("all gemini keys exhausted due to rate limits")
+}

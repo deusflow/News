@@ -15,6 +15,7 @@ import (
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
 	"github.com/deusflow/News/internal/news"
+	"github.com/deusflow/News/internal/publisher"
 	"github.com/deusflow/News/internal/rss"
 	"github.com/deusflow/News/internal/scraper"
 	"github.com/deusflow/News/internal/storage"
@@ -22,7 +23,7 @@ import (
 	"github.com/deusflow/News/internal/website"
 )
 
-const publishPerRunLimit = 1
+const publishPerRunLimit = 2
 
 // Service interfaces for SRP
 type NewsFetcher interface {
@@ -242,7 +243,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			} else {
 				logger.Info("Supabase client initialized for website archive")
 				// Archive old news (older than 10 days)
-				if archiveErr := supabaseClient.ArchiveOldNews(); archiveErr != nil {
+				if archiveErr := supabaseClient.ArchiveOldNews(context.Background()); archiveErr != nil {
 					logger.Warn("Failed to archive old news", "error", archiveErr)
 				}
 			}
@@ -270,6 +271,12 @@ func (a *App) Run(ctx context.Context) {
 	logger.Info("Starting Danish News Bot Run")
 	runStartedAt := time.Now()
 	defer func() { a.metrics.RecordProcessingTime(time.Since(runStartedAt)) }()
+
+	// Hard timeout: prevent the entire run from hanging if AI/scraper gets stuck.
+	// GitHub Actions has a 6-hour limit, but we should finish much faster.
+	const runTimeout = 5 * time.Minute
+	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
 
 	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
 		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
@@ -419,203 +426,8 @@ func (a *App) ReloadConfig() error {
 	return nil
 }
 
-// sendOneNews formats and sends a single news item to Telegram.
-// On failure the item is saved to DLQ for retry on next run.
-func sendOneNews(ctx context.Context, n news.News, hash string, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
-	// Если нет картинки, подставляем красивую заготовку по категории
-	if n.ImageURL == "" {
-		c := news.ValidateCategory(n.Category)
-		n.ImageURL = news.GetCategoryImage(c)
-		logger.Info("Using default category image", "category", c, "url", n.ImageURL)
-	}
-
-	funFactOriginal := strings.TrimSpace(n.FunFact)
-	if funFactOriginal == "" {
-		logger.Info("fun_fact missing from AI response", "title", n.Title)
-	} else {
-		logger.Info("fun_fact received from AI", "title", n.Title, "length", len([]rune(funFactOriginal)))
-	}
-
-	if funFactOriginal != "" && cacheAdapter.IsFunFactRecentlyUsed(funFactOriginal) {
-		logger.Info("dropping repeated fun_fact for this run", "title", n.Title, "fun_fact_preview", truncateForLog(funFactOriginal, 80))
-		n.FunFact = ""
-	}
-
-	videoURL := news.ExtractVideoURL(n)
-	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
-	if videoURL != "" {
-		// Telegram does not render web link preview cards in photo captions.
-		// For video-linked stories, force text mode so YouTube preview is visible.
-		canPhoto = false
-	}
-	logger.Info("telegram render mode decision",
-		"title", n.Title,
-		"has_image", n.ImageURL != "",
-		"has_video_url", videoURL != "",
-		"use_photo", canPhoto,
-		"photo_text_limit", cfg.Posting.PhotoTextLimit,
-		"has_fun_fact", strings.TrimSpace(n.FunFact) != "",
-		"has_why_it_matters", strings.TrimSpace(n.WhyItMatters) != "")
-	if n.ImageURL != "" && !canPhoto {
-		if videoURL != "" {
-			logger.Info("📝 Photo skipped — video preview requires text mode", "title", n.Title, "video_url", videoURL)
-		} else {
-			logger.Info("📝 Photo skipped — content too long for caption, using text mode", "title", n.Title)
-		}
-	}
-
-	var outText string
-	var err error
-
-	var buttons [][]telegram.InlineButton
-	if cfg.Feature.EnableInlineButtons && n.Link != "" {
-		buttons = append(buttons, []telegram.InlineButton{
-			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		})
-		if videoURL != "" && videoURL != n.Link {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🎬 Дивитись відео", URL: videoURL},
-			})
-			logger.Info("video link detected for telegram post", "title", n.Title, "video_url", videoURL)
-		}
-	}
-
-	maxVideoSeconds := cfg.Posting.VideoMaxSeconds
-	if maxVideoSeconds <= 0 {
-		maxVideoSeconds = 180
-	}
-	maxTelegramURLVideoBytes := cfg.Posting.VideoURLMaxBytes
-	if maxTelegramURLVideoBytes <= 0 {
-		maxTelegramURLVideoBytes = 20 * 1024 * 1024
-	}
-
-	// ── Video pipeline ──────────────────────────────────────────
-	videoSent := false
-
-	if n.VideoURL != "" {
-		duration, err := telegram.GetVideoDurationSeconds(n.VideoURL)
-		allowNative := false
-		if err != nil {
-			logger.Warn("[VIDEO] Duration unknown, skipping native upload", "url", n.VideoURL, "err", err)
-		} else if duration > maxVideoSeconds {
-			logger.Info("[VIDEO] Too long for native upload", "duration_sec", duration, "max_sec", maxVideoSeconds)
-		} else {
-			logger.Info("[VIDEO] Short video detected", "duration_sec", duration)
-			allowNative = true
-		}
-
-		// Level 1: native stream upload (only for short videos)
-		if allowNative {
-			// Determine caption
-			videoCaption := ""
-			if canPhoto { // Or we can format as caption explicitly since it's a media
-				videoCaption = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-			} else {
-				videoCaption = news.FormatCaptionForPhoto(n, 1024)
-			}
-
-			if telegram.IsYouTubeURL(n.VideoURL) {
-				reader, size, streamErr := telegram.GetYouTubeStream(n.VideoURL)
-				if streamErr != nil {
-					logger.Warn("[VIDEO L1] YouTube stream failed", "err", streamErr)
-				} else {
-					defer reader.Close()
-					err = telegram.SendVideoStream(
-						cfg.Telegram.Token, cfg.Telegram.ChatID,
-						reader, size, "video.mp4",
-						videoCaption, buttons,
-					)
-					if err != nil {
-						logger.Warn("[VIDEO L1] Upload failed", "err", err)
-					} else {
-						logger.Info("[VIDEO L1] Sent natively")
-						videoSent = true
-					}
-				}
-			} else if telegram.IsDRDirectVideo(n.VideoURL) {
-				size, sizeErr := telegram.GetRemoteContentLength(n.VideoURL)
-				if sizeErr != nil {
-					logger.Warn("[VIDEO L1] DR direct size unknown, skipping URL send", "err", sizeErr)
-				} else if size > maxTelegramURLVideoBytes {
-					logger.Info("[VIDEO L1] DR direct too large for URL send", "size_bytes", size, "limit_bytes", maxTelegramURLVideoBytes)
-				} else {
-					err = telegram.SendVideoURL(
-						cfg.Telegram.Token, cfg.Telegram.ChatID,
-						n.VideoURL, videoCaption, buttons,
-					)
-					if err != nil {
-						logger.Warn("[VIDEO L1] DR direct URL failed", "err", err)
-					} else {
-						logger.Info("[VIDEO L1] DR video sent via URL")
-						videoSent = true
-					}
-				}
-			}
-		}
-
-		// Level 2: embed preview (if Level 1 failed or not applicable)
-		if !videoSent {
-			videoCaption := news.FormatNewsWithImage(n) // embed context usually expects full text
-			textWithLink := videoCaption + "\n\n🎥 " + n.VideoURL
-			_, err = telegram.SendVideoEmbed(
-				cfg.Telegram.Token, cfg.Telegram.ChatID,
-				n.VideoURL, textWithLink, buttons,
-			)
-			if err != nil {
-				logger.Warn("[VIDEO L2] Embed failed, falling to photo", "err", err)
-			} else {
-				logger.Info("[VIDEO L2] Sent as embed preview")
-				videoSent = true
-			}
-		}
-	}
-
-	if !videoSent {
-		if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
-			} else {
-				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText)
-			}
-		} else {
-			outText = news.FormatNewsWithImage(n)
-			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, 0)
-			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, outText)
-			}
-		}
-	}
-
-	if err != nil {
-		logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
-		if saveErr := cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
-			logger.Error("Failed to save to DLQ", "error", saveErr)
-		}
-		return
-	}
-
-	// Telegram send succeeded — mark in Neon, then push to Supabase async-safe.
-	_ = cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
-	if strings.TrimSpace(n.FunFact) != "" {
-		if err := cacheAdapter.MarkFunFactUsed(n.FunFact); err != nil {
-			logger.Warn("failed to mark fun_fact usage", "title", n.Title, "error", err)
-		}
-	}
-	m.IncrementTelegramMessagesSent()
-
-	if supabase != nil {
-		saveToSupabase(ctx, cacheAdapter, supabase, hash, n)
-	}
-	if websiteGen != nil && websiteGen.IsEnabled() {
-		generateWebsitePost(websiteGen, n)
-	}
-}
-
-// sendBestNews publishes EXACTLY ONE news item — the highest-scored non-duplicate.
+// sendBestNews publishes up to publishPerRunLimit news items — the highest-scored non-duplicates.
 // newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
-// This is a hard architectural rule, not a config knob: one run = one publication.
 func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
 	candidates := newsList
 	if cfg.Feature.EnablePublicImpactGate {
@@ -637,17 +449,19 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		}
 	}
 
-	// Iterate through candidates (ranked highest to lowest)
-	// Stop at the first valid, non-duplicate candidate to publish it.
-	var published *news.News
-	var publishedRank int
-	var publishedHash string
-
-	// We'll collect the skipped ones just to compute next best for the diff log
-	var nextValid *news.News
-	foundValidCount := 0
+	// Collect valid (non-duplicate) candidates up to publishPerRunLimit + 1 (for diff log)
+	type validCandidate struct {
+		news news.News
+		hash string
+		rank int // 1-based original rank in candidates list
+	}
+	var valid []validCandidate
 
 	for i, n := range candidates {
+		if len(valid) > publishPerRunLimit {
+			break // We have enough: publishPerRunLimit to send + 1 for diff log
+		}
+
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		logger.Info("evaluating publish candidate",
 			"rank", i+1,
@@ -672,18 +486,14 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		}
 		if cacheAdapter.IsSourceURLSent(n.Link) {
 			logger.Info("⏭️ Skipping already-sent source_url (Neon dedup)", "title", n.Title, "source_url", n.Link)
-			if published == nil {
-				m.IncrementDuplicatesFiltered()
-			}
+			m.IncrementDuplicatesFiltered()
 			continue
 		}
 		if isDuplicate, existingTitle := cacheAdapter.IsTitleNearDuplicate(n.Title); isDuplicate {
 			logger.Info("⏭️ Skipping near-duplicate title (same story, different source)",
 				"new_title", n.Title,
 				"existing_title", existingTitle)
-			if published == nil {
-				m.IncrementDuplicatesFiltered()
-			}
+			m.IncrementDuplicatesFiltered()
 			continue
 		}
 		if isDuplicate, existingTitle := cacheAdapter.IsContentDuplicate(n.Content); isDuplicate {
@@ -691,70 +501,86 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				"new_title", n.Title,
 				"existing_title", existingTitle,
 				"content_len", len([]rune(strings.TrimSpace(n.Content))))
-			if published == nil {
-				m.IncrementDuplicatesFiltered()
-			}
+			m.IncrementDuplicatesFiltered()
 			continue
 		}
 
-		// It's a valid candidate!
-		foundValidCount++
-
-		if published == nil {
-			// This is our winner!
-			nCopy := n
-			published = &nCopy
-			publishedRank = i + 1
-			publishedHash = hash
-
-			// We continue the loop ONLY ONE more valid time to find "nextValid" for diff log
-		} else if nextValid == nil {
-			// This is the second valid candidate
-			nCopy := n
-			nextValid = &nCopy
-			break // We have the winner and the runner-up, we can stop evaluating
-		}
+		valid = append(valid, validCandidate{news: n, hash: hash, rank: i + 1})
 	}
 
-	if published == nil {
+	if len(valid) == 0 {
 		logger.Info("No publishable news found in this run")
 		return
 	}
 
-	if foundValidCount == 1 && published.Score < 70 {
-		logger.Info("Only one low-score candidate, skipping run to avoid publishing noise", "score", published.Score, "title", published.Title)
+	// Safety: if only one low-score candidate, skip to avoid noise
+	if len(valid) == 1 && valid[0].news.Score < 70 {
+		logger.Info("Only one low-score candidate, skipping run to avoid publishing noise",
+			"score", valid[0].news.Score, "title", valid[0].news.Title)
 		return
 	}
 
-	// P3 QUALITY METRICS: Track dedup quality drops
-	if publishedRank > 1 {
-		logger.Warn("Quality drop detected: publication went to rank > 1 due to dedup of top candidates",
-			"published_rank", publishedRank,
-			"skipped_count", publishedRank-1,
-			"published_title", published.Title)
-	}
+	// Determine how many to actually publish
+	toPublish := min(publishPerRunLimit, len(valid))
 
-	// P3 OBSERVABILITY: Log diff to next best candidate to explain "why this winner won"
+	// Log winner vs runner-up diff
 	diffLog := []interface{}{
-		"winner_title", published.Title,
-		"winner_score", published.Score,
-		"winner_category", published.Category,
-		"winner_kw_score", published.KeywordScore,
-		"winner_original_rank", publishedRank,
+		"winner_title", valid[0].news.Title,
+		"winner_score", valid[0].news.Score,
+		"winner_category", valid[0].news.Category,
+		"winner_kw_score", valid[0].news.KeywordScore,
+		"winner_original_rank", valid[0].rank,
+		"total_to_publish", toPublish,
 	}
-	if nextValid != nil {
+	nextIdx := toPublish // first item NOT being published
+	if nextIdx < len(valid) {
 		diffLog = append(diffLog,
-			"next_title", nextValid.Title,
-			"next_score", nextValid.Score,
-			"next_category", nextValid.Category,
-			"score_diff", published.Score-nextValid.Score)
+			"next_title", valid[nextIdx].news.Title,
+			"next_score", valid[nextIdx].news.Score,
+			"next_category", valid[nextIdx].news.Category,
+			"score_diff", valid[0].news.Score-valid[nextIdx].news.Score)
 	} else {
 		diffLog = append(diffLog, "next_title", "none")
 	}
 	logger.Info("Winner reason & evaluation result", diffLog...)
 
-	logger.Info("Publishing best news", "title", published.Title, "score", published.Score, "category", published.Category, "rank", publishedRank)
-	sendOneNews(ctx, *published, publishedHash, cfg, cacheAdapter, m, websiteGen, supabase)
+	// Initialize publisher
+	tgPublisher := publisher.NewTelegramPublisher(cfg, cacheAdapter, m)
+
+	// Publish each item
+	for idx := 0; idx < toPublish; idx++ {
+		vc := valid[idx]
+
+		if vc.rank > 1 && idx == 0 {
+			logger.Warn("Quality drop detected: first publication went to rank > 1 due to dedup of top candidates",
+				"published_rank", vc.rank,
+				"skipped_count", vc.rank-1,
+				"published_title", vc.news.Title)
+		}
+
+		logger.Info("Publishing news",
+			"publish_index", idx+1,
+			"of", toPublish,
+			"title", vc.news.Title,
+			"score", vc.news.Score,
+			"category", vc.news.Category,
+			"rank", vc.rank)
+
+		_, success := tgPublisher.Publish(ctx, vc.news, vc.hash)
+		if success {
+			if supabase != nil {
+				saveToSupabase(ctx, cacheAdapter, supabase, vc.hash, vc.news)
+			}
+			if websiteGen != nil && websiteGen.IsEnabled() {
+				generateWebsitePost(websiteGen, vc.news)
+			}
+		}
+
+		// Brief pause between sends to avoid Telegram flood limits
+		if idx < toPublish-1 {
+			time.Sleep(5 * time.Second)
+		}
+	}
 }
 
 func truncateForLog(s string, max int) string {

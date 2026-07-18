@@ -156,6 +156,9 @@ func (m *MockTriageAI) Generate(ctx context.Context, title, content, systemPromp
 		Summary: m.ResponseText,
 	}, nil
 }
+func (m *MockTriageAI) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return m.ResponseText, nil
+}
 
 func TestRunTriage(t *testing.T) {
 	rejected := []triageHeadline{

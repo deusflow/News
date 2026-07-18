@@ -472,38 +472,38 @@ func calculateWordSimilarity(words1, words2 []string) float64 {
 }
 
 // GetActiveNews retrieves non-archived news from the last 10 days
-func (c *SupabaseClient) GetActiveNews(limit int) ([]NewsArchive, error) {
+func (c *SupabaseClient) GetActiveNews(ctx context.Context, limit int) ([]NewsArchive, error) {
 	tenDaysAgo := time.Now().AddDate(0, 0, -10).Format(time.RFC3339)
 
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?is_archived=eq.false&published_at=gte.%s&order=published_at.desc&limit=%d",
 		c.url, tenDaysAgo, limit)
 
-	return c.fetchNews(reqURL)
+	return c.fetchNews(ctx, reqURL)
 }
 
 // GetNewsByDate retrieves news for a specific date
-func (c *SupabaseClient) GetNewsByDate(date time.Time) ([]NewsArchive, error) {
+func (c *SupabaseClient) GetNewsByDate(ctx context.Context, date time.Time) ([]NewsArchive, error) {
 	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?published_at=gte.%s&published_at=lt.%s&order=published_at.desc",
 		c.url, startOfDay.Format(time.RFC3339), endOfDay.Format(time.RFC3339))
 
-	return c.fetchNews(reqURL)
+	return c.fetchNews(ctx, reqURL)
 }
 
 // GetArchivedNews retrieves archived news (older than 10 days)
-func (c *SupabaseClient) GetArchivedNews(limit, offset int) ([]NewsArchive, error) {
+func (c *SupabaseClient) GetArchivedNews(ctx context.Context, limit, offset int) ([]NewsArchive, error) {
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?is_archived=eq.true&order=published_at.desc&limit=%d&offset=%d",
 		c.url, limit, offset)
 
-	return c.fetchNews(reqURL)
+	return c.fetchNews(ctx, reqURL)
 }
 
 // GetCarouselNews retrieves random news for the carousel.
 // Supabase REST API does not support ORDER BY RANDOM(), so we fetch a larger
 // pool (3× limit, capped at 30) and shuffle it in Go before returning limit items.
-func (c *SupabaseClient) GetCarouselNews(limit int) ([]NewsArchive, error) {
+func (c *SupabaseClient) GetCarouselNews(ctx context.Context, limit int) ([]NewsArchive, error) {
 	if limit <= 0 {
 		limit = 6
 	}
@@ -514,7 +514,7 @@ func (c *SupabaseClient) GetCarouselNews(limit int) ([]NewsArchive, error) {
 		poolSize = 30
 	}
 
-	pool, err := c.GetActiveNews(poolSize)
+	pool, err := c.GetActiveNews(ctx, poolSize)
 	if err != nil {
 		return nil, err
 	}
@@ -536,15 +536,15 @@ func (c *SupabaseClient) GetCarouselNews(limit int) ([]NewsArchive, error) {
 }
 
 // GetTrendingNews retrieves the latest N news items
-func (c *SupabaseClient) GetTrendingNews(limit int) ([]NewsArchive, error) {
+func (c *SupabaseClient) GetTrendingNews(ctx context.Context, limit int) ([]NewsArchive, error) {
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?is_archived=eq.false&order=published_at.desc&limit=%d",
 		c.url, limit)
 
-	return c.fetchNews(reqURL)
+	return c.fetchNews(ctx, reqURL)
 }
 
 // ArchiveOldNews marks news older than 10 days as archived
-func (c *SupabaseClient) ArchiveOldNews() error {
+func (c *SupabaseClient) ArchiveOldNews(ctx context.Context) error {
 	tenDaysAgo := time.Now().AddDate(0, 0, -10).Format(time.RFC3339)
 
 	reqURL := fmt.Sprintf("%s/rest/v1/news_archive?is_archived=eq.false&published_at=lt.%s",
@@ -552,7 +552,7 @@ func (c *SupabaseClient) ArchiveOldNews() error {
 
 	body := []byte(`{"is_archived": true}`)
 
-	req, err := http.NewRequest("PATCH", reqURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", reqURL, bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -577,8 +577,8 @@ func (c *SupabaseClient) ArchiveOldNews() error {
 }
 
 // fetchNews is a helper to fetch news from a URL
-func (c *SupabaseClient) fetchNews(reqURL string) ([]NewsArchive, error) {
-	req, err := http.NewRequest("GET", reqURL, nil)
+func (c *SupabaseClient) fetchNews(ctx context.Context, reqURL string) ([]NewsArchive, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

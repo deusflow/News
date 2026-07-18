@@ -12,8 +12,12 @@ const RSS_FEEDS = [
   "https://feeds.services.tv2.dk/api/feeds/nyheder/rss"
 ];
 
-// Ключевые слова, которые триггерят "Молнию"
-const BREAKING_KEYWORDS = ["breaking", "urgent", "haster", "særlig vigtigt"];
+// Ключевые слова, которые триггерят "Молнию" в датских СМИ
+const BREAKING_KEYWORDS = [
+  "breaking", "urgent", "haster", "særlig vigtigt", 
+  "lige nu", "pressemøde", "slår alarm", "evakueret", 
+  "just in", "opdatering:", "ekstra:"
+];
 
 // Токен твоего GitHub теперь берется из безопасных секретов (env.GITHUB_PAT)
 const GITHUB_OWNER = "deusflow"; // Твой username или организация (например open-gsd или deusflow)
@@ -48,17 +52,24 @@ async function checkFeeds(env) {
       
       const text = await response.text();
 
-      // Очень простой парсинг RSS (ищем теги <item> ... <title> ... </item>)
-      const items = text.match(/<item>([\s\S]*?)<\/item>/gi) || [];
+      // Улучшенный парсинг RSS <item> и <entry>
+      const items = text.match(/<(item|entry)>([\s\S]*?)<\/(item|entry)>/gi) || [];
 
       for (const item of items) {
-        const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
-        const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+        // Извлекаем заголовок
+        const titleMatch = item.match(/<title[^>]*><!\[CDATA\[(.*?)\]\]><\/title>/i) || 
+                           item.match(/<title[^>]*>(.*?)<\/title>/i);
+        
+        // Извлекаем ссылку (через link, guid или href attribute)
+        const linkMatch = item.match(/<link[^>]*href=["']([^"']+)["']/i) ||
+                          item.match(/<link[^>]*><!\[CDATA\[(.*?)\]\]><\/title>/i) ||
+                          item.match(/<link[^>]*>(.*?)<\/link>/i) ||
+                          item.match(/<guid[^>]*>(https?:\/\/[^\s<]+)<\/guid>/i);
 
         if (!titleMatch || !linkMatch) continue;
 
-        const title = titleMatch[1];
-        const link = linkMatch[1];
+        const title = titleMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gi, "$1").trim();
+        const link = linkMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/gi, "$1").trim();
 
         const titleLower = title.toLowerCase();
         const isBreaking = BREAKING_KEYWORDS.some(kw => titleLower.includes(kw));

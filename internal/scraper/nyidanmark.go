@@ -131,6 +131,7 @@ func (s *NyidanmarkScraper) ScrapeArticle(ctx context.Context, url string) (*rss
 		Name:     "Nyidanmark",
 		Lang:     "da",
 		Priority: 10,
+		Weight:   15, // Official immigration site — highest relevance for Ukrainian refugees
 	}
 
 	return &rss.FeedItem{

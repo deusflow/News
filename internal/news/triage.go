@@ -30,6 +30,7 @@ Your task: pick up to 3 headlines that would be MOST important or interesting fo
 
 Criteria for selection:
 - Direct impact on daily life in Denmark (laws, taxes, housing, transport, healthcare)
+- Major positive national developments (tax relief/skattelettelser, free public services, major student/family benefits, high job growth, large investments in welfare)
 - Major national events (significant crimes, emergencies, political crises)
 - Topics relevant to foreigners/immigrants in Denmark
 - Surprising or unusual Danish news that provides cultural insight
@@ -59,23 +60,21 @@ func runTriage(ctx context.Context, rejected []triageHeadline, provider ai.Provi
 
 	userPrompt := sb.String()
 
-	resp, err := provider.Generate(ctx, "", "", triageSystemPrompt, userPrompt)
+	rawJSON, err := provider.GenerateRaw(ctx, triageSystemPrompt, userPrompt)
 	if err != nil {
 		logger.Warn("AI triage failed, skipping rescue", "error", err)
 		return nil
 	}
 
-	// The AI response is normally parsed into ai.Response fields,
-	// but for triage we need the raw JSON. We'll reconstruct it from
-	// the Summary field (which captures freeform text) or parse the
-	// Ukrainian field if the model followed the standard schema.
-	// Since our provider returns structured ai.Response, we need to
-	// handle the case where the triage JSON lands in different fields.
-	rawJSON := extractTriageJSON(resp)
 	if rawJSON == "" {
 		logger.Warn("AI triage returned no parseable JSON")
 		return nil
 	}
+
+	// Strip markdown fences if any
+	rawJSON = strings.ReplaceAll(rawJSON, "```json", "")
+	rawJSON = strings.ReplaceAll(rawJSON, "```", "")
+	rawJSON = strings.TrimSpace(rawJSON)
 
 	var result triageResponse
 	if err := json.Unmarshal([]byte(rawJSON), &result); err != nil {
@@ -104,40 +103,7 @@ func runTriage(ctx context.Context, rejected []triageHeadline, provider ai.Provi
 	return valid
 }
 
-// extractTriageJSON tries to find a JSON object in the AI response.
-// Since the provider always returns ai.Response, the triage JSON may end up
-// in various fields depending on how the model interprets the prompt.
-func extractTriageJSON(resp *ai.Response) string {
-	if resp == nil {
-		return ""
-	}
 
-	// Check all text fields for a JSON object with "selected"
-	candidates := []string{
-		resp.Summary,
-		resp.Danish,
-		resp.Ukrainian,
-		resp.TLDR,
-		resp.WhyItMatters,
-		resp.FunFact,
-	}
-
-	for _, c := range candidates {
-		c = strings.TrimSpace(c)
-		if c == "" {
-			continue
-		}
-		// Strip markdown fences
-		c = strings.ReplaceAll(c, "```json", "")
-		c = strings.ReplaceAll(c, "```", "")
-		c = strings.TrimSpace(c)
-		if strings.Contains(c, "selected") && strings.HasPrefix(c, "{") {
-			return c
-		}
-	}
-
-	return ""
-}
 
 // collectRejectedHeadlines builds the list of headlines that did NOT pass
 // the keyword pre-filter, for AI triage evaluation.

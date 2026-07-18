@@ -142,3 +142,67 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 	logger.Debug("✅ Groq Success", "title", title)
 	return &data, nil
 }
+
+// GenerateRaw returns the raw text output from the model without attempting JSON unmarshaling.
+func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	messages := []message{}
+	if strings.TrimSpace(systemPrompt) != "" {
+		messages = append(messages, message{Role: "system", Content: systemPrompt})
+	}
+	messages = append(messages, message{Role: "user", Content: userPrompt})
+
+	reqBody := groqRequest{
+		Model:       c.model,
+		Messages:    messages,
+		Temperature: 0.3,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal groq request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create groq request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("groq http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := 0
+			if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
+				if v, convErr := strconv.Atoi(h); convErr == nil {
+					retryAfter = v
+				}
+			}
+			if retryAfter <= 0 {
+				if parsed, ok := ai.ParseRetryAfterSeconds(string(body)); ok {
+					retryAfter = parsed
+				}
+			}
+			return "", ai.NewRateLimitedError(c.Name(), fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body)), time.Duration(retryAfter)*time.Second)
+		}
+		return "", fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var groqResp groqResponse
+	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
+		return "", fmt.Errorf("groq decode error: %w", err)
+	}
+
+	if len(groqResp.Choices) == 0 {
+		return "", fmt.Errorf("groq returned no choices")
+	}
+
+	return groqResp.Choices[0].Message.Content, nil
+}
