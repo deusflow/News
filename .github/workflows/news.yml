@@ -13,6 +13,7 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read  # Read-only mode - bot only writes to database
 
@@ -25,7 +26,7 @@ jobs:
       CACHE_FILE_PATH: sent_news.json
       CACHE_TTL_HOURS: 48
 
-      # Bot configuration — publish limit is hardcoded (2 per run) in app.go
+      # Bot configuration — publish limit defaults to 1 per run (configurable via PUBLISH_LIMIT)
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 1

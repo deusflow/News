@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +24,21 @@ import (
 	"github.com/deusflow/News/internal/website"
 )
 
-const publishPerRunLimit = 2
+// getPublishLimit returns the maximum number of news items to publish per run.
+// Defaults to 1 (single post per run). Can be overridden via PUBLISH_LIMIT or MAX_NEWS_LIMIT env vars.
+func getPublishLimit() int {
+	if val := os.Getenv("PUBLISH_LIMIT"); val != "" {
+		if limit, err := strconv.Atoi(val); err == nil && limit > 0 {
+			return limit
+		}
+	}
+	if val := os.Getenv("MAX_NEWS_LIMIT"); val != "" {
+		if limit, err := strconv.Atoi(val); err == nil && limit > 0 {
+			return limit
+		}
+	}
+	return 1
+}
 
 // Service interfaces for SRP
 type NewsFetcher interface {
@@ -272,20 +287,21 @@ func (a *App) Run(ctx context.Context) {
 	runStartedAt := time.Now()
 	defer func() { a.metrics.RecordProcessingTime(time.Since(runStartedAt)) }()
 
-	// Hard timeout: prevent the entire run from hanging if AI/scraper gets stuck.
-	// GitHub Actions has a 6-hour limit, but we should finish much faster.
-	const runTimeout = 5 * time.Minute
+	// Fallback timeout: 20 minutes to allow thorough AI processing and retries.
+	// GitHub Actions handles top-level job termination via timeout-minutes.
+	const runTimeout = 20 * time.Minute
 	ctx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
 
+	publishLimit := getPublishLimit()
 	if maxEnv, ok := os.LookupEnv("MAX_NEWS_LIMIT"); ok {
-		logger.Info("Ignoring legacy publish env in favor of hard architectural limit",
+		logger.Info("Using publish limit from env",
 			"env", "MAX_NEWS_LIMIT",
 			"value", maxEnv,
-			"effective_publish_limit", publishPerRunLimit)
+			"effective_publish_limit", publishLimit)
 	}
 	if modeEnv, ok := os.LookupEnv("BOT_MODE"); ok {
-		logger.Info("Ignoring legacy publish env in favor of hard architectural mode",
+		logger.Info("Publishing mode",
 			"env", "BOT_MODE",
 			"value", modeEnv,
 			"effective_mode", "single")
@@ -370,7 +386,7 @@ func (a *App) Run(ctx context.Context) {
 	// 7. Публикация: ровно одна лучшая новость.
 	// filtered уже отсортирован по score (best first) в news.FilterAndTranslateWithOptions.
 	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
-	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", publishPerRunLimit)
+	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", getPublishLimit())
 	a.sender.Send(ctx, filtered)
 	a.metrics.SetLastRun()
 }
@@ -449,7 +465,13 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		}
 	}
 
-	// Collect valid (non-duplicate) candidates up to publishPerRunLimit + 1 (for diff log)
+	publishLimit := getPublishLimit()
+
+	// In-memory session deduplication guard for this run
+	sessionHashes := make(map[string]bool)
+	sessionUrls := make(map[string]bool)
+
+	// Collect valid (non-duplicate) candidates up to publishLimit + 1 (for diff log)
 	type validCandidate struct {
 		news news.News
 		hash string
@@ -458,11 +480,15 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	var valid []validCandidate
 
 	for i, n := range candidates {
-		if len(valid) > publishPerRunLimit {
-			break // We have enough: publishPerRunLimit to send + 1 for diff log
+		if len(valid) > publishLimit {
+			break // We have enough: publishLimit to send + 1 for diff log
 		}
 
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
+		if sessionHashes[hash] || (n.Link != "" && sessionUrls[n.Link]) {
+			logger.Info("⏭️ Skipping session in-memory duplicate", "title", n.Title, "link", n.Link)
+			continue
+		}
 		logger.Info("evaluating publish candidate",
 			"rank", i+1,
 			"title", n.Title,
@@ -505,6 +531,10 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			continue
 		}
 
+		sessionHashes[hash] = true
+		if n.Link != "" {
+			sessionUrls[n.Link] = true
+		}
 		valid = append(valid, validCandidate{news: n, hash: hash, rank: i + 1})
 	}
 
@@ -521,7 +551,7 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	}
 
 	// Determine how many to actually publish
-	toPublish := min(publishPerRunLimit, len(valid))
+	toPublish := min(publishLimit, len(valid))
 
 	// Log winner vs runner-up diff
 	diffLog := []interface{}{
@@ -646,7 +676,11 @@ func saveToSupabase(ctx context.Context, cacheAdapter CacheAdapter, client *stor
 		PublishedAt:      n.Published,
 	}
 
-	if err := client.SaveNews(ctx, archive); err != nil {
+	// Detach from parent cancellation so post-publication DB/Supabase sync is non-cancelable.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+
+	if err := client.SaveNews(saveCtx, archive); err != nil {
 		logger.Warn("Failed to save to Supabase, enqueuing for retry",
 			"title", n.Title, "error", err)
 		// Serialise payload so we can retry without AI/scraping again.
@@ -764,9 +798,9 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 				logger.Error("Failed to delete DLQ item", "error", delErr)
 			}
 
-			// Также отмечаем как отправленное в основной таблице
+			// Также отмечаем как отправленное в основной таблице (с сохранением title_norm и content_hash)
 			hash := adapter.GenerateNewsHash(item.Title, item.Link)
-			_ = adapter.MarkAsSent(hash, item.Title, item.Link, "DLQ", "DLQ")
+			_ = adapter.MarkAsSentWithContent(hash, item.Title, item.Link, item.MessageText, "DLQ", "DLQ")
 			m.IncrementTelegramMessagesSent()
 		}
 	}
