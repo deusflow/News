@@ -58,16 +58,25 @@ USER INPUT (provided in the user message):
 
 "danish": News body in Danish. Be concise (under %d chars).
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
-  • Start immediately with the core context and consequences.
+  • FIRST SENTENCE RULE: Your first sentence MUST NOT re-use the subject+verb from the title.
+    BAD: "Forsker Svend Aage Madsen advarer om kønskonflikter..." (title repeat)
+    GOOD: "Ifølge en ny rapport er hver fjerde unge mand i Danmark..." (new concrete fact)
+  • FACTS FIRST: Every sentence must contain at least ONE concrete fact (number, name, date, place, or decision). Vague assertions like "experts warn" or "this could lead to..." WITHOUT specifics are FORBIDDEN.
+  • NO TEASER writing: Write as if the reader will NEVER see the original article. The post IS the complete news. Do NOT imply they should read more.
   • Structure (2-4 sentences):
-    1. Core Context: What exactly does this mean in practice? (DO NOT repeat the title, explain the "so what").
-    2. Background: What led to this? If the input content is short, use your broad knowledge to safely provide necessary background context.
-    3. Impact: Who is affected and how?
+    1. Core Context: Start with a concrete fact or consequence — NOT a re-statement of the headline.
+    2. Background: What led to this? Use specific data, events, or figures.
+    3. Impact: Who is affected and how? Be specific.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
 
 "ukrainian": Same news body in Ukrainian. Be concise (under %d chars).
   • Mirror EXACT facts, deep context, and structure of the Danish version.
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
+  • FIRST SENTENCE RULE: Your first sentence MUST NOT re-use the subject+verb from the title.
+    BAD: "Дослідник Мадсен попереджає про гендерні конфлікти..." (= title repeat)
+    GOOD: "За даними нового звіту, кожен четвертий молодий чоловік у Данії..." (new concrete fact)
+  • FACTS FIRST: Every sentence must contain at least ONE concrete fact (number, name, date, place, or decision). Vague sentences like "може вплинути" or "спостерігається тенденція" WITHOUT data are FORBIDDEN.
+  • NO TEASER: Write as if the reader will NEVER click the original link. Do NOT imply they should read more somewhere else.
   • PLAIN-LANGUAGE EXPLANATION: If the news contains specialized, legal, statistical, or financial terms (e.g., "tvangsauktioner", "skattelettelse", "lempelser"), you MUST translate and explain what the term means in plain Ukrainian (e.g. "tvangsauktioner — примусовий продаж житла через борги перед банками").
   • PRACTICAL IMPACT: Explain clearly what this news means in practice for residents in Denmark (e.g., "Це свідчить про те, що фінансовий стан родин залишається стабільним, а жителі спроможні вчасно сплачувати іпотеку попри інфляцію").
   • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
@@ -93,7 +102,11 @@ USER INPUT (provided in the user message):
 
 "tags": 2–4 Ukrainian tags. Each tag: 1–2 words max, NO # symbol. Use double quotes. (e.g. "податки", "робота").
 
-"tldr": ONE Ukrainian headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words. (MUST be an overarching summary, distinct from the main title; DO NOT just translate the title. DO NOT use country flags like 🇸🇪, 🇳🇴, or 🇺🇦. If a flag is absolutely needed, use ONLY the Danish flag 🇩🇰, but prefer standard symbolic emojis like 🏛️, 💼, 📈, etc. Never use 🇸🇪 for Danish news).
+"tldr": ONE Ukrainian teaser headline. STRICT MAX %d chars. Start with ONE emoji. 10-14 words.
+  MANDATORY DIFFERENTIATION: Must differ from both "title_danish" and "title_ukrainian" by at least 50%%. Approach it from the angle of CONSEQUENCE or SURPRISE — not the "who said what" angle.
+  BAD: "Дослідник попереджає про зростання гендерних конфліктів та радикалізацію" (= title in other words)
+  GOOD: "⚠️ Кожен четвертий молодий чоловік у Данії схильний до радикалізації — звіт"
+  (DO NOT use country flags like 🇸🇪, 🇳🇴, or 🇺🇦. If a flag is absolutely needed, use ONLY the Danish flag 🇩🇰, but prefer standard symbolic emojis like 🏛️, 💼, 📈, etc. Never use 🇸🇪 for Danish news).
 
 "is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
