@@ -54,6 +54,7 @@ type News struct {
 	FunFact          string   `json:"fun_fact"`
 	WhyItMatters     string   `json:"why_it_matters"`
 	IsExclusive      bool     `json:"is_exclusive"`
+	IsLongread       bool     `json:"is_longread"`
 
 	ImageURL string
 	ImageAlt string
@@ -749,6 +750,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		FunFact:          resp.FunFact,
 		WhyItMatters:     resp.WhyItMatters,
 		IsExclusive:      resp.IsExclusive,
+		IsLongread:       resp.IsLongread,
 		AudienceScore:    resp.AudienceScore,
 	}
 

@@ -108,9 +108,9 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 	if canPhoto {
 		caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 		if len(buttons) > 0 {
-			err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
+			_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
 		} else {
-			err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
+			_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
 		}
 	} else {
 		text := news.FormatNewsWithImage(n)

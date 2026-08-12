@@ -228,6 +228,94 @@ func FormatNewsWithImage(n News) string {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// FormatLongreadTeaser — короткий тізер для фотографії.
+// Формат:
+// 💻 ТЕХНОЛОГІЇ
+//
+// 💬 TLDR-заголовок
+//
+// 👇 Детальний розбір читайте у наступному повідомленні
+// ──────────────────────────────────────────────────────────────────────
+func FormatLongreadTeaser(n News) string {
+	n.TLDR = sanitizeAIField(n.TLDR)
+
+	var b strings.Builder
+	b.WriteString(formatHeader(n))
+	b.WriteString("\n\n")
+
+	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
+		b.WriteString("💬 <b>" + tldr + "</b>")
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("👇 <i>Детальний розбір читайте у наступному повідомленні</i>")
+
+	return b.String()
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// FormatLongreadBody — повний лонгрід для відповіді (реплаю).
+// Формат такий самий як FormatNewsWithImage, але без Header та TLDR,
+// щоб уникнути дублювання інформації, яка вже є в тізері.
+// ──────────────────────────────────────────────────────────────────────
+func FormatLongreadBody(n News) string {
+	n.FunFact = sanitizeAIField(n.FunFact)
+	n.WhyItMatters = sanitizeAIField(n.WhyItMatters)
+	n.SummaryDanish = sanitizeAIField(n.SummaryDanish)
+	n.SummaryUkrainian = sanitizeAIField(n.SummaryUkrainian)
+
+	var b strings.Builder
+
+	// 1. Датская версия: заголовок + body
+	dkTitle := strings.TrimSpace(n.TitleDanish)
+	if dkTitle == "" {
+		dkTitle = strings.TrimSpace(n.Title)
+	}
+	b.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
+	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle))); dk != "" {
+		b.WriteString("\n" + dk)
+	}
+	b.WriteString("\n\n")
+
+	// 2. Украинская версия: заголовок + body
+	ukTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukTitle == "" {
+		ukTitle = strings.TrimSpace(n.Title)
+	}
+	b.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	if ua := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))); ua != "" {
+		b.WriteString("\n" + ua)
+	}
+	b.WriteString("\n\n")
+
+	// 3. Почему это важно
+	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
+		b.WriteString("🧭 <b>Чому це важливо:</b> ")
+		b.WriteString(w)
+		b.WriteString("\n\n")
+	}
+
+	// 4. Теги
+	if tags := formatTags(n.Tags); tags != "" {
+		b.WriteString(tags)
+		b.WriteString("\n")
+	}
+
+	// 5. Факт
+	if fact := strings.TrimSpace(n.FunFact); fact != "" {
+		b.WriteString("\n━━━━━━━━━━━━━━━\n")
+		b.WriteString("💡 <i>" + fact + "</i>")
+	}
+
+	// 6. YouTube URL
+	if videoURL := ExtractVideoURL(n); videoURL != "" {
+		b.WriteString("\n\n" + videoURL)
+	}
+
+	return b.String()
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // FormatCaptionForPhoto — подпись под фото (лимит 1024 символа Telegram).
 //
 // ВАЖНО: эта функция НИКОГДА не обрезает контент.

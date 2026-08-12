@@ -56,20 +56,22 @@ USER INPUT (provided in the user message):
 
 "title_ukrainian": Ukrainian headline. MAX 85 chars.
 
-"danish": News body in Danish. Be concise (under %d chars).
+"is_longread": true | false. Set to true ONLY if the news requires deep explanation (e.g. EU laws, complex reforms, economic shifts).
+
+"danish": News body in Danish. Be concise (under %d chars). IF is_longread is true, you may write up to 700 chars.
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
   • FIRST SENTENCE RULE: Your first sentence MUST NOT re-use the subject+verb from the title.
     BAD: "Forsker Svend Aage Madsen advarer om kønskonflikter..." (title repeat)
     GOOD: "Ifølge en ny rapport er hver fjerde unge mand i Danmark..." (new concrete fact)
   • FACTS FIRST: Every sentence must contain at least ONE concrete fact (number, name, date, place, or decision). Vague assertions like "experts warn" or "this could lead to..." WITHOUT specifics are FORBIDDEN.
   • NO TEASER writing: Write as if the reader will NEVER see the original article. The post IS the complete news. Do NOT imply they should read more.
-  • Structure (2-4 sentences):
+  • Structure (2-4 sentences normally, up to 6 sentences IF is_longread is true):
     1. Core Context: Start with a concrete fact or consequence — NOT a re-statement of the headline.
     2. Background: What led to this? Use specific data, events, or figures.
     3. Impact: Who is affected and how? Be specific.
   • DO NOT start with pronouns (Han/Hun) without naming the person.
 
-"ukrainian": Same news body in Ukrainian. Be concise (under %d chars).
+"ukrainian": Same news body in Ukrainian. Be concise (under %d chars). IF is_longread is true, you may write up to 700 chars.
   • Mirror EXACT facts, deep context, and structure of the Danish version.
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
   • FIRST SENTENCE RULE: Your first sentence MUST NOT re-use the subject+verb from the title.
@@ -77,9 +79,14 @@ USER INPUT (provided in the user message):
     GOOD: "За даними нового звіту, кожен четвертий молодий чоловік у Данії..." (new concrete fact)
   • FACTS FIRST: Every sentence must contain at least ONE concrete fact (number, name, date, place, or decision). Vague sentences like "може вплинути" or "спостерігається тенденція" WITHOUT data are FORBIDDEN.
   • NO TEASER: Write as if the reader will NEVER click the original link. Do NOT imply they should read more somewhere else.
-  • PLAIN-LANGUAGE EXPLANATION: If the news contains specialized, legal, statistical, or financial terms (e.g., "tvangsauktioner", "skattelettelse", "lempelser"), you MUST translate and explain what the term means in plain Ukrainian (e.g. "tvangsauktioner — примусовий продаж житла через борги перед банками").
-  • PRACTICAL IMPACT: Explain clearly what this news means in practice for residents in Denmark (e.g., "Це свідчить про те, що фінансовий стан родин залишається стабільним, а жителі спроможні вчасно сплачувати іпотеку попри інфляцію").
-  • Add 1 short clarifying phrase if a Danish political term needs it (e.g., "Folketing — данський парламент").
+  • PLAIN-LANGUAGE EXPLANATION — CRITICAL RULE:
+    IF the news is ABOUT a complex term (i.e., the term IS the topic, not just mentioned in passing),
+    you MUST open the body with a clear plain-language definition in the FIRST SENTENCE.
+    Do NOT bury the explanation in parentheses.
+    BAD: "LA не отримала гарантій щодо збереження права Данії на відмову від права ЄС (retsforbehold)..."
+    GOOD: "Retsforbehold — це право Данії не приєднуватися до деяких законів ЄС у сфері правосуддя; LA вимагала гарантії, що референдум про його скасування не відбудеться в цій каденції."
+    For ANY other specialized term (legal, financial, statistical): always translate + explain inline.
+  • PRACTICAL IMPACT: Explain what this means in practice for residents in Denmark with a concrete consequence, NOT a vague possibility.
 
 "mood": ONE of: "positive" | "negative" | "neutral" | "shocking" | "urgent"
 
@@ -111,10 +118,14 @@ USER INPUT (provided in the user message):
 "is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
-  • Must explain concrete impact (e.g., taxes, laws, rights) OR importance for Ukrainians in DK.
-  • If no direct impact, explain what to watch out for.
+  • Must state ONE concrete stake: what changes, for whom, and when — OR why this matters for Ukrainians in DK specifically.
+  • If no direct impact on daily life, explain the political/legal consequence in one plain sentence.
   • If purely trivial, write exactly: 'Не впливає на повсякденне життя'
-  • FORBIDDEN: vague impact ("може вплинути").
+  • HARD FORBIDDEN — these patterns are NEVER acceptable:
+    ✗ "може вплинути на законодавство" — too vague, no concrete stake
+    ✗ "стосується майбутніх відносин" — no specifics
+    ✗ "що може вплинути на..." — conditional without fact
+    GOOD: "Якщо рефрендум відбудеться і Данія скасує retsforbehold, вона буде зобов'язана виконувати всі судові рішення ЄС без виключень."
 
 "audience_score": INTEGER from 1 to 12.
   How relevant is this news SPECIFICALLY for a Ukrainian living in Denmark?

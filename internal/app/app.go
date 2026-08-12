@@ -773,9 +773,9 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 		var err error
 		if item.ImageURL != "" {
 			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText, buttons)
+				_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText, buttons)
 			} else {
-				err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
+				_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, item.ImageURL, item.MessageText)
 			}
 		} else {
 			if len(buttons) > 0 {

@@ -24,6 +24,7 @@ type Response struct {
 	FunFact        string   `json:"fun_fact"`
 	WhyItMatters   string   `json:"why_it_matters"`
 	IsExclusive    bool     `json:"is_exclusive"`
+	IsLongread     bool     `json:"is_longread"`
 	AudienceScore  int      `json:"audience_score"`
 }
 

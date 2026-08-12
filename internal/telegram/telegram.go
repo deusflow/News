@@ -117,14 +117,13 @@ func sanitizeURL(raw string) string {
 }
 
 // SendPhoto sends a photo with caption
-func SendPhoto(token string, chatID string, photoURL string, caption string) error {
+func SendPhoto(token string, chatID string, photoURL string, caption string) (int, error) {
 	return SendPhotoWithButtons(token, chatID, photoURL, caption, nil)
 }
 
 // SendPhotoWithButtons sends a photo with buttons
-func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) error {
+func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) (int, error) {
 	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
-
 	body := map[string]interface{}{
 		"chat_id":    chatID,
 		"photo":      photoURL,
@@ -138,8 +137,7 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 		}
 	}
 
-	_, err := executeRequest(context.Background(), url, body)
-	return err
+	return executeRequest(context.Background(), url, body)
 }
 
 // retryBaseDelay is the base sleep between network-error retries.

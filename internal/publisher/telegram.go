@@ -2,6 +2,7 @@ package publisher
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/deusflow/News/internal/config"
@@ -140,12 +141,32 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 
 	// 6. Photo/Text pipeline
 	if !videoSent {
-		if canPhoto {
+		if n.IsLongread && n.ImageURL != "" && n.VideoURL == "" {
+			teaser := news.FormatLongreadTeaser(n)
+			msgID, errPhoto := telegram.SendPhoto(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, teaser)
+
+			if errPhoto == nil {
+				longText := news.FormatLongreadBody(n)
+				_, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, longText, buttons, false, msgID)
+
+				if err != nil {
+					alertMsg := fmt.Sprintf("Longread reply failed for msg %d: %v", msgID, err)
+					telegram.SendAdminAlert(p.cfg.Telegram.Token, p.cfg.Telegram.AdminChatID, alertMsg)
+					outText = teaser
+					err = nil // Prevent retry-loop, mark as partial success
+				} else {
+					outText = longText
+				}
+			} else {
+				outText = news.FormatNewsWithImage(n)
+				_, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, false, 0)
+			}
+		} else if canPhoto {
 			outText = news.FormatCaptionForPhoto(n, p.cfg.Posting.PhotoTextLimit)
 			if len(buttons) > 0 {
-				err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
+				_, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
 			} else {
-				err = telegram.SendPhoto(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText)
+				_, err = telegram.SendPhoto(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText)
 			}
 		} else {
 			outText = news.FormatNewsWithImage(n)
