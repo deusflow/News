@@ -264,8 +264,8 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 	err := pc.db.QueryRow(query, hash, cutoffTime).Scan(&count)
 
 	if err != nil {
-		logger.Warn("Error checking duplicate by hash", "error", err)
-		return false
+		logger.Error("DB error checking duplicate by hash, assuming already sent to prevent duplicate spam", "hash", hash, "error", err)
+		return true
 	}
 
 	return count > 0
@@ -280,8 +280,8 @@ func (pc *PostgresCache) IsLinkAlreadySent(link string) bool {
 	err := pc.db.QueryRow(query, link, cutoffTime).Scan(&count)
 
 	if err != nil {
-		logger.Warn("Error checking duplicate by link", "error", err)
-		return false
+		logger.Error("DB error checking duplicate by link, assuming already sent to prevent duplicate spam", "link", link, "error", err)
+		return true
 	}
 
 	return count > 0
@@ -538,8 +538,8 @@ func (pc *PostgresCache) IsSourceURLSent(sourceURL string) bool {
 		sourceURL, cutoffTime,
 	).Scan(&count)
 	if err != nil {
-		logger.Warn("Error checking duplicate by source_url", "error", err)
-		return false
+		logger.Error("DB error checking duplicate by source_url, assuming already sent to prevent duplicate spam", "source_url", sourceURL, "error", err)
+		return true
 	}
 	return count > 0
 }

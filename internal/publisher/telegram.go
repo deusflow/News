@@ -188,9 +188,15 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	}
 
 	// 8. Success handling
-	_ = p.cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+	if err := p.cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName); err != nil {
+		logger.Error("CRITICAL: Failed to mark news as sent in DB cache", "title", n.Title, "hash", hash, "error", err)
+		alertMsg := fmt.Sprintf("⚠️ News was sent to Telegram, but failed to save sent status to DB!\nTitle: %s\nHash: %s\nError: %v\n\nRisk: May cause duplicate post on next run!", n.Title, hash, err)
+		_ = telegram.SendAdminAlert(p.cfg.Telegram.Token, p.cfg.Telegram.AdminChatID, alertMsg)
+	}
 	if strings.TrimSpace(n.FunFact) != "" {
-		_ = p.cacheAdapter.MarkFunFactUsed(n.FunFact)
+		if err := p.cacheAdapter.MarkFunFactUsed(n.FunFact); err != nil {
+			logger.Warn("Failed to mark fun fact as used", "error", err)
+		}
 	}
 	p.metrics.IncrementTelegramMessagesSent()
 

@@ -60,12 +60,7 @@ func (r *Response) Validate() error {
 	// category нормализуем (валидация через news.ValidateCategory происходит в news.go)
 	r.Category = strings.ToLower(strings.TrimSpace(r.Category))
 
-	// Редакторский вывод обязателен для поста; если модель его пропустила,
-	// используем TLDR как безопасный fallback вместо пропуска новости.
 	r.WhyItMatters = strings.TrimSpace(r.WhyItMatters)
-	if r.WhyItMatters == "" {
-		r.WhyItMatters = strings.TrimSpace(r.TLDR)
-	}
 
 	// Clamp audience_score into 1..12 if provided outside range.
 	if r.AudienceScore < 1 {

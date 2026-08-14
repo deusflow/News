@@ -180,7 +180,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		// Мы используем FileCache из storage, но нам нужен адаптер для работы в app
 		fileCache := storage.NewFileCache(cfg.Cache.FilePath, cfg.Cache.TTLHours)
 		if err := fileCache.Load(); err != nil {
-			logger.Warn("Failed to load cache", "error", err)
+			return nil, fmt.Errorf("failed to load cache: %w", err)
 		}
 		cacheAdapter = &FileCacheAdapter{cache: fileCache}
 		logger.Info("Using File cache")
@@ -229,7 +229,7 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 
 	keywords, err := config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
 	if err != nil {
-		logger.Warn("Failed to load keywords config, using defaults or empty", "error", err)
+		return nil, fmt.Errorf("failed to load keywords config: %w", err)
 	}
 
 	// Initialize website generator
@@ -430,12 +430,11 @@ func (a *App) ReloadConfig() error {
 	// Reload keywords
 	keywords, err := config.LoadKeywords(a.cfg.RSS.KeywordsConfigPath)
 	if err != nil {
-		logger.Warn("Failed to reload keywords, keeping old ones", "error", err)
-	} else {
-		a.keywords = keywords
-		if filterProcessor, ok := a.processor.(*NewsFilterProcessor); ok {
-			filterProcessor.keywords = keywords
-		}
+		return fmt.Errorf("failed to reload keywords config: %w", err)
+	}
+	a.keywords = keywords
+	if filterProcessor, ok := a.processor.(*NewsFilterProcessor); ok {
+		filterProcessor.keywords = keywords
 	}
 
 	logger.Info("Configuration reloaded successfully")
