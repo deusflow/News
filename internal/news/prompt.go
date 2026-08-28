@@ -56,7 +56,11 @@ USER INPUT (provided in the user message):
 
 "title_ukrainian": Ukrainian headline. MAX 85 chars.
 
-"is_longread": true | false. Set to true ONLY if the news requires deep explanation (e.g. EU laws, complex reforms, economic shifts).
+"is_longread": true | false. Set to true ONLY if the news requires deep explanation:
+  1. The news involves 3+ parties/entities with conflicting positions, OR
+  2. Understanding requires knowledge of a Danish legal/institutional system, OR
+  3. The event has a complex chain of consequences (A → B → C) needing sequential explanation.
+  Set to false for: single-fact news, routine decisions, crime reports, weather, sport.
 
 "danish": News body in Danish. Be concise (under %d chars). IF is_longread is true, you may write up to 700 chars.
   • DO NOT REPEAT OR PARAPHRASE THE HEADLINE! Assume the reader just read the headline.
@@ -118,6 +122,8 @@ USER INPUT (provided in the user message):
 "is_exclusive": true | false. ALMOST ALWAYS false. Set to true ONLY IF this news is a massive, nation-changing, historical event (e.g. Prime Minister resigns, war breaks out). Do NOT use for regular news, updates, announcements, або games.
 
 "why_it_matters": ONE Ukrainian sentence. STRICT MAX %d chars.
+  • MUST differ from "tldr" by at least 70%%.
+    tldr = states the concrete fact/headline. why_it_matters = explains the consequence for daily life or policy.
   • Must state ONE concrete stake: what changes, for whom, and when — OR why this matters for Ukrainians in DK specifically.
   • If no direct impact on daily life, explain the political/legal consequence in one plain sentence.
   • If purely trivial, write exactly: 'Не впливає на повсякденне життя'
@@ -146,8 +152,9 @@ USER INPUT (provided in the user message):
   IMPORTANT: Evaluate strictly from 1 to 12. Do NOT lump scores. Spread the scores out truthfully so every news article gets its exact rank.
 
 "fun_fact": ONE fact about Denmark in Ukrainian. STRICT MAX %d chars. Start with ONE emoji (DO NOT use country flags like 🇸🇪, 🇳🇴, or 🇺🇦. If a flag is needed, use ONLY the Danish flag 🇩🇰, but prefer standard symbolic emojis).
-  • MUST match the selected "category" (e.g. tech -> IT services, money -> tax rules).
-  • Add context, do not repeat the news. Avoid clichs.
+  • MUST ADD CONTEXT to THIS specific news story (e.g. if news is about tax reform → fact about Danish tax history; if about education → fact about Danish student system).
+  • NOT a random unrelated fact from the category. It must deepen understanding of the topic.
+  • Avoid clichés.
 
 ━━━ PROHIBITIONS & CRITICAL STYLE RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - NO cliché engagement phrases: "Час покаже", "Чи стане це хітом", "Чи чекаєте ви", "Побачимо".

@@ -151,6 +151,11 @@ func (a *App) GetSupabase() *storage.SupabaseClient {
 	return a.supabaseClient
 }
 
+// GetCacheAdapter returns the CacheAdapter instance.
+func (a *App) GetCacheAdapter() CacheAdapter {
+	return a.cacheAdapter
+}
+
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	logger.Init()
 	logger.Info("Initializing Danish News Bot")

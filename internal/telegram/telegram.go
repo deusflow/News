@@ -35,10 +35,10 @@ func SendAdminAlert(token string, adminChatID string, text string) error {
 	}
 	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, token)
 	body := map[string]interface{}{
-		"chat_id":                  adminChatID,
-		"text":                     "🚨 <b>NewsBot Alert:</b>\n\n" + escapeHTML(text),
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":              adminChatID,
+		"text":                 "🚨 <b>NewsBot Alert:</b>\n\n" + escapeHTML(text),
+		"parse_mode":           "HTML",
+		"link_preview_options": map[string]interface{}{"is_disabled": true},
 	}
 	_, err := executeRequest(context.Background(), url, body)
 	return err
@@ -79,10 +79,14 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 				"show_above_text":    true,
 			}
 		} else {
-			body["disable_web_page_preview"] = false
+			body["link_preview_options"] = map[string]interface{}{
+				"is_disabled": false,
+			}
 		}
 	} else {
-		body["disable_web_page_preview"] = true
+		body["link_preview_options"] = map[string]interface{}{
+			"is_disabled": true,
+		}
 	}
 
 	if len(buttons) > 0 {
@@ -91,7 +95,10 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 		}
 	}
 	if replyToMessageID != 0 {
-		body["reply_to_message_id"] = replyToMessageID
+		body["reply_parameters"] = map[string]interface{}{
+			"message_id":                  replyToMessageID,
+			"allow_sending_without_reply": true,
+		}
 	}
 
 	return executeRequest(ctx, url, body)
@@ -190,12 +197,21 @@ func executeRequest(ctx context.Context, url string, body map[string]interface{}
 
 		case http.StatusTooManyRequests: // 429 — rate limited
 			retryAfter := 5
-			if v := resp.Header.Get("Retry-After"); v != "" {
+			respBody, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+
+			var errResp struct {
+				Parameters struct {
+					RetryAfter int `json:"retry_after"`
+				} `json:"parameters"`
+			}
+			if json.Unmarshal(respBody, &errResp) == nil && errResp.Parameters.RetryAfter > 0 {
+				retryAfter = errResp.Parameters.RetryAfter
+			} else if v := resp.Header.Get("Retry-After"); v != "" {
 				if n, err := strconv.Atoi(v); err == nil && n > 0 {
 					retryAfter = n
 				}
 			}
-			_ = resp.Body.Close()
 			logger.Warn("Telegram rate limit", "wait_seconds", retryAfter, "attempt", attempt+1)
 			sleepWithContext(ctx, time.Duration(retryAfter+1)*time.Second)
 

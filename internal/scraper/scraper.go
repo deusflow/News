@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,6 +13,21 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 )
+
+// userAgents is a pool of modern desktop User-Agent strings.
+// Rotated randomly on every request to avoid hardcoded version drift.
+var userAgents = []string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+}
+
+// RandomUserAgent returns a random User-Agent from the pool.
+func RandomUserAgent() string {
+	return userAgents[rand.IntN(len(userAgents))]
+}
 
 // ArticleContent is full article content
 type ArticleContent struct {
@@ -32,7 +48,7 @@ func ExtractFullArticle(ctx context.Context, articleURL string) (*ArticleContent
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", RandomUserAgent())
 
 	resp, err := scraperHTTPClient.Do(req)
 	if err != nil {
@@ -598,7 +614,7 @@ func ExtractImageURL(pageURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", RandomUserAgent())
 
 	resp, err := scraperHTTPClient.Do(req)
 	if err != nil {

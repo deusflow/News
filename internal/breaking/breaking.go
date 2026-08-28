@@ -15,10 +15,18 @@ import (
 	"github.com/deusflow/News/internal/telegram"
 )
 
+// DedupeChecker provides duplicate check and cache recording capabilities.
+type DedupeChecker interface {
+	GenerateNewsHash(title, link string) string
+	IsAlreadySent(hash string) bool
+	IsSourceURLSent(sourceURL string) bool
+	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+}
+
 // Run processes a breaking news item received via repository_dispatch or manual trigger.
 // It scrapes the article, generates AI summary using the standard news prompt,
 // and publishes to Telegram using the standard format with a BREAKING header.
-func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
+func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache DedupeChecker) error {
 	logger.Info("Starting Breaking News mode")
 
 	url := os.Getenv("BREAKING_URL")
@@ -32,6 +40,19 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 	}
 
 	logger.Info("Processing breaking news", "url", url, "title", title)
+
+	// Pre-send deduplication check to prevent double-posting on workflow retries
+	if cache != nil {
+		if cache.IsSourceURLSent(url) {
+			logger.Warn("Breaking news URL was already sent previously, skipping to prevent duplicate", "url", url)
+			return nil
+		}
+		hash := cache.GenerateNewsHash(title, url)
+		if cache.IsAlreadySent(hash) {
+			logger.Warn("Breaking news hash was already sent previously, skipping to prevent duplicate", "hash", hash)
+			return nil
+		}
+	}
 
 	// Scrape the full article for AI context
 	content := ""
@@ -123,6 +144,14 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to send breaking telegram message: %w", err)
+	}
+
+	// Mark as sent in DB cache to guarantee no duplicates
+	if cache != nil {
+		hash := cache.GenerateNewsHash(title, url)
+		if markErr := cache.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName); markErr != nil {
+			logger.Error("Failed to mark breaking news as sent in cache", "hash", hash, "error", markErr)
+		}
 	}
 
 	// Send admin notification about breaking news

@@ -7,47 +7,42 @@ import (
 	"strings"
 
 	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
-// Client wraps the Gemini generative model.
-// Rate limiting is intentionally NOT handled here — it is the Manager's
-// responsibility to serialise requests and enforce inter-request delays.
-// Having a second rate limiter here would cause double-waiting and a
-// timer goroutine leak (ticker.Stop() was never called before).
+// Client wraps the Gemini unified genai SDK clients with API key rotation.
 type Client struct {
-	clients []*genai.Client
-	models  []*genai.GenerativeModel
-	keyIdx  int
+	clients   []*genai.Client
+	modelName string
+	keyIdx    int
 }
 
+// NewClient creates a new Gemini client using google.golang.org/genai.
 func NewClient(apiKeys []string, modelName string) (*Client, error) {
 	ctx := context.Background()
 
 	if modelName == "" {
-		modelName = "gemini-2.5-flash"
+		modelName = config.DefaultGeminiModel
 	}
 
 	var clients []*genai.Client
-	var models []*genai.GenerativeModel
 
 	for _, key := range apiKeys {
 		key = strings.TrimSpace(key)
 		if key == "" {
 			continue
 		}
-		c, err := genai.NewClient(ctx, option.WithAPIKey(key))
+		c, err := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey:  key,
+			Backend: genai.BackendGeminiAPI,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gemini client: %v", err)
 		}
 
-		m := c.GenerativeModel(modelName)
-		m.SetTemperature(0.3)
-
 		clients = append(clients, c)
-		models = append(models, m)
 	}
 
 	if len(clients) == 0 {
@@ -55,8 +50,8 @@ func NewClient(apiKeys []string, modelName string) (*Client, error) {
 	}
 
 	return &Client{
-		clients: clients,
-		models:  models,
+		clients:   clients,
+		modelName: modelName,
 	}, nil
 }
 
@@ -65,47 +60,44 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) Close() {
-	for _, cl := range c.clients {
-		cl.Close()
-	}
+	// genai.Client uses standard HTTP transport under the hood without explicit Close requirements
 }
 
 func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
-	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content))
+	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content), "model", c.modelName)
 
-	attempts := len(c.models)
+	attempts := len(c.clients)
 
 	for i := 0; i < attempts; i++ {
-		model := c.models[c.keyIdx]
-		if strings.TrimSpace(systemPrompt) != "" {
-			model.SystemInstruction = &genai.Content{Parts: []genai.Part{genai.Text(systemPrompt)}}
-		} else {
-			model.SystemInstruction = nil
-		}
-		resp, err := model.GenerateContent(ctx, genai.Text(userPrompt))
+		client := c.clients[c.keyIdx]
 
+		cfg := &genai.GenerateContentConfig{
+			Temperature:      genai.Ptr[float32](0.3),
+			ResponseMIMEType: "application/json",
+		}
+		if strings.TrimSpace(systemPrompt) != "" {
+			cfg.SystemInstruction = &genai.Content{
+				Parts: []*genai.Part{{Text: systemPrompt}},
+			}
+		}
+
+		resp, err := client.Models.GenerateContent(ctx, c.modelName, genai.Text(userPrompt), cfg)
 		if err == nil {
-			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
 				logger.Error("❌ Gemini Empty Response", "title", title)
 				return nil, fmt.Errorf("gemini returned empty response")
 			}
 
-			var sb strings.Builder
-			for _, part := range resp.Candidates[0].Content.Parts {
-				if txt, ok := part.(genai.Text); ok {
-					sb.WriteString(string(txt))
-				}
-			}
-			rawText := sb.String()
-
+			rawText := resp.Text()
 			jsonText := strings.TrimSpace(rawText)
-			jsonText = strings.ReplaceAll(jsonText, "```json", "")
-			jsonText = strings.ReplaceAll(jsonText, "```", "")
+			jsonText = strings.TrimPrefix(jsonText, "```json")
+			jsonText = strings.TrimPrefix(jsonText, "```")
+			jsonText = strings.TrimSuffix(jsonText, "```")
 			jsonText = strings.TrimSpace(jsonText)
 
 			var data ai.Response
 			if err := json.Unmarshal([]byte(jsonText), &data); err != nil {
-				logger.Error("❌ Gemini JSON Parse Error", "raw", jsonText)
+				logger.Error("❌ Gemini JSON Parse Error", "raw", jsonText, "error", err)
 				return nil, fmt.Errorf("failed to parse JSON: %w", err)
 			}
 
@@ -115,53 +107,46 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 
 		logger.Error("❌ Gemini API Error", "title", title, "key_idx", c.keyIdx, "error", err)
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") {
-			// Switch key automatically
-			c.keyIdx = (c.keyIdx + 1) % len(c.models)
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+			c.keyIdx = (c.keyIdx + 1) % len(c.clients)
 			logger.Warn("Gemini 429/Quota limit hit. Switching key.", "next_key_idx", c.keyIdx)
 			continue
 		}
 
-		// If it's a non-429 error, just fail this model and try to fallback to Groq via manager?
-		// Wait, if it's a different error, maybe we shouldn't try next keys.
 		return nil, fmt.Errorf("gemini generate error: %w", err)
 	}
 
-	// If we exhausted all keys by getting 429, don't return original error with potential retry delays,
-	// so the manager directly skips to Groq
 	return nil, fmt.Errorf("all gemini keys exhausted due to rate limits")
 }
 
-// GenerateRaw returns the raw text output from the model without attempting JSON unmarshaling.
+// GenerateRaw returns raw text output for lightweight triage without enforcing JSON schema.
 func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	attempts := len(c.models)
+	attempts := len(c.clients)
 
 	for i := 0; i < attempts; i++ {
-		model := c.models[c.keyIdx]
-		if strings.TrimSpace(systemPrompt) != "" {
-			model.SystemInstruction = &genai.Content{Parts: []genai.Part{genai.Text(systemPrompt)}}
-		} else {
-			model.SystemInstruction = nil
-		}
-		resp, err := model.GenerateContent(ctx, genai.Text(userPrompt))
+		client := c.clients[c.keyIdx]
 
+		cfg := &genai.GenerateContentConfig{
+			Temperature: genai.Ptr[float32](0.2),
+		}
+		if strings.TrimSpace(systemPrompt) != "" {
+			cfg.SystemInstruction = &genai.Content{
+				Parts: []*genai.Part{{Text: systemPrompt}},
+			}
+		}
+
+		resp, err := client.Models.GenerateContent(ctx, c.modelName, genai.Text(userPrompt), cfg)
 		if err == nil {
-			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+			if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
 				return "", fmt.Errorf("gemini returned empty response")
 			}
 
-			var sb strings.Builder
-			for _, part := range resp.Candidates[0].Content.Parts {
-				if txt, ok := part.(genai.Text); ok {
-					sb.WriteString(string(txt))
-				}
-			}
-			return sb.String(), nil
+			return resp.Text(), nil
 		}
 
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") {
-			c.keyIdx = (c.keyIdx + 1) % len(c.models)
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+			c.keyIdx = (c.keyIdx + 1) % len(c.clients)
 			continue
 		}
 
