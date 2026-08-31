@@ -76,21 +76,43 @@ func TestSortByPublishPriority_ImpactGroupOrdersByImpactThenScore(t *testing.T) 
 }
 
 func TestPassesAudienceRelevanceGate_Bypass(t *testing.T) {
-	// A crime news item without any structural/policy signals and no Denmark/Ukraine context in matches
-	// but having AudienceScore >= 5 (e.g. 5 or 6, representing significant emergencies/national news).
-	// It should pass because of the national news bypass.
+	// General/society news item with AudienceScore >= 5 passes the national news bypass.
 	newsItemPass := News{
+		Title:             "Stor national infrastrukturplan vedtaget",
+		Category:          "society",
+		AudienceScore:     6,
+		HasDenmarkContext: true,
+	}
+
+	if !PassesAudienceRelevanceGate(newsItemPass) {
+		t.Error("expected general news with AudienceScore=6 to pass the gate")
+	}
+
+	// High-impact crime (AudienceScore >= 9) passes the gate.
+	crimeTopPass := News{
+		Title:             "National krisesituation",
+		Category:          "crime",
+		AudienceScore:     9,
+		HasDenmarkContext: true,
+	}
+
+	if !PassesAudienceRelevanceGate(crimeTopPass) {
+		t.Error("expected top-tier crime news with AudienceScore=9 to pass the gate")
+	}
+
+	// Routine/isolated crime with AudienceScore=6 (below 9 and no policy context) should be blocked.
+	crimeRoutineBlock := News{
 		Title:             "Skuddrab på Selinevej",
 		Category:          "crime",
 		AudienceScore:     6,
 		HasDenmarkContext: true,
 	}
 
-	if !PassesAudienceRelevanceGate(newsItemPass) {
-		t.Error("expected crime news with AudienceScore=6 to pass the gate")
+	if PassesAudienceRelevanceGate(crimeRoutineBlock) {
+		t.Error("expected routine crime news with AudienceScore=6 (no policy context) to be blocked by the gate")
 	}
 
-	// However, a crime news item with AudienceScore=3 should still be blocked unless it has structural policy context.
+	// Crime news with AudienceScore=3 should also be blocked.
 	newsItemBlock := News{
 		Title:             "Lille tyveri i supermarked",
 		Category:          "crime",
