@@ -1245,3 +1245,23 @@ keywords:
   - word: "hundeejer"
     category: "spam"
     weight: -15
+
+  # =======================================================
+  # БЛОК 14: LIFESTYLE / WORK ПОЗИТИВ
+  # =======================================================
+
+  - word: "frivillighed"
+    category: "lifestyle"
+    weight: 18
+  - word: "iværksætter"
+    category: "work"
+    weight: 20
+  - word: "egen virksomhed"
+    category: "work"
+    weight: 20
+  - word: "succesfuld integration"
+    category: "society"
+    weight: 25
+  - word: "gratis adgang"
+    category: "lifestyle"
+    weight: 15

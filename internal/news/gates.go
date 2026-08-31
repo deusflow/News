@@ -51,7 +51,11 @@ func PassesAudienceRelevanceGate(n News) bool {
 	// This prevents blocking major crimes, disasters, and emergencies
 	// that don't have explicit policy/structural keywords.
 	if n.AudienceScore >= gateAudienceScoreBypass {
-		return true
+		cat := ValidateCategory(n.Category)
+		// Crime needs either structural signal or a really top score (9+, Very High Impact)
+		if cat != CategoryCrime || n.AudienceScore >= 9 {
+			return true
+		}
 	}
 
 	if !n.HasDenmarkContext && !n.HasUkraineContext {

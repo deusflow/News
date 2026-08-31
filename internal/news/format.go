@@ -200,23 +200,28 @@ func FormatNewsWithImage(n News) string {
 	}
 	b.WriteString("\n\n")
 
-	// 5. Почему это важно (короткий редакторский вывод)
+	// 5 & 7. Почему это важно и Факт (в expandable blockquote)
+	var extra strings.Builder
 	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
-		b.WriteString("🧭 <b>Чому це важливо:</b> ")
-		b.WriteString(w)
-		b.WriteString("\n\n")
+		extra.WriteString("🧭 <b>Чому це важливо:</b> ")
+		extra.WriteString(w)
+	}
+	if fact := strings.TrimSpace(n.FunFact); fact != "" {
+		if extra.Len() > 0 {
+			extra.WriteString("\n\n")
+		}
+		extra.WriteString("💡 <i>" + fact + "</i>")
+	}
+	if extra.Len() > 0 {
+		b.WriteString("<blockquote expandable>")
+		b.WriteString(extra.String())
+		b.WriteString("</blockquote>\n\n")
 	}
 
 	// 6. Теги
 	if tags := formatTags(n.Tags); tags != "" {
 		b.WriteString(tags)
 		b.WriteString("\n")
-	}
-
-	// 7. Факт (через разделитель)
-	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		b.WriteString("\n━━━━━━━━━━━━━━━\n")
-		b.WriteString("💡 <i>" + fact + "</i>")
 	}
 
 	// 8. YouTube URL (plain text at the end for native Telegram preview)
@@ -288,23 +293,28 @@ func FormatLongreadBody(n News) string {
 	}
 	b.WriteString("\n\n")
 
-	// 3. Почему это важно
+	// 3 & 5. Почему это важно и Факт (в expandable blockquote)
+	var extra strings.Builder
 	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
-		b.WriteString("🧭 <b>Чому це важливо:</b> ")
-		b.WriteString(w)
-		b.WriteString("\n\n")
+		extra.WriteString("🧭 <b>Чому це важливо:</b> ")
+		extra.WriteString(w)
+	}
+	if fact := strings.TrimSpace(n.FunFact); fact != "" {
+		if extra.Len() > 0 {
+			extra.WriteString("\n\n")
+		}
+		extra.WriteString("💡 <i>" + fact + "</i>")
+	}
+	if extra.Len() > 0 {
+		b.WriteString("<blockquote expandable>")
+		b.WriteString(extra.String())
+		b.WriteString("</blockquote>\n\n")
 	}
 
 	// 4. Теги
 	if tags := formatTags(n.Tags); tags != "" {
 		b.WriteString(tags)
 		b.WriteString("\n")
-	}
-
-	// 5. Факт
-	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		b.WriteString("\n━━━━━━━━━━━━━━━\n")
-		b.WriteString("💡 <i>" + fact + "</i>")
 	}
 
 	// 6. YouTube URL
@@ -378,67 +388,67 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		return ""
 	}
 
-	// Try to add why_it_matters
-	withWhy := core
-	if why != "" {
-		withWhy = core + "\n\n🧭 <b>Чому це важливо:</b> " + why
-	}
-
-	// Try to add tags
 	tags := formatTags(n.Tags)
-	withTags := withWhy
-	if tags != "" {
-		withTags = withWhy + "\n\n" + tags
+	fact := strings.TrimSpace(n.FunFact)
+
+	assemble := func(w, f, t string) string {
+		var extra strings.Builder
+		if w != "" {
+			extra.WriteString("🧭 <b>Чому це важливо:</b> " + w)
+		}
+		if f != "" {
+			if extra.Len() > 0 {
+				extra.WriteString("\n\n")
+			}
+			extra.WriteString("💡 <i>" + f + "</i>")
+		}
+		
+		res := core
+		if extra.Len() > 0 {
+			res += "\n\n<blockquote expandable>" + extra.String() + "</blockquote>"
+		}
+		if t != "" {
+			res += "\n\n" + t
+		}
+		return res
 	}
 
-	// Try to add fun_fact
-	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		full := withTags + "\n\n━━━━━━━━━━━━━━━\n💡 <i>" + fact + "</i>"
+	tryVideo := func(s string) string {
+		if videoURL := ExtractVideoURL(n); videoURL != "" {
+			withVid := s + "\n\n" + videoURL
+			if utf8.RuneCountInString(withVid) <= maxLen {
+				return withVid
+			}
+		}
+		return s
+	}
+
+	// 1. Try everything (why, fact, tags)
+	if fact != "" {
+		full := assemble(why, fact, tags)
 		if utf8.RuneCountInString(full) <= maxLen {
-			// Try to add YouTube URL if available
-			if videoURL := ExtractVideoURL(n); videoURL != "" {
-				fullWithVideo := full + "\n\n" + videoURL
-				if utf8.RuneCountInString(fullWithVideo) <= maxLen {
-					return fullWithVideo
-				}
-			}
-			return full
+			return tryVideo(full)
 		}
 	}
 
-	// Fact didn't fit — try with tags and why
-	if utf8.RuneCountInString(withTags) <= maxLen {
-		// Try to add YouTube URL if available
-		if videoURL := ExtractVideoURL(n); videoURL != "" {
-			withVideo := withTags + "\n\n" + videoURL
-			if utf8.RuneCountInString(withVideo) <= maxLen {
-				return withVideo
-			}
+	// 2. Fact didn't fit, try dropping fact (why, tags)
+	if tags != "" {
+		withTags := assemble(why, "", tags)
+		if utf8.RuneCountInString(withTags) <= maxLen {
+			return tryVideo(withTags)
 		}
-		return withTags
 	}
 
-	// Tags didn't fit — try with why only
-	if utf8.RuneCountInString(withWhy) <= maxLen {
-		// Try to add YouTube URL if available
-		if videoURL := ExtractVideoURL(n); videoURL != "" {
-			withVideo := withWhy + "\n\n" + videoURL
-			if utf8.RuneCountInString(withVideo) <= maxLen {
-				return withVideo
-			}
+	// 3. Tags didn't fit, try dropping tags (why)
+	if why != "" {
+		withWhy := assemble(why, "", "")
+		if utf8.RuneCountInString(withWhy) <= maxLen {
+			return tryVideo(withWhy)
 		}
-		return withWhy
 	}
 
-	// Why didn't fit either — return core only (always fits, checked above)
-	// But try to add YouTube URL if it fits
-	if videoURL := ExtractVideoURL(n); videoURL != "" {
-		coreWithVideo := core + "\n\n" + videoURL
-		if utf8.RuneCountInString(coreWithVideo) <= maxLen {
-			return coreWithVideo
-		}
-	}
-	return core
+	// 4. Why didn't fit, core only
+	return tryVideo(core)
 }
 
 // ShouldUsePhoto возвращает true только если:

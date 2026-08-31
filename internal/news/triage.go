@@ -31,7 +31,7 @@ Your task: pick up to 3 headlines that would be MOST important or interesting fo
 Criteria for selection:
 - Direct impact on daily life in Denmark (laws, taxes, housing, transport, healthcare)
 - Major positive national developments (tax relief/skattelettelser, free public services, major student/family benefits, high job growth, large investments in welfare)
-- Major national events (significant crimes, emergencies, political crises)
+- Major national events with lasting consequences (political/legal crises, large-scale emergencies) — NOT routine isolated crime unless it changes a law or policy
 - Topics relevant to foreigners/immigrants in Denmark
 - Surprising or unusual Danish news that provides cultural insight
 
