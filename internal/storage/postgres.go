@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -271,6 +272,19 @@ func (pc *PostgresCache) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_failed_news_attempts ON failed_news(attempts);
 	CREATE INDEX IF NOT EXISTS idx_failed_news_created_at ON failed_news(created_at);
+
+	-- Table for delayed high-impact posts
+	CREATE TABLE IF NOT EXISTS delayed_posts (
+		id SERIAL PRIMARY KEY,
+		hash VARCHAR(64) UNIQUE NOT NULL,
+		title TEXT NOT NULL,
+		link TEXT NOT NULL,
+		news_json TEXT NOT NULL,
+		publish_after TIMESTAMP NOT NULL,
+		status VARCHAR(20) NOT NULL DEFAULT 'pending',
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_delayed_posts_ready ON delayed_posts(publish_after, status);
 	`
 
 	_, err = pc.db.Exec(additionalSchema)
@@ -1093,5 +1107,76 @@ func (pc *PostgresCache) MarkFunFactUsed(funFact string) error {
 			fact_text = EXCLUDED.fact_text,
 			used_at = NOW()
 	`, hash, strings.TrimSpace(funFact))
+	return err
+}
+
+// DelayedPost represents a high-impact news item queued for deferred publication.
+type DelayedPost struct {
+	ID           int       `json:"id"`
+	Hash         string    `json:"hash"`
+	Title        string    `json:"title"`
+	Link         string    `json:"link"`
+	NewsJSON     string    `json:"news_json"`
+	PublishAfter time.Time `json:"publish_after"`
+	Status       string    `json:"status"` // 'pending', 'sent', 'failed'
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// EnqueueDelayedPost schedules a high-impact secondary post for publication after delay.
+func (pc *PostgresCache) EnqueueDelayedPost(hash, title, link, newsJSON string, delay time.Duration) error {
+	query := `
+		INSERT INTO delayed_posts (hash, title, link, news_json, publish_after, status, created_at)
+		VALUES ($1, $2, $3, $4, NOW() + $5 * INTERVAL '1 second', 'pending', NOW())
+		ON CONFLICT (hash) DO UPDATE 
+		SET publish_after = EXCLUDED.publish_after, status = 'pending'
+		WHERE delayed_posts.status != 'sent';
+	`
+	seconds := int64(delay.Seconds())
+	_, err := pc.db.Exec(query, hash, title, link, newsJSON, seconds)
+	if err != nil {
+		return fmt.Errorf("failed to enqueue delayed post: %w", err)
+	}
+	logger.Info("Postgres: enqueued delayed post", "title", title, "hash", hash, "delay", delay)
+	return nil
+}
+
+// GetReadyDelayedPosts retrieves all pending delayed posts whose publish_after <= NOW().
+func (pc *PostgresCache) GetReadyDelayedPosts(ctx context.Context) ([]DelayedPost, error) {
+	query := `
+		SELECT id, hash, title, link, news_json, publish_after, status, created_at
+		FROM delayed_posts
+		WHERE publish_after <= NOW() AND status = 'pending'
+		ORDER BY publish_after ASC
+		LIMIT 5;
+	`
+	rows, err := pc.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query ready delayed posts: %w", err)
+	}
+	defer rows.Close()
+
+	var posts []DelayedPost
+	for rows.Next() {
+		var dp DelayedPost
+		if err := rows.Scan(&dp.ID, &dp.Hash, &dp.Title, &dp.Link, &dp.NewsJSON, &dp.PublishAfter, &dp.Status, &dp.CreatedAt); err != nil {
+			logger.Warn("failed to scan delayed post", "error", err)
+			continue
+		}
+		posts = append(posts, dp)
+	}
+	return posts, nil
+}
+
+// MarkDelayedPostSent marks a delayed post as sent.
+func (pc *PostgresCache) MarkDelayedPostSent(id int) error {
+	query := `UPDATE delayed_posts SET status = 'sent' WHERE id = $1;`
+	_, err := pc.db.Exec(query, id)
+	return err
+}
+
+// MarkDelayedPostFailed marks a delayed post as failed with an error message.
+func (pc *PostgresCache) MarkDelayedPostFailed(id int, errMsg string) error {
+	query := `UPDATE delayed_posts SET status = 'failed' WHERE id = $1;`
+	_, err := pc.db.Exec(query, id)
 	return err
 }

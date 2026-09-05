@@ -34,6 +34,18 @@ func (m *mockDedupeChecker) MarkAsSentWithContent(hash, title, link, content, ca
 	return nil
 }
 
+func (m *mockDedupeChecker) GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error) {
+	return nil, nil
+}
+
+func (m *mockDedupeChecker) MarkDelayedPostSent(id int) error {
+	return nil
+}
+
+func (m *mockDedupeChecker) MarkDelayedPostFailed(id int, errMsg string) error {
+	return nil
+}
+
 func TestBreaking_Deduplication(t *testing.T) {
 	url := "https://www.dr.dk/nyheder/test-breaking"
 	title := "Test Breaking Title"

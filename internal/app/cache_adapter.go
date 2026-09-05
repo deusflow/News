@@ -34,6 +34,12 @@ type CacheAdapter interface {
 	GetFailedNews(limit int) ([]storage.FailedItem, error)
 	DeleteFailedNews(id int) error
 	IncrementFailedAttempts(id int, errorMsg string) error
+
+	// Delayed Posts Queue (High-Impact second story)
+	EnqueueDelayedPost(hash string, title, link, newsJSON string, delay time.Duration) error
+	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
+	MarkDelayedPostSent(id int) error
+	MarkDelayedPostFailed(id int, errMsg string) error
 }
 
 // FileCacheAdapter — Ленивый партнер (Файловый кэш).
@@ -134,6 +140,22 @@ func (f *FileCacheAdapter) IncrementFailedAttempts(id int, errorMsg string) erro
 	return nil
 }
 
+func (f *FileCacheAdapter) EnqueueDelayedPost(hash string, title, link, newsJSON string, delay time.Duration) error {
+	return f.cache.EnqueueDelayedPost(hash, title, link, newsJSON, delay)
+}
+
+func (f *FileCacheAdapter) GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error) {
+	return f.cache.GetReadyDelayedPosts()
+}
+
+func (f *FileCacheAdapter) MarkDelayedPostSent(id int) error {
+	return f.cache.MarkDelayedPostSent(id)
+}
+
+func (f *FileCacheAdapter) MarkDelayedPostFailed(id int, errMsg string) error {
+	return f.cache.MarkDelayedPostFailed(id, errMsg)
+}
+
 // PostgresCacheAdapter —  партнер (Postgres).
 // Он реально выполняет работу, вызывая методы из storage.
 type PostgresCacheAdapter struct {
@@ -225,4 +247,22 @@ func (p *PostgresCacheAdapter) DeleteSyncQueueItem(id int) error {
 
 func (p *PostgresCacheAdapter) IncrementSyncQueueAttempts(id int, errMsg string) error {
 	return p.cache.IncrementSyncQueueAttempts(id, errMsg)
+}
+
+// --- РЕАЛИЗАЦИЯ DELAYED POSTS QUEUE ---
+
+func (p *PostgresCacheAdapter) EnqueueDelayedPost(hash string, title, link, newsJSON string, delay time.Duration) error {
+	return p.cache.EnqueueDelayedPost(hash, title, link, newsJSON, delay)
+}
+
+func (p *PostgresCacheAdapter) GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error) {
+	return p.cache.GetReadyDelayedPosts(ctx)
+}
+
+func (p *PostgresCacheAdapter) MarkDelayedPostSent(id int) error {
+	return p.cache.MarkDelayedPostSent(id)
+}
+
+func (p *PostgresCacheAdapter) MarkDelayedPostFailed(id int, errMsg string) error {
+	return p.cache.MarkDelayedPostFailed(id, errMsg)
 }

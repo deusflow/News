@@ -28,10 +28,11 @@ type SentNewsItem struct {
 
 // FileCache manages sent news items in a JSON file
 type FileCache struct {
-	filePath string
-	ttlHours int
-	items    map[string]SentNewsItem
-	mu       sync.RWMutex
+	filePath     string
+	ttlHours     int
+	items        map[string]SentNewsItem
+	delayedPosts []DelayedPost
+	mu           sync.RWMutex
 }
 
 // NewFileCache creates a new file cache instance
@@ -282,4 +283,66 @@ func extractDomain(url string) string {
 	domain = strings.TrimPrefix(domain, "www.")
 
 	return strings.ToLower(domain)
+}
+
+// EnqueueDelayedPost stores delayed post in memory for FileCache.
+func (fc *FileCache) EnqueueDelayedPost(hash, title, link, newsJSON string, delay time.Duration) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	post := DelayedPost{
+		ID:           len(fc.delayedPosts) + 1,
+		Hash:         hash,
+		Title:        title,
+		Link:         link,
+		NewsJSON:     newsJSON,
+		PublishAfter: time.Now().Add(delay),
+		Status:       "pending",
+		CreatedAt:    time.Now(),
+	}
+	fc.delayedPosts = append(fc.delayedPosts, post)
+	return nil
+}
+
+// GetReadyDelayedPosts returns delayed posts ready to send.
+func (fc *FileCache) GetReadyDelayedPosts() ([]DelayedPost, error) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+
+	now := time.Now()
+	var ready []DelayedPost
+	for _, p := range fc.delayedPosts {
+		if p.Status == "pending" && (p.PublishAfter.Before(now) || p.PublishAfter.Equal(now)) {
+			ready = append(ready, p)
+		}
+	}
+	return ready, nil
+}
+
+// MarkDelayedPostSent marks post as sent in memory.
+func (fc *FileCache) MarkDelayedPostSent(id int) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	for i := range fc.delayedPosts {
+		if fc.delayedPosts[i].ID == id {
+			fc.delayedPosts[i].Status = "sent"
+			return nil
+		}
+	}
+	return nil
+}
+
+// MarkDelayedPostFailed marks post as failed in memory.
+func (fc *FileCache) MarkDelayedPostFailed(id int, errMsg string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	for i := range fc.delayedPosts {
+		if fc.delayedPosts[i].ID == id {
+			fc.delayedPosts[i].Status = "failed"
+			return nil
+		}
+	}
+	return nil
 }

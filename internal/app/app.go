@@ -368,6 +368,9 @@ func (a *App) Run(ctx context.Context) {
 		syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
 	}
 
+	// 4.3 Публикация отложенных важных новостей (Delayed Posts Queue)
+	processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator, a.supabaseClient)
+
 	// 5. Скачивание новостей RSS
 	items, err := a.fetcher.Fetch(ctx)
 	if err != nil {
@@ -694,6 +697,84 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		// Brief pause between sends to avoid Telegram flood limits
 		if idx < toPublish-1 {
 			time.Sleep(5 * time.Second)
+		}
+	}
+
+	// Adaptive High-Impact Queue: If there's a 2nd candidate with ImpactScore >= 85
+	// that wasn't published in this run, enqueue it to delayed_posts with a 30m delay.
+	if toPublish == 1 && len(valid) >= 2 {
+		secondCandidate := valid[1]
+		if secondCandidate.news.ImpactScore >= 85 && news.PassesAudienceRelevanceGate(secondCandidate.news) {
+			isSameStory := false
+			if valid[0].news.StoryClusterKey != "" && secondCandidate.news.StoryClusterKey != "" {
+				sim := embedding.ClusterKeySimilarity(valid[0].news.StoryClusterKey, secondCandidate.news.StoryClusterKey)
+				if sim >= 0.5 {
+					isSameStory = true
+				}
+			}
+			if !isSameStory {
+				newsBytes, err := json.Marshal(secondCandidate.news)
+				if err == nil {
+					err = cacheAdapter.EnqueueDelayedPost(secondCandidate.hash, secondCandidate.news.Title, secondCandidate.news.Link, string(newsBytes), 30*time.Minute)
+					if err == nil {
+						logger.Info("🔥 High-Impact secondary news detected! Enqueued for delayed publication (+30m)",
+							"title", secondCandidate.news.Title,
+							"impact_score", secondCandidate.news.ImpactScore,
+							"rank", secondCandidate.rank)
+					} else {
+						logger.Warn("Failed to enqueue high-impact secondary post", "error", err)
+					}
+				}
+			} else {
+				logger.Info("Secondary high-impact candidate is too similar to winning post, skipping delayed queue",
+					"winner_key", valid[0].news.StoryClusterKey,
+					"candidate_key", secondCandidate.news.StoryClusterKey)
+			}
+		}
+	}
+}
+
+func processReadyDelayedPosts(ctx context.Context, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+	ready, err := cacheAdapter.GetReadyDelayedPosts(ctx)
+	if err != nil {
+		logger.Warn("Failed to check delayed posts queue", "error", err)
+		return
+	}
+	if len(ready) == 0 {
+		return
+	}
+
+	logger.Info("Found ready delayed posts to publish", "count", len(ready))
+	tgPublisher := publisher.NewTelegramPublisher(cfg, cacheAdapter, m)
+
+	for _, dp := range ready {
+		var n news.News
+		if err := json.Unmarshal([]byte(dp.NewsJSON), &n); err != nil {
+			logger.Error("Failed to unmarshal delayed post news JSON", "id", dp.ID, "error", err)
+			_ = cacheAdapter.MarkDelayedPostFailed(dp.ID, err.Error())
+			continue
+		}
+
+		if cacheAdapter.IsAlreadySent(dp.Hash) || (dp.Link != "" && cacheAdapter.IsSourceURLSent(dp.Link)) {
+			logger.Info("Delayed post was already sent, marking sent", "title", dp.Title, "hash", dp.Hash)
+			_ = cacheAdapter.MarkDelayedPostSent(dp.ID)
+			continue
+		}
+
+		logger.Info("Publishing delayed high-impact post", "title", dp.Title, "hash", dp.Hash)
+		_, success := tgPublisher.Publish(ctx, n, dp.Hash)
+		if success {
+			_ = cacheAdapter.MarkDelayedPostSent(dp.ID)
+			if supabase != nil {
+				saveToSupabase(ctx, cacheAdapter, supabase, dp.Hash, n)
+			}
+			if websiteGen != nil && websiteGen.IsEnabled() {
+				generateWebsitePost(websiteGen, n)
+			}
+			logger.Info("Delayed high-impact post published successfully", "title", dp.Title)
+		} else {
+			logger.Warn("Failed to publish delayed post", "title", dp.Title)
+			_ = cacheAdapter.MarkDelayedPostFailed(dp.ID, "telegram publish failed")
 		}
 	}
 }

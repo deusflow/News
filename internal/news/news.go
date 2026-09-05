@@ -97,6 +97,8 @@ type scrapedItem struct {
 	item           *rss.FeedItem
 	content        string // итоговый контент: scraper → description → ""
 	scrapeImageURL string // og:image из скрапера (может быть "")
+	isPaywalled    bool
+	paywallReason  string
 }
 
 // preScored holds a candidate after cheap keyword evaluation but before AI.
@@ -397,6 +399,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		item           *rss.FeedItem
 		content        string
 		scrapeImageURL string
+		isPaywalled    bool
+		paywallReason  string
 	}
 
 	scrapeJobs := make(chan scrapeJob, len(topCandidates))
@@ -419,18 +423,30 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 				content := ""
 				imageURL := ""
+				isPaywalled := false
+				paywallReason := ""
 				switch {
 				case err == nil && ac != nil && ac.Content != "":
 					content = ac.Content
 					imageURL = ac.ImageURL
+					isPaywalled = ac.IsPaywalled
+					paywallReason = ac.PaywallReason
 				case j.item.Description != "":
 					content = j.item.Description
 					logger.Warn("scrape failed, using RSS description", "url", j.item.Link, "error", err)
+					isPaywalled, paywallReason = scraper.IsPaywalledOrStub(content, j.item.Link)
 				default:
 					logger.Warn("no content for item", "url", j.item.Link, "error", err)
 				}
 
-				scrapeResults <- scrapeResult{index: j.index, item: j.item, content: content, scrapeImageURL: imageURL}
+				scrapeResults <- scrapeResult{
+					index:          j.index,
+					item:           j.item,
+					content:        content,
+					scrapeImageURL: imageURL,
+					isPaywalled:    isPaywalled,
+					paywallReason:  paywallReason,
+				}
 			}
 		}()
 	}
@@ -455,6 +471,8 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 				item:           r.item,
 				content:        r.content,
 				scrapeImageURL: r.scrapeImageURL,
+				isPaywalled:    r.isPaywalled,
+				paywallReason:  r.paywallReason,
 			})
 		}
 	}
@@ -473,6 +491,26 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		if ctx.Err() != nil {
 			logger.Warn("context cancelled, stopping early", "completed", len(result)+aiErrors)
 			break
+		}
+
+		// Paywall & Stub Buster: Skip paywalled content before wasting AI quota or hallucinations
+		if s.isPaywalled {
+			logger.Warn("Skipping paywalled or stub article before AI",
+				"index", s.index+1,
+				"title", s.item.Title,
+				"source", s.item.Source.Name,
+				"url", s.item.Link,
+				"reason", s.paywallReason)
+			continue
+		}
+		if isPay, reason := scraper.IsPaywalledOrStub(s.content, s.item.Link); isPay {
+			logger.Warn("Skipping paywalled or stub article before AI",
+				"index", s.index+1,
+				"title", s.item.Title,
+				"source", s.item.Source.Name,
+				"url", s.item.Link,
+				"reason", reason)
+			continue
 		}
 
 		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)

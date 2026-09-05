@@ -12,15 +12,19 @@ import (
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/news"
 	"github.com/deusflow/News/internal/scraper"
+	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
 )
 
-// DedupeChecker provides duplicate check and cache recording capabilities.
+// DedupeChecker provides duplicate check, cache recording, and delayed post delivery.
 type DedupeChecker interface {
 	GenerateNewsHash(title, link string) string
 	IsAlreadySent(hash string) bool
 	IsSourceURLSent(sourceURL string) bool
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
+	MarkDelayedPostSent(id int) error
+	MarkDelayedPostFailed(id int, errMsg string) error
 }
 
 // Run processes a breaking news item received via repository_dispatch, manual trigger,
@@ -43,7 +47,10 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 			logger.Warn("Emergency scan encountered an error", "error", err)
 		}
 		if alert == nil {
-			logger.Info("No active emergency alerts in Denmark, exiting cleanly")
+			logger.Info("No active emergency alerts in Denmark, checking delayed posts queue")
+			if cache != nil {
+				deliverReadyDelayedPosts(ctx, cfg, cache)
+			}
 			return nil
 		}
 
@@ -223,5 +230,56 @@ func buildEmergencyFallbackNews(title, url, sourceName, content string) news.New
 		Mood:             "urgent",
 		IsExclusive:      true,
 		AudienceScore:    12,
+	}
+}
+
+func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache DedupeChecker) {
+	ready, err := cache.GetReadyDelayedPosts(ctx)
+	if err != nil {
+		logger.Warn("Failed to check delayed posts queue in breaking runner", "error", err)
+		return
+	}
+	if len(ready) == 0 {
+		return
+	}
+
+	logger.Info("Breaking runner found ready delayed posts to deliver", "count", len(ready))
+	for _, dp := range ready {
+		var n news.News
+		if err := json.Unmarshal([]byte(dp.NewsJSON), &n); err != nil {
+			logger.Error("Failed to parse delayed post news json", "id", dp.ID, "error", err)
+			_ = cache.MarkDelayedPostFailed(dp.ID, err.Error())
+			continue
+		}
+
+		if cache.IsAlreadySent(dp.Hash) || (dp.Link != "" && cache.IsSourceURLSent(dp.Link)) {
+			logger.Info("Delayed post already sent, marking sent", "title", dp.Title, "hash", dp.Hash)
+			_ = cache.MarkDelayedPostSent(dp.ID)
+			continue
+		}
+
+		var buttons [][]telegram.InlineButton
+		if cfg.Feature.EnableInlineButtons && n.Link != "" {
+			buttons = append(buttons, []telegram.InlineButton{
+				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+			})
+		}
+		var msgText string
+		if n.ImageURL != "" {
+			msgText = news.FormatNewsWithImage(n, false)
+			_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, msgText, buttons, 0)
+		} else {
+			msgText = news.FormatNews(n)
+			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, msgText, buttons, true, 0)
+		}
+
+		if err != nil {
+			logger.Error("Failed to deliver delayed post to Telegram", "title", dp.Title, "error", err)
+			_ = cache.MarkDelayedPostFailed(dp.ID, err.Error())
+		} else {
+			_ = cache.MarkDelayedPostSent(dp.ID)
+			_ = cache.MarkAsSentWithContent(dp.Hash, dp.Title, dp.Link, n.Content, n.Category, n.SourceName)
+			logger.Info("Delayed post delivered to Telegram successfully via breaking check", "title", dp.Title)
+		}
 	}
 }
