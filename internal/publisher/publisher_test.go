@@ -47,6 +47,10 @@ func (m *mockCacheAdapter) MarkAsSentWithContent(hash, title, link, content, cat
 	return nil
 }
 
+func (m *mockCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error {
+	return m.MarkAsSentWithContent(hash, title, link, content, category, source)
+}
+
 func TestTelegramPublisher_FunFactDedup(t *testing.T) {
 	cfg := &config.Config{
 		Posting: config.PostingConfig{PhotoTextLimit: 1024},

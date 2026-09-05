@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/ai/embedding"
 	"github.com/deusflow/News/internal/ai/gemini"
 	"github.com/deusflow/News/internal/ai/groq"
 	"github.com/deusflow/News/internal/config"
@@ -112,20 +113,22 @@ type TelegramNewsSender struct {
 	metrics          *metrics.Metrics
 	websiteGenerator *website.Generator
 	supabaseClient   *storage.SupabaseClient
+	embedder         embedding.Embedder
 }
 
-func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) *TelegramNewsSender {
+func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient, emb embedding.Embedder) *TelegramNewsSender {
 	return &TelegramNewsSender{
 		cfg:              cfg,
 		cacheAdapter:     cacheAdapter,
 		metrics:          m,
 		websiteGenerator: websiteGen,
 		supabaseClient:   supabase,
+		embedder:         emb,
 	}
 }
 
 func (s *TelegramNewsSender) Send(ctx context.Context, newsList []news.News) {
-	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient)
+	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient, s.embedder)
 }
 
 type App struct {
@@ -139,6 +142,7 @@ type App struct {
 	keywords         *config.KeywordsConfig
 	websiteGenerator *website.Generator
 	supabaseClient   *storage.SupabaseClient
+	embedder         embedding.Embedder
 }
 
 // GetAIManager returns the AI Manager instance.
@@ -270,6 +274,23 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		}
 	}
 
+	var embedder embedding.Embedder
+	if cfg.SemanticDedup.Enable {
+		keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
+		embClient, err := embedding.NewGeminiEmbedder(keys, cfg.SemanticDedup.EmbeddingModel)
+		if err != nil {
+			logger.Warn("Semantic dedup enabled but embedder failed to init (Tier 1 cluster key will be used)", "error", err)
+		} else {
+			embedder = embClient
+			logger.Info("Semantic Dedup Embedder initialized",
+				"model", cfg.SemanticDedup.EmbeddingModel,
+				"shadow_mode", cfg.SemanticDedup.ShadowMode,
+				"threshold", cfg.SemanticDedup.Threshold,
+				"cluster_threshold", cfg.SemanticDedup.ClusterKeyThreshold,
+				"lookback_days", cfg.SemanticDedup.LookbackDays)
+		}
+	}
+
 	app := &App{
 		cfg:              cfg,
 		metrics:          m,
@@ -277,10 +298,11 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		aiManager:        aiManager,
 		fetcher:          NewRSSFetcher(feeds),
 		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords, cacheAdapter),
-		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient),
+		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient, embedder),
 		keywords:         keywords,
 		websiteGenerator: websiteGen,
 		supabaseClient:   supabaseClient,
+		embedder:         embedder,
 	}
 
 	return app, nil
@@ -447,8 +469,9 @@ func (a *App) ReloadConfig() error {
 }
 
 // sendBestNews publishes up to publishPerRunLimit news items — the highest-scored non-duplicates.
+// sendBestNews publishes up to publishPerRunLimit news items — the highest-scored non-duplicates.
 // newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
-func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient, embedder embedding.Embedder) {
 	candidates := newsList
 	if cfg.Feature.EnablePublicImpactGate {
 		impactCandidates := make([]news.News, 0, len(newsList))
@@ -533,6 +556,64 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				"content_len", len([]rune(strings.TrimSpace(n.Content))))
 			m.IncrementDuplicatesFiltered()
 			continue
+		}
+
+		// Two-Tier Semantic Deduplication (Tier 1: story_cluster_key, Tier 2: text-embedding-004)
+		if cfg.SemanticDedup.Enable {
+			lookback := time.Duration(cfg.SemanticDedup.LookbackDays) * 24 * time.Hour
+			if lookback <= 0 {
+				lookback = 7 * 24 * time.Hour
+			}
+
+			// Generate embedding for candidate if embedder is available and vector not yet computed
+			if embedder != nil && len(n.Embedding) == 0 {
+				textToEmbed := n.TitleUkrainian
+				if n.TLDR != "" {
+					textToEmbed += ". " + n.TLDR
+				}
+				emb, err := embedder.Embed(ctx, textToEmbed)
+				if err != nil {
+					logger.Warn("Failed to generate embedding for candidate (falling back to Tier 1 cluster key)",
+						"title", n.TitleUkrainian,
+						"error", err)
+				} else {
+					n.Embedding = emb
+				}
+			}
+
+			semRes, err := cacheAdapter.CheckSemanticDuplicate(
+				n.StoryClusterKey,
+				n.Embedding,
+				n.TitleUkrainian,
+				lookback,
+				cfg.SemanticDedup.ClusterKeyThreshold,
+				cfg.SemanticDedup.Threshold,
+				cfg.SemanticDedup.ShadowMode,
+			)
+			if err == nil {
+				if semRes.ShadowMode && semRes.WouldReject && !semRes.IsDuplicate {
+					logger.Info("🔍 [SHADOW DEDUP] High semantic similarity detected (would reject if shadow mode was false)",
+						"new_title", n.TitleUkrainian,
+						"cluster_key", n.StoryClusterKey,
+						"matched_title", semRes.MatchedTitle,
+						"cosine_similarity", semRes.CosineSimilarity,
+						"cluster_similarity", semRes.ClusterSimilarity,
+						"trigger", semRes.Trigger,
+						"threshold", cfg.SemanticDedup.Threshold)
+				}
+
+				if semRes.IsDuplicate {
+					logger.Info("⏭️ Skipping semantic duplicate story",
+						"new_title", n.TitleUkrainian,
+						"cluster_key", n.StoryClusterKey,
+						"matched_title", semRes.MatchedTitle,
+						"trigger", semRes.Trigger,
+						"cluster_similarity", semRes.ClusterSimilarity,
+						"cosine_similarity", semRes.CosineSimilarity)
+					m.IncrementDuplicatesFiltered()
+					continue
+				}
+			}
 		}
 
 		sessionHashes[hash] = true

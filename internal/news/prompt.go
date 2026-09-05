@@ -95,6 +95,8 @@ not to smooth it over with more abstract words.
 
 "title_ukrainian": Ukrainian headline. MAX 85 chars.
 
+"story_cluster_key": 3–5 standardized lowercase English keywords separated by hyphens capturing the specific core event (e.g. 'ua-men-military-status-permit', 'dsb-delay-compensation-record', 'cph-metro-night-closure'). MUST focus on the specific concrete subject/decision, NEVER generic words like 'news' or 'denmark'. Used for deduplicating stories across different media.
+
 "concrete_anchor": ONE specific fact a reader could repeat to a friend five minutes later — ideally
   in the BEFORE→AFTER shape from technique #1 above (old value → new value), or failing that, the
   single most telling number/date/quote (technique #2). 3–20 words, no vague nouns like "вплив" or

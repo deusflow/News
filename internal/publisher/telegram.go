@@ -18,6 +18,7 @@ type CacheAdapter interface {
 	MarkFunFactUsed(fact string) error
 	SaveFailedNews(title, link, imageURL, messageText, errorMsg string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
 }
 
 // TelegramPublisher handles formatting and sending news to Telegram.
@@ -188,7 +189,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	}
 
 	// 8. Success handling
-	if err := p.cacheAdapter.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName); err != nil {
+	if err := p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding); err != nil {
 		logger.Error("CRITICAL: Failed to mark news as sent in DB cache", "title", n.Title, "hash", hash, "error", err)
 		alertMsg := fmt.Sprintf("⚠️ News was sent to Telegram, but failed to save sent status to DB!\nTitle: %s\nHash: %s\nError: %v\n\nRisk: May cause duplicate post on next run!", n.Title, hash, err)
 		_ = telegram.SendAdminAlert(p.cfg.Telegram.Token, p.cfg.Telegram.AdminChatID, alertMsg)

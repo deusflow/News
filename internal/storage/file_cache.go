@@ -9,16 +9,21 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/deusflow/News/internal/ai/embedding"
 )
 
 // SentNewsItem represents a news item that was already sent
 type SentNewsItem struct {
-	Hash     string    `json:"hash"`
-	Title    string    `json:"title"`
-	Link     string    `json:"link"`
-	Category string    `json:"category"`
-	SentAt   time.Time `json:"sent_at"`
-	Source   string    `json:"source"`
+	Hash            string    `json:"hash"`
+	Title           string    `json:"title"`
+	TitleUkrainian  string    `json:"title_ukrainian,omitempty"`
+	StoryClusterKey string    `json:"story_cluster_key,omitempty"`
+	Embedding       []float32 `json:"embedding,omitempty"`
+	Link            string    `json:"link"`
+	Category        string    `json:"category"`
+	SentAt          time.Time `json:"sent_at"`
+	Source          string    `json:"source"`
 }
 
 // FileCache manages sent news items in a JSON file
@@ -138,6 +143,99 @@ func (fc *FileCache) MarkAsSent(hash, title, link, category, source string) {
 		SentAt:   time.Now(),
 		Source:   source,
 	}
+}
+
+// MarkAsSentWithSemanticData marks news as sent with semantic metadata
+func (fc *FileCache) MarkAsSentWithSemanticData(hash, title, link, category, source, titleUA, clusterKey string, emb []float32) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	fc.items[hash] = SentNewsItem{
+		Hash:            hash,
+		Title:           title,
+		TitleUkrainian:  titleUA,
+		StoryClusterKey: clusterKey,
+		Embedding:       emb,
+		Link:            link,
+		Category:        category,
+		SentAt:          time.Now(),
+		Source:          source,
+	}
+}
+
+// CheckSemanticDuplicate checks duplicate in file cache memory using OR logic
+func (fc *FileCache) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (SemanticCheckResult, error) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+
+	if lookback <= 0 {
+		lookback = 7 * 24 * time.Hour
+	}
+	cutoffTime := time.Now().Add(-lookback)
+
+	result := SemanticCheckResult{
+		ShadowMode: shadowMode,
+		Trigger:    "none",
+	}
+
+	for _, item := range fc.items {
+		if item.SentAt.Before(cutoffTime) {
+			continue
+		}
+
+		// Tier 1: Cluster Key check
+		if clusterKey != "" && item.StoryClusterKey != "" {
+			simKey := embedding.ClusterKeySimilarity(clusterKey, item.StoryClusterKey)
+			if simKey > result.ClusterSimilarity {
+				result.ClusterSimilarity = simKey
+				if simKey >= keyThreshold && result.MatchedTitle == "" {
+					result.MatchedTitle = item.TitleUkrainian
+					if result.MatchedTitle == "" {
+						result.MatchedTitle = item.Title
+					}
+				}
+			}
+		}
+
+		// Tier 2: Embedding check
+		if len(candidateEmbedding) > 0 && len(item.Embedding) > 0 {
+			simCos := embedding.CosineSimilarity(candidateEmbedding, item.Embedding)
+			if simCos > result.CosineSimilarity {
+				result.CosineSimilarity = simCos
+				if simCos >= cosineThreshold {
+					matched := item.TitleUkrainian
+					if matched == "" {
+						matched = item.Title
+					}
+					result.MatchedTitle = matched
+				}
+			}
+		}
+	}
+
+	tier1Fired := result.ClusterSimilarity >= keyThreshold && keyThreshold > 0
+	tier2Fired := result.CosineSimilarity >= cosineThreshold && cosineThreshold > 0
+
+	result.WouldReject = tier1Fired || tier2Fired
+
+	switch {
+	case tier1Fired && tier2Fired:
+		result.Trigger = "tier1_and_tier2"
+	case tier1Fired:
+		result.Trigger = "tier1_cluster_key"
+	case tier2Fired:
+		result.Trigger = "tier2_embedding"
+	default:
+		result.Trigger = "none"
+	}
+
+	if shadowMode {
+		result.IsDuplicate = tier1Fired
+	} else {
+		result.IsDuplicate = result.WouldReject
+	}
+
+	return result, nil
 }
 
 // Cleanup removes expired items from memory

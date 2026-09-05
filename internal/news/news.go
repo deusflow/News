@@ -48,6 +48,8 @@ type News struct {
 	SummaryUkrainian string   `json:"ukrainian"`
 	TitleDanish      string   `json:"title_danish"`
 	TitleUkrainian   string   `json:"title_ukrainian"`
+	StoryClusterKey  string   `json:"story_cluster_key,omitempty"`
+	Embedding        []float32 `json:"-"`
 	Mood             string   `json:"mood"`
 	Tags             []string `json:"tags"`
 	TLDR             string   `json:"tldr"`
@@ -744,6 +746,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		SummaryUkrainian: resp.Ukrainian,
 		TitleDanish:      resp.TitleDanish,
 		TitleUkrainian:   resp.TitleUkrainian,
+		StoryClusterKey:  resp.StoryClusterKey,
 		Mood:             resp.Mood, // уже нормализован в Validate()
 		Tags:             resp.Tags,
 		TLDR:             resp.TLDR,

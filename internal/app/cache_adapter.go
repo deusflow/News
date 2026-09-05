@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"github.com/deusflow/News/internal/storage"
 )
 
@@ -13,8 +15,10 @@ type CacheAdapter interface {
 	IsSourceURLSent(sourceURL string) bool // replaces Supabase REST duplicate check
 	IsContentDuplicate(content string) (bool, string)
 	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
+	CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error)
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
 	MarkSupabaseSynced(hash string) error
 	IsFunFactRecentlyUsed(funFact string) bool
 	MarkFunFactUsed(funFact string) error
@@ -70,6 +74,15 @@ func (f *FileCacheAdapter) MarkAsSent(hash, title, link, category, source string
 func (f *FileCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
 	f.cache.MarkAsSent(hash, title, link, category, source)
 	return nil
+}
+
+func (f *FileCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error {
+	f.cache.MarkAsSentWithSemanticData(hash, title, link, category, source, titleUA, clusterKey, emb)
+	return nil
+}
+
+func (f *FileCacheAdapter) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error) {
+	return f.cache.CheckSemanticDuplicate(clusterKey, candidateEmbedding, titleUA, lookback, keyThreshold, cosineThreshold, shadowMode)
 }
 
 // --- SYNC QUEUE STUBS (file cache has no Supabase sync queue) ---
@@ -157,6 +170,14 @@ func (p *PostgresCacheAdapter) MarkAsSent(hash, title, link, category, source st
 
 func (p *PostgresCacheAdapter) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
 	return p.cache.MarkAsSentWithContent(hash, title, link, content, category, source)
+}
+
+func (p *PostgresCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error {
+	return p.cache.MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey, emb)
+}
+
+func (p *PostgresCacheAdapter) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error) {
+	return p.cache.CheckSemanticDuplicate(clusterKey, candidateEmbedding, titleUA, lookback, keyThreshold, cosineThreshold, shadowMode)
 }
 
 // --- РЕАЛИЗАЦИЯ DLQ ---

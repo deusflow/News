@@ -107,19 +107,29 @@ type SupabaseConfig struct {
 	RetryMaxDelaySeconds         int // exponential backoff max delay
 }
 
+type SemanticDedupConfig struct {
+	Enable              bool    // if true, semantic deduplication is active
+	ShadowMode          bool    // if true, log similarity and would_reject without dropping on embedding similarity
+	Threshold           float64 // cosine similarity threshold for duplicate (default: 0.85)
+	ClusterKeyThreshold float64 // token jaccard threshold for cluster key (default: 0.60)
+	LookbackDays        int     // days to look back for duplicates (default: 7)
+	EmbeddingModel      string  // default: "text-embedding-004"
+}
+
 type Config struct {
-	Telegram   TelegramConfig
-	Posting    PostingConfig
-	AI         AIConfig
-	RSS        RSSConfig
-	Scraper    ScraperConfig
-	App        AppConfig
-	Cache      CacheConfig
-	Database   DatabaseConfig
-	Feature    FeatureConfig
-	Monitoring MonitoringConfig
-	Website    WebsiteConfig
-	Supabase   SupabaseConfig
+	Telegram      TelegramConfig
+	Posting       PostingConfig
+	AI            AIConfig
+	RSS           RSSConfig
+	Scraper       ScraperConfig
+	App           AppConfig
+	Cache         CacheConfig
+	Database      DatabaseConfig
+	Feature       FeatureConfig
+	Monitoring    MonitoringConfig
+	Website       WebsiteConfig
+	Supabase      SupabaseConfig
+	SemanticDedup SemanticDedupConfig
 }
 
 // Keyword represents a single keyword with its weight and category
@@ -530,6 +540,14 @@ func Load() (*Config, error) {
 		cfg.Supabase.Enable = true
 	}
 
+	// Semantic deduplication settings
+	cfg.SemanticDedup.Enable = getEnvBoolOrDefault("SEMANTIC_DEDUP_ENABLE", true)
+	cfg.SemanticDedup.ShadowMode = getEnvBoolOrDefault("SEMANTIC_DEDUP_SHADOW_MODE", true)
+	cfg.SemanticDedup.Threshold = getEnvFloatOrDefault("SEMANTIC_DEDUP_THRESHOLD", 0.85)
+	cfg.SemanticDedup.ClusterKeyThreshold = getEnvFloatOrDefault("SEMANTIC_DEDUP_CLUSTER_KEY_THRESHOLD", 0.60)
+	cfg.SemanticDedup.LookbackDays = getEnvIntOrDefault("SEMANTIC_DEDUP_LOOKBACK_DAYS", 7)
+	cfg.SemanticDedup.EmbeddingModel = getEnvOrDefault("SEMANTIC_DEDUP_EMBEDDING_MODEL", "text-embedding-004")
+
 	return cfg, cfg.Validate()
 }
 
@@ -553,6 +571,24 @@ func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBoolOrDefault(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			return floatVal
 		}
 	}
 	return defaultValue

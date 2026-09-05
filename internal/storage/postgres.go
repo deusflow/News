@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/deusflow/News/internal/ai/embedding"
 	"github.com/deusflow/News/internal/logger"
 	_ "github.com/lib/pq"
 )
@@ -179,6 +181,31 @@ func (pc *PostgresCache) initSchema() error {
 	}
 	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_title_norm ON sent_news(title_norm);`); err != nil {
 		return fmt.Errorf("failed to create title_norm index: %v", err)
+	}
+
+	// Step 4d: Migration — add story_cluster_key, title_ukrainian, embedding for two-tier semantic dedup.
+	migration4 := `
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'story_cluster_key') THEN
+			ALTER TABLE sent_news ADD COLUMN story_cluster_key VARCHAR(150);
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'title_ukrainian') THEN
+			ALTER TABLE sent_news ADD COLUMN title_ukrainian TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'sent_news' AND column_name = 'embedding') THEN
+			ALTER TABLE sent_news ADD COLUMN embedding JSONB;
+		END IF;
+	END $$;
+	`
+	if _, err = pc.db.Exec(migration4); err != nil {
+		return fmt.Errorf("failed to run migration4 (semantic dedup columns): %v", err)
+	}
+	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_story_cluster_key ON sent_news(story_cluster_key);`); err != nil {
+		return fmt.Errorf("failed to create story_cluster_key index: %v", err)
 	}
 
 	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
@@ -501,28 +528,176 @@ func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) 
 // MarkAsSentWithContent marks news as sent and stores content hash + source_url for dedup.
 // supabase_synced is set to FALSE — caller must call MarkSupabaseSynced after successful push.
 func (pc *PostgresCache) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+	return pc.MarkAsSentWithSemanticData(hash, title, link, content, category, source, "", "", nil)
+}
+
+// MarkAsSentWithSemanticData marks news as sent with semantic metadata (Ukrainian title, cluster key, embedding).
+func (pc *PostgresCache) MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error {
 	contentHash := ""
 	if len(content) >= 100 {
 		contentHash = generateContentHash(content)
 	}
 	titleNorm := normalizeTitleForDedup(title)
 
+	var embeddingJSON interface{} = nil
+	if len(emb) > 0 {
+		if bytes, err := json.Marshal(emb); err == nil {
+			embeddingJSON = string(bytes)
+		}
+	}
+
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced)
-		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE)
+		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced, title_ukrainian, story_cluster_key, embedding)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE, $8, $9, $10)
 		ON CONFLICT (hash) DO UPDATE SET
 			sent_at = NOW(),
 			content_hash = EXCLUDED.content_hash,
 			source_url = EXCLUDED.source_url,
-			title_norm = EXCLUDED.title_norm
+			title_norm = EXCLUDED.title_norm,
+			title_ukrainian = COALESCE(EXCLUDED.title_ukrainian, sent_news.title_ukrainian),
+			story_cluster_key = COALESCE(EXCLUDED.story_cluster_key, sent_news.story_cluster_key),
+			embedding = COALESCE(EXCLUDED.embedding, sent_news.embedding)
 	`
 
-	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source)
+	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source, titleUA, clusterKey, embeddingJSON)
 	if err != nil {
-		return fmt.Errorf("failed to mark as sent: %v", err)
+		return fmt.Errorf("failed to mark as sent with semantic data: %v", err)
 	}
 
 	return nil
+}
+
+// SentStoryRecord represents a published story with semantic metadata for deduplication.
+type SentStoryRecord struct {
+	Title           string
+	TitleUkrainian  string
+	StoryClusterKey string
+	Embedding       []float32
+	SentAt          time.Time
+}
+
+// GetRecentStories returns sent news items from the last lookback duration for semantic duplicate checking.
+func (pc *PostgresCache) GetRecentStories(lookback time.Duration) ([]SentStoryRecord, error) {
+	if lookback <= 0 {
+		lookback = 7 * 24 * time.Hour
+	}
+	cutoffTime := time.Now().Add(-lookback)
+
+	query := `
+		SELECT title, COALESCE(title_ukrainian, ''), COALESCE(story_cluster_key, ''), embedding, sent_at
+		FROM sent_news
+		WHERE sent_at > $1
+		ORDER BY sent_at DESC
+	`
+
+	rows, err := pc.db.Query(query, cutoffTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent stories: %w", err)
+	}
+	defer rows.Close()
+
+	var records []SentStoryRecord
+	for rows.Next() {
+		var rec SentStoryRecord
+		var embeddingRaw []byte
+		if err := rows.Scan(&rec.Title, &rec.TitleUkrainian, &rec.StoryClusterKey, &embeddingRaw, &rec.SentAt); err != nil {
+			logger.Warn("Failed to scan sent story record", "error", err)
+			continue
+		}
+		if len(embeddingRaw) > 0 {
+			var vec []float32
+			if err := json.Unmarshal(embeddingRaw, &vec); err == nil {
+				rec.Embedding = vec
+			}
+		}
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// SemanticCheckResult contains details of two-tier deduplication check.
+type SemanticCheckResult struct {
+	IsDuplicate       bool    `json:"is_duplicate"`
+	WouldReject       bool    `json:"would_reject"`
+	Trigger           string  `json:"trigger"` // "tier1_cluster_key", "tier2_embedding", "tier1_and_tier2", "none"
+	MatchedTitle      string  `json:"matched_title"`
+	ClusterSimilarity float64 `json:"cluster_similarity"`
+	CosineSimilarity  float64 `json:"cosine_similarity"`
+	ShadowMode        bool    `json:"shadow_mode"`
+}
+
+// CheckSemanticDuplicate performs two-tier deduplication check against stories published in the lookback window.
+// Detection logic uses LOGICAL OR: triggers if Tier 1 (Cluster Key overlap >= keyThreshold) OR Tier 2 (Cosine Similarity >= cosineThreshold).
+// In Shadow Mode, Tier 2 logs similarity and would_reject=true without rejecting publication, allowing observation of live numbers.
+func (pc *PostgresCache) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (SemanticCheckResult, error) {
+	result := SemanticCheckResult{
+		ShadowMode: shadowMode,
+		Trigger:    "none",
+	}
+
+	recentStories, err := pc.GetRecentStories(lookback)
+	if err != nil {
+		logger.Warn("Failed to get recent stories for semantic dedup, degrading gracefully", "error", err)
+		return result, err
+	}
+
+	for _, rec := range recentStories {
+		// Tier 1: Cluster Key Jaccard Token Check
+		if clusterKey != "" && rec.StoryClusterKey != "" {
+			simKey := embedding.ClusterKeySimilarity(clusterKey, rec.StoryClusterKey)
+			if simKey > result.ClusterSimilarity {
+				result.ClusterSimilarity = simKey
+				if simKey >= keyThreshold && result.MatchedTitle == "" {
+					result.MatchedTitle = rec.TitleUkrainian
+					if result.MatchedTitle == "" {
+						result.MatchedTitle = rec.Title
+					}
+				}
+			}
+		}
+
+		// Tier 2: Embedding Cosine Similarity Check
+		if len(candidateEmbedding) > 0 && len(rec.Embedding) > 0 {
+			simCos := embedding.CosineSimilarity(candidateEmbedding, rec.Embedding)
+			if simCos > result.CosineSimilarity {
+				result.CosineSimilarity = simCos
+				if simCos >= cosineThreshold {
+					matched := rec.TitleUkrainian
+					if matched == "" {
+						matched = rec.Title
+					}
+					result.MatchedTitle = matched
+				}
+			}
+		}
+	}
+
+	tier1Fired := result.ClusterSimilarity >= keyThreshold && keyThreshold > 0
+	tier2Fired := result.CosineSimilarity >= cosineThreshold && cosineThreshold > 0
+
+	// LOGICAL OR: triggers if either Tier 1 or Tier 2 matches
+	result.WouldReject = tier1Fired || tier2Fired
+
+	switch {
+	case tier1Fired && tier2Fired:
+		result.Trigger = "tier1_and_tier2"
+	case tier1Fired:
+		result.Trigger = "tier1_cluster_key"
+	case tier2Fired:
+		result.Trigger = "tier2_embedding"
+	default:
+		result.Trigger = "none"
+	}
+
+	// In Shadow Mode, Tier 1 is enforced, while Tier 2 only observes and logs
+	if shadowMode {
+		result.IsDuplicate = tier1Fired
+	} else {
+		result.IsDuplicate = result.WouldReject
+	}
+
+	return result, nil
 }
 
 // IsSourceURLSent checks whether a news item with this source_url was already sent.
