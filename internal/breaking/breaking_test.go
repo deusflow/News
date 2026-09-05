@@ -9,6 +9,7 @@ import (
 	"github.com/deusflow/News/internal/breaking"
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/metrics"
+	"github.com/deusflow/News/internal/storage"
 )
 
 type mockDedupeChecker struct {
@@ -30,6 +31,11 @@ func (m *mockDedupeChecker) IsSourceURLSent(sourceURL string) bool {
 }
 
 func (m *mockDedupeChecker) MarkAsSentWithContent(hash, title, link, content, category, source string) error {
+	m.markedHash = append(m.markedHash, hash)
+	return nil
+}
+
+func (m *mockDedupeChecker) MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error {
 	m.markedHash = append(m.markedHash, hash)
 	return nil
 }

@@ -2,6 +2,7 @@ package breaking
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ type DedupeChecker interface {
 	IsAlreadySent(hash string) bool
 	IsSourceURLSent(sourceURL string) bool
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
+	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
 	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
 	MarkDelayedPostSent(id int) error
 	MarkDelayedPostFailed(id int, errMsg string) error
@@ -264,13 +266,28 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
 			})
 		}
-		var msgText string
-		if n.ImageURL != "" {
-			msgText = news.FormatNewsWithImage(n, false)
-			_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, msgText, buttons, 0)
+
+		if n.ImageURL == "" {
+			cat := news.ValidateCategory(n.Category)
+			n.ImageURL = news.GetCategoryImage(cat)
+		}
+
+		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+		var err error
+		if canPhoto {
+			caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+			if len(buttons) > 0 {
+				_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
+			} else {
+				_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
+			}
 		} else {
-			msgText = news.FormatNews(n)
-			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, msgText, buttons, true, 0)
+			text := news.FormatNewsWithImage(n)
+			if len(buttons) > 0 {
+				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
+			} else {
+				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
+			}
 		}
 
 		if err != nil {
@@ -278,7 +295,7 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 			_ = cache.MarkDelayedPostFailed(dp.ID, err.Error())
 		} else {
 			_ = cache.MarkDelayedPostSent(dp.ID)
-			_ = cache.MarkAsSentWithContent(dp.Hash, dp.Title, dp.Link, n.Content, n.Category, n.SourceName)
+			_ = cache.MarkAsSentWithSemanticData(dp.Hash, dp.Title, dp.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding)
 			logger.Info("Delayed post delivered to Telegram successfully via breaking check", "title", dp.Title)
 		}
 	}

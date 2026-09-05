@@ -258,6 +258,9 @@ func fetchNewsForCalendar(ctx context.Context, cfg *config.Config, supabase *sto
 						if titleUA != "" {
 							displayTitle = titleUA
 						}
+						if strings.TrimSpace(content) == "" {
+							content = displayTitle
+						}
 						items = append(items, CalendarNewsItem{
 							Title:    displayTitle,
 							Content:  content,
