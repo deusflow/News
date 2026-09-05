@@ -23,23 +23,41 @@ type DedupeChecker interface {
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 }
 
-// Run processes a breaking news item received via repository_dispatch or manual trigger.
-// It scrapes the article, generates AI summary using the standard news prompt,
-// and publishes to Telegram using the standard format with a BREAKING header.
+// Run processes a breaking news item received via repository_dispatch, manual trigger,
+// or auto-discovered via official Danish emergency feeds (DMI MeteoAlarm / major infrastructure alerts).
 func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache DedupeChecker) error {
 	logger.Info("Starting Breaking News mode")
 
-	url := os.Getenv("BREAKING_URL")
-	title := os.Getenv("BREAKING_TITLE")
+	url := strings.TrimSpace(os.Getenv("BREAKING_URL"))
+	title := strings.TrimSpace(os.Getenv("BREAKING_TITLE"))
+	sourceName := "Breaking"
+	var alertDescription string
 
-	if url == "" {
-		return fmt.Errorf("BREAKING_URL is empty")
-	}
-	if title == "" {
-		return fmt.Errorf("BREAKING_TITLE is empty")
-	}
+	if url != "" && title != "" {
+		logger.Info("Manual breaking news input provided", "url", url, "title", title)
+	} else {
+		logger.Info("No manual breaking input; scanning DMI and emergency feeds in Denmark")
+		detector := NewEmergencyDetector(nil)
+		alert, err := detector.ScanForEmergencies(ctx)
+		if err != nil {
+			logger.Warn("Emergency scan encountered an error", "error", err)
+		}
+		if alert == nil {
+			logger.Info("No active emergency alerts in Denmark, exiting cleanly")
+			return nil
+		}
 
-	logger.Info("Processing breaking news", "url", url, "title", title)
+		url = alert.URL
+		title = alert.Title
+		sourceName = alert.Source
+		alertDescription = alert.Description
+		logger.Info("🚨 Emergency alert detected!",
+			"title", title,
+			"url", url,
+			"severity", alert.Severity,
+			"source", alert.Source,
+			"category", alert.Category)
+	}
 
 	// Pre-send deduplication check to prevent double-posting on workflow retries
 	if cache != nil {
@@ -54,56 +72,65 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		}
 	}
 
-	// Scrape the full article for AI context
+	// Scrape the full article for context (skip if alert URL is generic portal)
 	content := ""
-	scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	ac, err := scraper.ExtractFullArticle(scrapeCtx, url)
-	cancel()
-	if err == nil && ac != nil && ac.Content != "" {
-		content = ac.Content
-		logger.Info("Scraped breaking article", "content_len", len(content))
-	} else {
-		logger.Warn("Could not scrape breaking article, using title only", "error", err)
+	var ac *scraper.ArticleContent
+	if url != "" && !strings.HasPrefix(url, "https://www.dmi.dk/varsler/") {
+		scrapeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		var err error
+		ac, err = scraper.ExtractFullArticle(scrapeCtx, url)
+		cancel()
+		if err == nil && ac != nil && ac.Content != "" {
+			content = ac.Content
+			logger.Info("Scraped breaking article", "content_len", len(content))
+		} else {
+			logger.Warn("Could not scrape breaking article, using description/title", "error", err)
+		}
+	}
+	if content == "" && alertDescription != "" {
+		content = alertDescription
 	}
 
-	// Use the SAME prompt as the main news pipeline for consistent output format
-	systemPrompt := news.GenerateNewsSystemPrompt()
-	userPrompt := news.GenerateNewsUserContent(title, content)
+	var n news.News
+	var generated bool
 
-	resp, err := aiManager.Generate(ctx, title, content, systemPrompt, userPrompt)
-	if err != nil {
-		return fmt.Errorf("AI generation failed for breaking news: %w", err)
+	if aiManager != nil {
+		systemPrompt := news.GenerateNewsSystemPrompt()
+		userPrompt := news.GenerateNewsUserContent(title, content)
+
+		resp, err := aiManager.Generate(ctx, title, content, systemPrompt, userPrompt)
+		if err == nil && resp.Validate() == nil {
+			resp.Mood = "urgent"
+			n = news.News{
+				Title:            title,
+				Link:             url,
+				Published:        time.Now(),
+				Category:         resp.Category,
+				SourceName:       sourceName,
+				SourceLang:       "da",
+				Content:          content,
+				Summary:          resp.Summary,
+				SummaryDanish:    resp.Danish,
+				SummaryUkrainian: resp.Ukrainian,
+				TitleDanish:      resp.TitleDanish,
+				TitleUkrainian:   resp.TitleUkrainian,
+				Mood:             resp.Mood,
+				Tags:             resp.Tags,
+				TLDR:             resp.TLDR,
+				FunFact:          resp.FunFact,
+				WhyItMatters:     resp.WhyItMatters,
+				IsExclusive:      true,
+				AudienceScore:    resp.AudienceScore,
+			}
+			generated = true
+		} else {
+			logger.Warn("AI generation failed for breaking news, falling back to emergency template", "error", err)
+		}
 	}
 
-	// Validate AI response (same validation as main pipeline)
-	if err := resp.Validate(); err != nil {
-		return fmt.Errorf("AI response validation failed: %w", err)
-	}
-
-	// Override mood to urgent (this IS breaking news)
-	resp.Mood = "urgent"
-
-	// Build a news.News struct to use standard formatting
-	n := news.News{
-		Title:            title,
-		Link:             url,
-		Published:        time.Now(),
-		Category:         resp.Category,
-		SourceName:       "Breaking",
-		SourceLang:       "da",
-		Content:          content,
-		Summary:          resp.Summary,
-		SummaryDanish:    resp.Danish,
-		SummaryUkrainian: resp.Ukrainian,
-		TitleDanish:      resp.TitleDanish,
-		TitleUkrainian:   resp.TitleUkrainian,
-		Mood:             resp.Mood,
-		Tags:             resp.Tags,
-		TLDR:             resp.TLDR,
-		FunFact:          resp.FunFact,
-		WhyItMatters:     resp.WhyItMatters,
-		IsExclusive:      true, // Breaking news is always exclusive
-		AudienceScore:    resp.AudienceScore,
+	// Fallback to deterministic emergency template if AI generation failed or aiManager is unavailable
+	if !generated {
+		n = buildEmergencyFallbackNews(title, url, sourceName, content)
 	}
 
 	// Try to get image from scraper
@@ -125,6 +152,7 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 
 	// Format using standard formatter (same look as main channel)
 	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
+	var err error
 
 	if canPhoto {
 		caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
@@ -164,4 +192,36 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		"category", n.Category,
 		"audience_score", n.AudienceScore)
 	return nil
+}
+
+// buildEmergencyFallbackNews builds a structured deterministic emergency news item
+// when AI is unavailable or fails, ensuring critical alerts are never lost.
+func buildEmergencyFallbackNews(title, url, sourceName, content string) news.News {
+	cleanTitle := strings.TrimSpace(title)
+	desc := strings.TrimSpace(content)
+	if len([]rune(desc)) > 350 {
+		desc = string([]rune(desc)[:350]) + "..."
+	}
+	if desc == "" {
+		desc = "Офіційне екстрене сповіщення служб Данії. Слідкуйте за оновленнями та вказівками влади."
+	}
+
+	return news.News{
+		Title:            cleanTitle,
+		Link:             url,
+		Published:        time.Now(),
+		Category:         "emergency",
+		SourceName:       sourceName,
+		SourceLang:       "da",
+		Content:          content,
+		TitleDanish:      cleanTitle,
+		TitleUkrainian:   "🚨 ЕКСТРЕНЕ ПОВІДОМЛЕННЯ: " + cleanTitle,
+		SummaryDanish:    desc,
+		SummaryUkrainian: "Офіційне екстрене сповіщення екстрених служб Данії:\n\n" + desc,
+		TLDR:             "Офіційне термінове сповіщення екстрених служб Данії.",
+		WhyItMatters:     "Безпека жителів Данії та рух транспорту.",
+		Mood:             "urgent",
+		IsExclusive:      true,
+		AudienceScore:    12,
+	}
 }

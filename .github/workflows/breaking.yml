@@ -1,16 +1,19 @@
 name: Danish News Bot - Breaking News
 
 on:
+  schedule:
+    # Check for acute Danish emergencies every 20 mins between 05:00 and 21:00 UTC (zero AI used if calm)
+    - cron: '*/20 5-21 * * *'
   repository_dispatch:
     types: [breaking_news]
   workflow_dispatch:
     inputs:
       title:
-        description: 'Breaking News Title'
-        required: true
+        description: 'Breaking News Title (leave empty for auto-detection)'
+        required: false
       url:
-        description: 'Breaking News URL'
-        required: true
+        description: 'Breaking News URL (leave empty for auto-detection)'
+        required: false
 
 jobs:
   run-bot:
