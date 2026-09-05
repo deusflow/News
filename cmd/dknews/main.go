@@ -11,6 +11,7 @@ import (
 
 	"github.com/deusflow/News/internal/app"
 	"github.com/deusflow/News/internal/breaking"
+	"github.com/deusflow/News/internal/calendar"
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/digest"
 	"github.com/deusflow/News/internal/logger"
@@ -50,6 +51,9 @@ func main() {
 		if arg == "-mode=digest" || arg == "--mode=digest" {
 			botMode = "digest"
 		}
+		if arg == "-mode=calendar" || arg == "--mode=calendar" || arg == "-mode=monthly" || arg == "--mode=monthly" {
+			botMode = "calendar"
+		}
 		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
 			botMode = os.Args[i+1]
 		}
@@ -76,6 +80,14 @@ func main() {
 	if botMode == "digest" {
 		if err := digest.RunDigest(ctx, cfg, aiMgr, application.GetSupabase()); err != nil {
 			logger.Error("Digest mode failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if botMode == "calendar" || botMode == "monthly" {
+		if err := calendar.RunCalendar(ctx, cfg, aiMgr, application.GetSupabase()); err != nil {
+			logger.Error("Calendar mode failed", "error", err)
 			os.Exit(1)
 		}
 		return
