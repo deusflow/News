@@ -65,6 +65,7 @@ var paywallIndicators = []string{
 	"plus-artikel",
 	"er du allerede abonnent",
 	"abonnér nu",
+	"bestil abonnement",
 	"køb digital adgang",
 	"adgang til artiklen",
 }
@@ -113,15 +114,15 @@ func IsPaywalledOrStub(content string, articleURL string) (bool, string) {
 		}
 	}
 
-	// 3. Absolute minimum threshold: any article with less than 200 characters is a stub
-	if runeCount < 200 {
-		return true, fmt.Sprintf("stub content too short (%d chars, min 200)", runeCount)
+	// 3. Absolute minimum threshold: any article with less than 250 characters is a stub
+	if runeCount < 250 {
+		return true, fmt.Sprintf("stub content too short (%d chars, min 250)", runeCount)
 	}
 
 	// 4. Known paywall publisher check: paywalls on Berlingske/Politiken/JP often leak 1 teaser paragraph
 	for _, domain := range knownPaywallDomains {
 		if strings.Contains(lowerURL, domain) {
-			if runeCount < 350 || realParagraphCount < 2 {
+			if runeCount < 400 || realParagraphCount < 2 {
 				return true, fmt.Sprintf("paywalled publisher %s with teaser content (%d chars, %d paragraphs)", domain, runeCount, realParagraphCount)
 			}
 		}
@@ -286,6 +287,18 @@ func isNavigationOrOtherArticle(text string) bool {
 		"reklame", "annonce", "sponsor",
 		"sidst opdateret", "senest opdateret",
 		"redigeret", "publiceret", "dr nyheder",
+		"vi tager ansvar for indholdet",
+		"tilmeldt pressenævnet",
+		"pressenævnet",
+		"administrerende direktør",
+		"ansvarshavende chefredaktør",
+		"chefredaktør",
+		"beskyttet efter lov om ophavsret",
+		"tekst- og datamining",
+		"forbeholder sig alle rettigheder",
+		"cvr nr.",
+		"bestil abonnement",
+		"nulstil adgangskode",
 	}
 
 	for _, indicator := range navIndicators {
@@ -381,6 +394,9 @@ func extractGenericContent(doc *goquery.Document) string {
 	var paragraphs []string
 	seen := make(map[string]struct{})
 
+	// Strip non-content and layout containers so footers, sidebars and legal notices never leak
+	doc.Find("footer, .footer, .site-footer, .prose-footer, [role='contentinfo'], nav, aside, .sidebar, .cookie-banner, .paywall-banner, .advertisement").Remove()
+
 	// Limits chosen to feed LLM enough context but avoid capturing whole page/footer.
 	const (
 		minParagraphLen = 40
@@ -458,8 +474,8 @@ func extractGenericContent(doc *goquery.Document) string {
 			return true
 		})
 
-		// If we collected enough meaningful content, stop early.
-		if stop || currentChars >= 8000 || len(paragraphs) >= 30 {
+		// If a specific article container was found, don't fall back to broader selectors like page-wide "p"
+		if stop || len(paragraphs) >= 2 || (len(paragraphs) >= 1 && currentChars >= 250) {
 			break
 		}
 	}

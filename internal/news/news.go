@@ -49,6 +49,7 @@ type News struct {
 	TitleDanish      string   `json:"title_danish"`
 	TitleUkrainian   string   `json:"title_ukrainian"`
 	StoryClusterKey  string   `json:"story_cluster_key,omitempty"`
+	ConcreteAnchor   string   `json:"concrete_anchor,omitempty"`
 	Embedding        []float32 `json:"-"`
 	Mood             string   `json:"mood"`
 	Tags             []string `json:"tags"`
@@ -745,6 +746,17 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		logger.Error("AI response validation failed", "title", title, "error", err)
 		return nil, err
 	}
+
+	// Guard: отсекаем стабы, пейволлы и попытки модели оправдаться («деталі невідомі»)
+	if isStubOrApology(resp) {
+		logger.Warn("skipping item: AI flagged insufficient substance or generated apology text",
+			"index", index+1,
+			"title", title,
+			"concrete_anchor", resp.ConcreteAnchor,
+			"audience_score", resp.AudienceScore)
+		return nil, nil
+	}
+
 	logger.Info("AI response fields",
 		"title", title,
 		"category_raw", resp.Category,
@@ -785,6 +797,7 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		TitleDanish:      resp.TitleDanish,
 		TitleUkrainian:   resp.TitleUkrainian,
 		StoryClusterKey:  resp.StoryClusterKey,
+		ConcreteAnchor:   resp.ConcreteAnchor,
 		Mood:             resp.Mood, // уже нормализован в Validate()
 		Tags:             resp.Tags,
 		TLDR:             resp.TLDR,
@@ -875,6 +888,47 @@ func hasUkraineContext(matches []config.KeywordMatch) bool {
 	for _, m := range matches {
 		switch strings.ToLower(m.Word) {
 		case "ukrainsk", "ukrainer", "ukrainske flygtninge", "ukrainsk statsborger", "sl1", "paragraf 24":
+			return true
+		}
+	}
+	return false
+}
+
+// isStubOrApology проверяет, не является ли ответ AI признанием отсутствия фактуры или стабом
+func isStubOrApology(resp *ai.Response) bool {
+	if resp == nil {
+		return true
+	}
+	ca := strings.ToLower(strings.TrimSpace(resp.ConcreteAnchor))
+	if ca == "insufficient_substance" ||
+		strings.Contains(ca, "не містить конкретики") ||
+		strings.Contains(ca, "ikke tilgængelig") ||
+		strings.Contains(ca, "mangler detaljer") {
+		return true
+	}
+
+	dk := strings.ToLower(resp.Danish)
+	ua := strings.ToLower(resp.Ukrainian)
+
+	apologyMarkers := []string{
+		"ikke tilgængelig",
+		"ikke tilgængelige",
+		"kildemateriale mangler",
+		"i det åbne kildemateriale",
+		"det åbne kildemateriale",
+		"åbne kildemateriale",
+		"першоджерело не містить",
+		"джерело не містить",
+		"не містить додаткових",
+		"не містить конкретики",
+		"немає у відкритому доступі",
+		"недоступні в відкритому",
+		"у відкритому доступі немає",
+		"деталі не розголошуються в джерелі",
+	}
+
+	for _, marker := range apologyMarkers {
+		if strings.Contains(dk, marker) || strings.Contains(ua, marker) {
 			return true
 		}
 	}

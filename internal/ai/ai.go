@@ -18,15 +18,16 @@ type Response struct {
 	TitleDanish     string   `json:"title_danish"`
 	TitleUkrainian  string   `json:"title_ukrainian"`
 	StoryClusterKey string   `json:"story_cluster_key"`
+	ConcreteAnchor  string   `json:"concrete_anchor"`
 	Mood            string   `json:"mood"`
-	Category       string   `json:"category"` // AI выбирает из фиксированного списка в prompt
-	Tags           []string `json:"tags"`
-	TLDR           string   `json:"tldr"`
-	FunFact        string   `json:"fun_fact"`
-	WhyItMatters   string   `json:"why_it_matters"`
-	IsExclusive    bool     `json:"is_exclusive"`
-	IsLongread     bool     `json:"is_longread"`
-	AudienceScore  int      `json:"audience_score"`
+	Category        string   `json:"category"` // AI выбирает из фиксированного списка в prompt
+	Tags            []string `json:"tags"`
+	TLDR            string   `json:"tldr"`
+	FunFact         string   `json:"fun_fact"`
+	WhyItMatters    string   `json:"why_it_matters"`
+	IsExclusive     bool     `json:"is_exclusive"`
+	IsLongread      bool     `json:"is_longread"`
+	AudienceScore   int      `json:"audience_score"`
 }
 
 // validMoods — whitelist допустимых значений mood.
@@ -62,6 +63,7 @@ func (r *Response) Validate() error {
 	r.Category = strings.ToLower(strings.TrimSpace(r.Category))
 
 	r.StoryClusterKey = strings.ToLower(strings.TrimSpace(r.StoryClusterKey))
+	r.ConcreteAnchor = strings.TrimSpace(r.ConcreteAnchor)
 
 	r.WhyItMatters = strings.TrimSpace(r.WhyItMatters)
 
