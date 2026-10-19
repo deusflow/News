@@ -715,37 +715,6 @@ func extractImageFromDoc(doc *goquery.Document, pageURL string) string {
 	return ""
 }
 
-// ExtractImageURL fetches a page and extracts its representative image.
-// Prefer using ExtractFullArticle which reuses the same HTTP request.
-// This function exists for callers that only need the image without content.
-func ExtractImageURL(pageURL string) (string, error) {
-	if strings.TrimSpace(pageURL) == "" {
-		return "", fmt.Errorf("empty url")
-	}
-
-	req, err := http.NewRequest("GET", pageURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating request: %v", err)
-	}
-	req.Header.Set("User-Agent", RandomUserAgent())
-
-	resp, err := scraperHTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error loading page: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http status %d", resp.StatusCode)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error parsing HTML: %v", err)
-	}
-
-	return extractImageFromDoc(doc, pageURL), nil
-}
-
 func isLikelyImage(u string) bool {
 	u = strings.ToLower(strings.TrimSpace(u))
 	if u == "" {

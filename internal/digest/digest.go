@@ -141,18 +141,17 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 		}
 	}
 
-	// 2. Попытка получить из PostgreSQL (sent_news + translation_cache)
+	// 2. Попытка получить из PostgreSQL (sent_news)
 	if cfg.Database.UsePostgres && cfg.Database.URL != "" {
 		logger.Info("Attempting to fetch news for digest from PostgreSQL")
 		db, err := sql.Open("postgres", cfg.Database.URL)
 		if err == nil {
 			defer db.Close()
 			query := `
-				SELECT s.title, s.link, COALESCE(t.ukrainian_translation, t.summary, '') 
-				FROM sent_news s 
-				LEFT JOIN translation_cache t ON s.content_hash = t.content_hash 
-				WHERE s.sent_at >= NOW() - INTERVAL '7 days' 
-				ORDER BY s.sent_at DESC 
+				SELECT s.title, s.link, ''
+				FROM sent_news s
+				WHERE s.sent_at >= NOW() - INTERVAL '7 days'
+				ORDER BY s.sent_at DESC
 				LIMIT 30
 			`
 			rows, queryErr := db.QueryContext(ctx, query)

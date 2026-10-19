@@ -241,11 +241,10 @@ func fetchNewsForCalendar(ctx context.Context, cfg *config.Config, supabase *sto
 		if err == nil {
 			defer db.Close()
 			query := `
-				SELECT s.title, COALESCE(s.title_ukrainian, ''), s.link, COALESCE(s.category, ''), COALESCE(t.ukrainian_translation, t.summary, '') 
-				FROM sent_news s 
-				LEFT JOIN translation_cache t ON s.content_hash = t.content_hash 
-				WHERE s.sent_at >= NOW() - INTERVAL '35 days' 
-				ORDER BY s.sent_at DESC 
+				SELECT s.title, COALESCE(s.title_ukrainian, ''), s.link, COALESCE(s.category, ''), ''
+				FROM sent_news s
+				WHERE s.sent_at >= NOW() - INTERVAL '35 days'
+				ORDER BY s.sent_at DESC
 				LIMIT 40
 			`
 			rows, queryErr := db.QueryContext(ctx, query)

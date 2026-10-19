@@ -252,16 +252,6 @@ func (fc *FileCache) Cleanup() {
 	}
 }
 
-// GetStats returns cache statistics
-func (fc *FileCache) GetStats() map[string]int {
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
-
-	return map[string]int{
-		"total_items": len(fc.items),
-	}
-}
-
 // extractDomain extracts domain from URL
 func extractDomain(url string) string {
 	if url == "" {

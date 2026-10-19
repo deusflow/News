@@ -779,15 +779,6 @@ func processReadyDelayedPosts(ctx context.Context, cfg *config.Config, cacheAdap
 	}
 }
 
-func truncateForLog(s string, max int) string {
-	s = strings.TrimSpace(s)
-	if max <= 0 || len([]rune(s)) <= max {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:max]) + "..."
-}
-
 // generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout.
 func generateWebsitePost(gen *website.Generator, n news.News) {
 	post := website.NewsPost{

@@ -24,20 +24,6 @@ type PostgresCache struct {
 	ttlHours int
 }
 
-// TranslationCacheItem represents cached AI translation
-type TranslationCacheItem struct {
-	ContentHash          string
-	Title                string
-	Content              string
-	Summary              string
-	DanishTranslation    string
-	UkrainianTranslation string
-	AIProvider           string
-	CreatedAt            time.Time
-	LastUsedAt           time.Time
-	UseCount             int
-}
-
 // FailedItem represents a news item that failed to send
 type FailedItem struct {
 	ID          int
@@ -230,24 +216,6 @@ func (pc *PostgresCache) initSchema() error {
 
 	// Step 6: Create additional tables
 	additionalSchema := `
-	-- Table for caching AI translations (saves tokens!)
-	CREATE TABLE IF NOT EXISTS translation_cache (
-		id SERIAL PRIMARY KEY,
-		content_hash VARCHAR(64) UNIQUE NOT NULL,
-		title TEXT NOT NULL,
-		content TEXT NOT NULL,
-		summary TEXT,
-		danish_translation TEXT,
-		ukrainian_translation TEXT,
-		ai_provider VARCHAR(50),
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		last_used_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		use_count INTEGER DEFAULT 1
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_translation_cache_hash ON translation_cache(content_hash);
-	CREATE INDEX IF NOT EXISTS idx_translation_cache_created_at ON translation_cache(created_at);
-
 	-- Table for recently used fun facts (anti-repeat in Telegram posts)
 	CREATE TABLE IF NOT EXISTS fun_fact_cache (
 		id SERIAL PRIMARY KEY,
@@ -306,22 +274,6 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 
 	if err != nil {
 		logger.Error("DB error checking duplicate by hash, assuming already sent to prevent duplicate spam", "hash", hash, "error", err)
-		return true
-	}
-
-	return count > 0
-}
-
-// IsLinkAlreadySent checks if a specific link was already sent (additional safety check)
-func (pc *PostgresCache) IsLinkAlreadySent(link string) bool {
-	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
-
-	var count int
-	query := `SELECT COUNT(*) FROM sent_news WHERE link = $1 AND sent_at > $2`
-	err := pc.db.QueryRow(query, link, cutoffTime).Scan(&count)
-
-	if err != nil {
-		logger.Error("DB error checking duplicate by link, assuming already sent to prevent duplicate spam", "link", link, "error", err)
 		return true
 	}
 
@@ -802,14 +754,6 @@ func (pc *PostgresCache) IncrementSyncQueueAttempts(id int, errMsg string) error
 	return err
 }
 
-// GetUnsyncedCount returns the number of rows not yet pushed to Supabase.
-// Useful for health checks / metrics.
-func (pc *PostgresCache) GetUnsyncedCount() int {
-	var count int
-	_ = pc.db.QueryRow(`SELECT COUNT(*) FROM sent_news WHERE supabase_synced = FALSE`).Scan(&count)
-	return count
-}
-
 // Cleanup removes expired items from database
 func (pc *PostgresCache) Cleanup() error {
 	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
@@ -826,20 +770,6 @@ func (pc *PostgresCache) Cleanup() error {
 		logger.Info("Cleaned old sent_news records", "rows", rows)
 	}
 
-	// Clean translation_cache (using last_used_at)
-	// We can use the same TTL or a longer one. For now, using the same TTL to save space.
-	queryTrans := `DELETE FROM translation_cache WHERE last_used_at < $1`
-	resultTrans, err := pc.db.Exec(queryTrans, cutoffTime)
-	if err != nil {
-		logger.Warn("Failed to cleanup translation_cache", "error", err)
-		// Don't fail the whole cleanup if this fails
-	} else {
-		rowsTrans, _ := resultTrans.RowsAffected()
-		if rowsTrans > 0 {
-			logger.Info("Cleaned old translation_cache records", "rows", rowsTrans)
-		}
-	}
-
 	queryFunFacts := `DELETE FROM fun_fact_cache WHERE used_at < $1`
 	resultFunFacts, err := pc.db.Exec(queryFunFacts, cutoffTime)
 	if err != nil {
@@ -852,81 +782,6 @@ func (pc *PostgresCache) Cleanup() error {
 	}
 
 	return nil
-}
-
-// GetStats returns cache statistics
-func (pc *PostgresCache) GetStats() (map[string]int, error) {
-	stats := make(map[string]int)
-
-	// Total items
-	var total int
-	err := pc.db.QueryRow(`SELECT COUNT(*) FROM sent_news`).Scan(&total)
-	if err != nil {
-		return nil, err
-	}
-	stats["total_items"] = total
-
-	// Items within TTL
-	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
-	var active int
-	err = pc.db.QueryRow(`SELECT COUNT(*) FROM sent_news WHERE sent_at > $1`, cutoffTime).Scan(&active)
-	if err != nil {
-		return nil, err
-	}
-	stats["active_items"] = active
-
-	// Items by category
-	rows, err := pc.db.Query(`
-		SELECT category, COUNT(*) 
-		FROM sent_news 
-		WHERE sent_at > $1 
-		GROUP BY category
-	`, cutoffTime)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var category string
-			var count int
-			if err := rows.Scan(&category, &count); err == nil {
-				stats["category_"+category] = count
-			}
-		}
-	}
-
-	return stats, nil
-}
-
-// GetRecentNews returns recently sent news for debugging
-func (pc *PostgresCache) GetRecentNews(limit int) ([]SentNewsItem, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-
-	query := `
-		SELECT hash, title, link, category, source, sent_at
-		FROM sent_news
-		ORDER BY sent_at DESC
-		LIMIT $1
-	`
-
-	rows, err := pc.db.Query(query, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []SentNewsItem
-	for rows.Next() {
-		var item SentNewsItem
-		err := rows.Scan(&item.Hash, &item.Title, &item.Link, &item.Category, &item.Source, &item.SentAt)
-		if err != nil {
-			logger.Warn("Error scanning recent news row", "error", err)
-			continue
-		}
-		items = append(items, item)
-	}
-
-	return items, nil
 }
 
 // Close closes the database connection
@@ -942,57 +797,6 @@ func (pc *PostgresCache) GenerateNewsHash(title, link string) string {
 	// Use the same logic as FileCache
 	fc := &FileCache{}
 	return fc.GenerateNewsHash(title, link)
-}
-
-// GetTranslationCache retrieves translation from cache
-func (pc *PostgresCache) GetTranslationCache(contentHash string) (TranslationCacheItem, error) {
-	var item TranslationCacheItem
-
-	query := `
-		SELECT content_hash, title, content, summary, danish_translation, ukrainian_translation, ai_provider, created_at, last_used_at, use_count
-		FROM translation_cache
-		WHERE content_hash = $1
-	`
-
-	err := pc.db.QueryRow(query, contentHash).Scan(
-		&item.ContentHash, &item.Title, &item.Content, &item.Summary,
-		&item.DanishTranslation, &item.UkrainianTranslation, &item.AIProvider,
-		&item.CreatedAt, &item.LastUsedAt, &item.UseCount,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return item, nil // Not found, return zero value
-		}
-		return item, fmt.Errorf("failed to get translation from cache: %v", err)
-	}
-
-	return item, nil
-}
-
-// SetTranslationCache stores translation in cache
-func (pc *PostgresCache) SetTranslationCache(item TranslationCacheItem) error {
-	// Use INSERT ON CONFLICT to handle updates
-	query := `
-		INSERT INTO translation_cache (content_hash, title, content, summary, danish_translation, ukrainian_translation, ai_provider, created_at, last_used_at, use_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), 1)
-		ON CONFLICT (content_hash) DO UPDATE SET
-			title = EXCLUDED.title,
-			content = EXCLUDED.content,
-			summary = EXCLUDED.summary,
-			danish_translation = EXCLUDED.danish_translation,
-			ukrainian_translation = EXCLUDED.ukrainian_translation,
-			ai_provider = EXCLUDED.ai_provider,
-			last_used_at = NOW(),
-			use_count = translation_cache.use_count + 1
-	`
-
-	_, err := pc.db.Exec(query, item.ContentHash, item.Title, item.Content, item.Summary, item.DanishTranslation, item.UkrainianTranslation, item.AIProvider)
-	if err != nil {
-		return fmt.Errorf("failed to set translation cache: %v", err)
-	}
-
-	return nil
 }
 
 // SaveFailedNews saves a failed news item to the DLQ

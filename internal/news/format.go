@@ -20,14 +20,6 @@ var moodEmoji = map[string]string{
 	"neutral":  "🔵",
 }
 
-// GetMoodEmoji returns the display emoji for a mood string.
-func GetMoodEmoji(mood string) string {
-	if e, ok := moodEmoji[strings.ToLower(strings.TrimSpace(mood))]; ok {
-		return e
-	}
-	return "🔵"
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // formatHeader — строка ТЕМЫ (перша строка поста).
 //

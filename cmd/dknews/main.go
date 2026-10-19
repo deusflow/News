@@ -16,7 +16,6 @@ import (
 	"github.com/deusflow/News/internal/digest"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/metrics"
-	"github.com/deusflow/News/internal/reddit"
 )
 
 func main() {
@@ -42,10 +41,7 @@ func main() {
 	// Check for Reddit mode
 	botMode := os.Getenv("BOT_MODE")
 	for i, arg := range os.Args {
-		if arg == "-mode=reddit" || arg == "--mode=reddit" {
-			botMode = "reddit"
-		}
-		if arg == "-mode=breaking" || arg == "--mode=breaking" {
+	if arg == "-mode=breaking" || arg == "--mode=breaking" {
 			botMode = "breaking"
 		}
 		if arg == "-mode=digest" || arg == "--mode=digest" {
@@ -60,14 +56,6 @@ func main() {
 	}
 
 	aiMgr := application.GetAIManager()
-
-	if botMode == "reddit" {
-		if err := reddit.Run(ctx, cfg, aiMgr); err != nil {
-			logger.Error("Reddit mode failed", "error", err)
-			os.Exit(1)
-		}
-		return
-	}
 
 	if botMode == "breaking" {
 		if err := breaking.Run(ctx, cfg, aiMgr, application.GetCacheAdapter()); err != nil {

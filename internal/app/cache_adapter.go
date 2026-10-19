@@ -12,7 +12,6 @@ import (
 type CacheAdapter interface {
 	GenerateNewsHash(title, link string) string
 	IsAlreadySent(hash string) bool
-	IsLinkAlreadySent(link string) bool
 	IsSourceURLSent(sourceURL string) bool // replaces Supabase REST duplicate check
 	IsContentDuplicate(content string) (bool, string)
 	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
@@ -55,10 +54,6 @@ func (f *FileCacheAdapter) GenerateNewsHash(title, link string) string {
 
 func (f *FileCacheAdapter) IsAlreadySent(hash string) bool {
 	return f.cache.IsAlreadySent(hash)
-}
-
-func (f *FileCacheAdapter) IsLinkAlreadySent(link string) bool {
-	return false
 }
 
 func (f *FileCacheAdapter) IsSourceURLSent(sourceURL string) bool {
@@ -169,10 +164,6 @@ func (p *PostgresCacheAdapter) GenerateNewsHash(title, link string) string {
 
 func (p *PostgresCacheAdapter) IsAlreadySent(hash string) bool {
 	return p.cache.IsAlreadySent(hash)
-}
-
-func (p *PostgresCacheAdapter) IsLinkAlreadySent(link string) bool {
-	return p.cache.IsLinkAlreadySent(link)
 }
 
 func (p *PostgresCacheAdapter) IsSourceURLSent(sourceURL string) bool {
