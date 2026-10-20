@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -296,11 +297,19 @@ func (pc *PostgresCache) IsContentDuplicate(content string) (bool, string) {
 	query := `SELECT title FROM sent_news WHERE content_hash IN ($1, $2) AND sent_at > $3 LIMIT 1`
 	err := pc.db.QueryRow(query, contentHash, legacyHash, cutoffTime).Scan(&existingTitle)
 
-	if err == nil {
+	switch {
+	case err == nil:
 		logger.Info("Found duplicate content hash", "existing_title", existingTitle)
 		return true, existingTitle
+	case errors.Is(err, sql.ErrNoRows):
+		// No match — normal "not duplicate" outcome
+		return false, ""
+	default:
+		// DB failure — fail-open: allow publishing rather than blocking the feed.
+		// hash/source_url gates above are fail-closed and keep this from spamming.
+		logger.Warn("DB error checking content duplicate, assuming NOT duplicate (fail-open)", "error", err)
+		return false, ""
 	}
-	return false, ""
 }
 
 // generateContentHash creates a stronger, deterministic hash for content deduplication.
@@ -402,10 +411,18 @@ func (pc *PostgresCache) IsTitleNearDuplicate(title string) (bool, string) {
 		`SELECT title FROM sent_news WHERE title_norm = $1 AND sent_at > $2 LIMIT 1`,
 		norm, cutoffTime,
 	).Scan(&existingTitle)
-	if err == nil {
+	switch {
+	case err == nil:
 		return true, existingTitle
+	case errors.Is(err, sql.ErrNoRows):
+		// No match — normal "not duplicate" outcome
+		return false, ""
+	default:
+		// DB failure — fail-open: allow publishing rather than blocking the feed.
+		// hash/source_url gates above are fail-closed and keep this from spamming.
+		logger.Warn("DB error checking near-duplicate title, assuming NOT duplicate (fail-open)", "title", title, "error", err)
+		return false, ""
 	}
-	return false, ""
 }
 
 func extractSignificantNumbers(normalized string) []string {
@@ -768,6 +785,30 @@ func (pc *PostgresCache) Cleanup() error {
 	rows, _ := result.RowsAffected()
 	if rows > 0 {
 		logger.Info("Cleaned old sent_news records", "rows", rows)
+	}
+
+	// Clean old failed_news (DLQ) — items past TTL are never retried again
+	queryFailed := `DELETE FROM failed_news WHERE last_attempt_at < $1`
+	resultFailed, err := pc.db.Exec(queryFailed, cutoffTime)
+	if err != nil {
+		logger.Warn("Failed to cleanup failed_news", "error", err)
+	} else {
+		rowsFailed, _ := resultFailed.RowsAffected()
+		if rowsFailed > 0 {
+			logger.Info("Cleaned old failed_news records", "rows", rowsFailed)
+		}
+	}
+
+	// Clean finished delayed_posts ('sent'/'failed'); 'pending' are kept until delivered
+	queryDelayed := `DELETE FROM delayed_posts WHERE status <> 'pending' AND created_at < $1`
+	resultDelayed, err := pc.db.Exec(queryDelayed, cutoffTime)
+	if err != nil {
+		logger.Warn("Failed to cleanup delayed_posts", "error", err)
+	} else {
+		rowsDelayed, _ := resultDelayed.RowsAffected()
+		if rowsDelayed > 0 {
+			logger.Info("Cleaned old delayed_posts records", "rows", rowsDelayed)
+		}
 	}
 
 	queryFunFacts := `DELETE FROM fun_fact_cache WHERE used_at < $1`

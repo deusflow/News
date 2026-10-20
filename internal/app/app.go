@@ -501,6 +501,12 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	sessionHashes := make(map[string]bool)
 	sessionUrls := make(map[string]bool)
 
+	// Embedding budget: per-run cap on Gemini embedding calls (sentinel -1 = unlimited)
+	embeddingBudget := -1
+	if cfg.SemanticDedup.MaxEmbeddingRequests > 0 {
+		embeddingBudget = cfg.SemanticDedup.MaxEmbeddingRequests
+	}
+
 	// Collect valid (non-duplicate) candidates up to publishLimit + 1 (for diff log)
 	type validCandidate struct {
 		news news.News
@@ -536,6 +542,11 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			"passes_public_impact_gate", news.PassesPublicImpactGate(n),
 			"passes_audience_gate", news.PassesAudienceRelevanceGate(n))
 
+		// ═══ Duplicate-policy gates ═══
+		// Policy: fail-CLOSED for cheap exact identifiers (hash, source_url) — on DB
+		// error these gates assume "already sent" to prevent duplicate spam in Telegram.
+		// fail-OPEN for fuzzy heuristics (title/content/semantic) — on DB error they
+		// assume "not duplicate" so one DB glitch cannot silence the whole feed.
 		if cacheAdapter.IsAlreadySent(hash) {
 			logger.Info("⏭️ Skipping already-sent hash", "title", n.Title, "hash", hash)
 			continue
@@ -568,8 +579,8 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				lookback = 7 * 24 * time.Hour
 			}
 
-			// Generate embedding for candidate if embedder is available and vector not yet computed
-			if embedder != nil && len(n.Embedding) == 0 {
+			// Generate embedding for candidate if embedder is available, budget allows, and vector not yet computed
+			if embedder != nil && len(n.Embedding) == 0 && embeddingBudget != 0 {
 				textToEmbed := n.TitleUkrainian
 				if n.TLDR != "" {
 					textToEmbed += ". " + n.TLDR
@@ -581,7 +592,17 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 						"error", err)
 				} else {
 					n.Embedding = emb
+					if embeddingBudget > 0 {
+						embeddingBudget--
+						if embeddingBudget == 0 {
+							logger.Warn("Embedding request budget exhausted for this run, further dedup falls back to Tier 1 cluster key",
+								"budget", cfg.SemanticDedup.MaxEmbeddingRequests)
+						}
+					}
 				}
+			} else if embedder != nil && len(n.Embedding) == 0 {
+				logger.Info("Embedding budget exhausted, skipping embedding (Tier 1 cluster key only)",
+					"title", n.TitleUkrainian)
 			}
 
 			semRes, err := cacheAdapter.CheckSemanticDuplicate(

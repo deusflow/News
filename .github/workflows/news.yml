@@ -31,13 +31,8 @@ jobs:
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 1
 
-      # Feature flags (NEW)
-      ENABLE_THREAD_MODE: 'false'
+      # Feature flags
       ENABLE_INLINE_BUTTONS: 'true'
-      INLINE_BUTTON_MODE: 'url'
-      ENABLE_IMPORTANCE_LINE: 'true'
-      ENABLE_VOCAB_POST: 'false'
-      VOCAB_WORDS_PER_DAY: 5
 
       # Website generation (DISABLED - site builds from Supabase)
       ENABLE_WEBSITE: 'false'
@@ -46,14 +41,13 @@ jobs:
       # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
       GEMINI_MODEL: gemini-3.5-flash
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       AI_PROVIDERS: "gemini,groq"
-      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
-      MISTRALAI_API_KEY: ${{ secrets.MISTRALAI_API_KEY }}
       AI_REQUEST_DELAY_SECONDS: '8'
       MIN_KEYWORD_SCORE: '6'
 

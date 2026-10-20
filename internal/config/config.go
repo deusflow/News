@@ -108,12 +108,13 @@ type SupabaseConfig struct {
 }
 
 type SemanticDedupConfig struct {
-	Enable              bool    // if true, semantic deduplication is active
-	ShadowMode          bool    // if true, log similarity and would_reject without dropping on embedding similarity
-	Threshold           float64 // cosine similarity threshold for duplicate (default: 0.85)
-	ClusterKeyThreshold float64 // token jaccard threshold for cluster key (default: 0.60)
-	LookbackDays        int     // days to look back for duplicates (default: 7)
-	EmbeddingModel      string  // default: "text-embedding-004"
+	Enable               bool    // if true, semantic deduplication is active
+	ShadowMode           bool    // if true, log similarity and would_reject without dropping on embedding similarity
+	Threshold            float64 // cosine similarity threshold for duplicate (default: 0.85)
+	ClusterKeyThreshold  float64 // token jaccard threshold for cluster key (default: 0.60)
+	LookbackDays         int     // days to look back for duplicates (default: 7)
+	EmbeddingModel       string  // default: "text-embedding-004"
+	MaxEmbeddingRequests int     // per-run cap on Gemini embedding calls (default: 12; <=0 = unlimited)
 }
 
 type Config struct {
@@ -547,6 +548,9 @@ func Load() (*Config, error) {
 	cfg.SemanticDedup.ClusterKeyThreshold = getEnvFloatOrDefault("SEMANTIC_DEDUP_CLUSTER_KEY_THRESHOLD", 0.60)
 	cfg.SemanticDedup.LookbackDays = getEnvIntOrDefault("SEMANTIC_DEDUP_LOOKBACK_DAYS", 7)
 	cfg.SemanticDedup.EmbeddingModel = getEnvOrDefault("SEMANTIC_DEDUP_EMBEDDING_MODEL", "text-embedding-004")
+	// Cap on embedding API calls per run: protects the Gemini quota. After the
+	// budget is exhausted, dedup falls back to Tier 1 (cluster key) like on embed errors.
+	cfg.SemanticDedup.MaxEmbeddingRequests = getEnvIntOrDefault("MAX_EMBEDDING_REQUESTS", 12)
 
 	return cfg, cfg.Validate()
 }

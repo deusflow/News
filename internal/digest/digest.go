@@ -63,6 +63,7 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 - Категорично заборонено виводити два різних пункти дайджесту про одне й те саме питання, написані різними словами.
 
 Вимоги до оформлення та дизайну поста:
+0. ЗАГАЛЬНИЙ ОБСЯГ поста — не більше 3500 символів (Telegram не приймає довші повідомлення). Якщо новин забагато, скорочуй пояснення, а не кількість пунктів.
 1. Заголовок повинен бути яскравим та помітним, наприклад:
    ✨ <b>ТИЖНЕВИЙ ДАЙДЖЕСТ: Головне в Данії</b>
    (використовуй емодзі та жирний шрифт).
@@ -103,6 +104,9 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 
 	logger.Info("Digest generated successfully", "length", len(digestText))
 
+	// Telegram hard limit is 4096 chars — trim whole paragraphs to stay safely under it
+	digestText = truncateForTelegram(digestText)
+
 	// 5. Публикация в Telegram
 	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, digestText)
 	if err != nil {
@@ -111,6 +115,39 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 
 	logger.Info("Sunday Digest published to Telegram successfully")
 	return nil
+}
+
+// telegramMaxMessageRunes — Telegram hard limit is 4096 chars; keep a safety margin.
+const telegramMaxMessageRunes = 4000
+
+// truncateForTelegram keeps the digest under the Telegram message limit.
+// Cuts whole paragraphs (separated by \n\n) so HTML tags like <a>/<b>/<i>
+// always start and end together and remain valid for Telegram's parser.
+func truncateForTelegram(text string) string {
+	runes := []rune(text)
+	if len(runes) <= telegramMaxMessageRunes {
+		return text
+	}
+
+	kept := ""
+	for _, p := range strings.Split(text, "\n\n") {
+		candidate := p
+		if kept != "" {
+			candidate = kept + "\n\n" + p
+		}
+		if len([]rune(candidate)) > telegramMaxMessageRunes {
+			break
+		}
+		kept = candidate
+	}
+
+	if kept == "" {
+		// Degenerate case (one giant paragraph): hard rune cut
+		kept = string(runes[:telegramMaxMessageRunes])
+	}
+
+	logger.Warn("Digest too long for Telegram, trimmed", "original_len", len(runes), "trimmed_len", len([]rune(kept)))
+	return kept
 }
 
 func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient) ([]DigestNewsItem, error) {
