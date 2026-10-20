@@ -3,128 +3,163 @@
 [![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go)](https://golang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon_Serverless-4169E1?style=for-the-badge&logo=postgresql)](https://neon.tech)
 [![AI Providers](https://img.shields.io/badge/AI-Gemini%20%26%20Groq-8E44AD?style=for-the-badge&logo=google)](https://ai.google.dev)
-[![Edge Radar](https://img.shields.io/badge/Edge-Cloudflare_Worker-F38020?style=for-the-badge&logo=cloudflare)](https://workers.cloudflare.com)
 [![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions)](https://github.com/features/actions)
-[![License](https://img.shields.io/badge/License-MIT-green.style=for-the-badge)](LICENSE)
 
-An autonomous, event-driven news aggregation, AI summarization, and publishing system built in Go. It ingests Danish media sources (DR, TV2, BT, Ekstra Bladet, Nyidanmark), ranks stories via non-LLM editorial scoring algorithms, performs structural AI translation & synthesis into Ukrainian, and dispatches rich media posts to Telegram and a Supabase-backed web archive.
+A scheduled news aggregation, AI summarization, and publishing system built in Go.
+It ingests Danish media sources (DR, TV 2, regional outlets, Nyidanmark), pre-filters
+stories with non-LLM keyword scoring, deduplicates multi-source coverage, translates
+and synthesizes selected stories into Ukrainian via Gemini (Groq fallback), and publishes
+them to a Telegram channel. Selected posts also land in Supabase, from which a Hugo
+static site is built and deployed to GitHub Pages.
 
 ---
 
-## 🏗️ System Architecture
+## ⏰ How It Runs (GitHub Actions)
 
-```mermaid
-flowchart TD
-    subgraph Trigger & Monitoring
-        Cron[GitHub Actions Cron / 5x Daily]
-        CFWorker[Cloudflare Edge Worker / 3-min Radar]
-    end
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `news.yml` | Cron, 5× daily (06:00–19:00 UTC) | Regular digest: fetch → score → dedup → AI → post to Telegram. Publish limit defaults to 1 post per run (`PUBLISH_LIMIT`). |
+| `breaking.yml` | Cron every 20 min (05:00–21:00 UTC), `repository_dispatch: breaking_news`, manual | Emergency mode. Cheap keyword-only detection of acute events (no AI if calm). Fast AI path with a tight request budget. |
+| `reddit.yml` | Cron weekly (Sunday) | Weekly digest mode — fetches the last 7 days from Supabase/Neon, AI writes one combined summary post. **Note: the filename is historical; it runs `digest`, not Reddit.** |
+| `monthly_calendar.yml` | Cron on the 28th | Monthly calendar post covering the last 35 days. |
+| `deploy-site.yml` | After `news.yml` succeeds, on push to `main`, manual | Builds the Hugo website from the Supabase archive and deploys to GitHub Pages. |
+| `test-run.yml` | Manual only | Runs on a test channel with PostgreSQL disabled (temporary file cache), so tests never touch production data. |
 
-    subgraph Data Ingestion & Pre-Filtering
-        RSS[RSS Feed Ingestion]
-        Scraper[Nyidanmark & Custom Scraper]
-        Deduper[3-Tier Pre-AI Deduplication]
-        Scorer[Editorial Signal & Cross-Source Jaccard Scoring]
-    end
+Optional: `scripts/cloudflare_breaking_worker.js` is a Cloudflare Worker that polls
+Danish emergency RSS feeds every ~3 minutes and fires the `breaking_news`
+`repository_dispatch` consumed by `breaking.yml`. Deploying it is not required —
+`breaking.yml` already has its own frequent cron.
 
-    subgraph AI Pipeline
-        Queue[Single-Worker Rate-Limited Job Queue]
-        Gemini[Google Gemini 2.5 Flash-Lite Primary]
-        Groq[Groq LLaMA Fallback]
-    end
+---
 
-    subgraph Storage & Outbound Delivery
-        Neon[(Neon PostgreSQL Primary)]
-        Telegram[Telegram Channel API]
-        SupaSync[(Supabase Web Archive Queue)]
-    end
+## 🔄 Pipeline
 
-    CFWorker -->|Repository Dispatch| Cron
-    Cron --> RSS
-    Cron --> Scraper
-    RSS & Scraper --> Deduper
-    Deduper --> Scorer
-    Scorer -->|Top Ranked Candidates| Queue
-    Queue --> Gemini
-    Gemini -.->|Failover| Groq
-    Gemini & Groq --> Telegram
-    Telegram -->|Atomic Transaction| Neon
-    Neon --> SupaSync
+```
+RSS feeds + Nyidanmark scraper
+        │
+        ▼
+Non-LLM keyword scoring + editorial gates     ← zero AI cost for most stories
+        │
+        ▼
+Deduplication (see below)
+        │
+        ▼
+AI single-worker queue (rate-limited)         ← Gemini, Groq fallback
+        │
+        ├──► Telegram (channel + admin alerts)
+        ├──► Neon PostgreSQL (source of truth)
+        └──► Supabase sync queue ──► Hugo site (GitHub Pages)
 ```
 
+## 🚫 Deduplication Policy
+
+Gates run in order; on a **database outage** behaviour is intentionally split:
+
+| Gate | Identifier type | On DB error | Why |
+|---|---|---|---|
+| `IsAlreadySent` (hash) | exact | **fail-closed** (skip story) | never double-post |
+| `IsSourceURLSent` (link) | exact | **fail-closed** (skip story) | never double-post |
+| `IsTitleNearDuplicate` | fuzzy heuristic | **fail-open** (publish) + Warn log | one DB glitch must not silence the whole feed |
+| `IsContentDuplicate` | fuzzy heuristic | **fail-open** (publish) + Warn log | same |
+| `CheckSemanticDuplicate` | fuzzy heuristic | fail-open | same |
+
+Fuzzy matching includes a normalized-title 5-word key (`title_norm`), a content hash
+with significant numbers, and optional semantic dedup:
+
+- **Tier 1 — story cluster key** (Jaccard token overlap across recent stories).
+- **Tier 2 — embeddings** (`text-embedding-004` by default), cosine similarity.
+  Runs in **shadow mode by default**: it logs what *would* be rejected but does not
+  block publication. Embedding calls are capped per run by `MAX_EMBEDDING_REQUESTS`
+  (default 12) so they cannot silently burn the weekend Gemini quota; once the budget
+  is exhausted, dedup falls back to Tier 1.
+
+## 🧠 AI Quota Protections
+
+- **Single-worker queue** with a configurable inter-request delay
+  (`AI_REQUEST_DELAY_SECONDS`, default 7 s) — applies to AI *text* generation.
+- **Hard per-run cap** on Gemini text requests (`MAX_GEMINI_REQUESTS`).
+- **Provider fallback chain:** Gemini → Groq on failure/rate limits.
+- **Publish limit defaults to 1 post per run** — the bot stays cheap by default.
+- Admin Telegram alerts (`TELEGRAM_ADMIN_ID`) notify about AI/RSS failures and
+  publish-success-without-DB-save events (the latter risks a duplicate next run).
+
+## 🗄️ Storage
+
+- **Neon PostgreSQL** — primary source of truth (`sent_news`, `failed_news` DLQ,
+  `delayed_posts` for scheduled high-impact second stories, `fun_fact_cache`,
+  Supabase sync queue). Expired rows are cleaned on schedule.
+- **Supabase** — secondary archive for the website; the site build reads from it
+  (`scripts/generate-pages.sh`), so the bot never needs to commit markdown back to git.
+- A file cache (`sent_news.json`) exists as a fallback when PostgreSQL is disabled
+  (used by the test workflow).
+
 ---
 
-## 🔥 Key Engineering Highlights
+## 🛠️ Tech Stack
 
-### ⚡ 1. Resilient Rate-Limited AI Pipeline
-- **Single-Worker Queue Pattern:** Enforces a strict 7-second inter-request delay (`time.Ticker`) to operate safely within Gemini's 10 RPM Free Tier limits while preventing concurrency thundering herds.
-- **Provider Fallback Chain:** Implements graceful degradation across multi-provider LLM managers (`Gemini` $\rightarrow$ `Groq`).
-- **Resilience to Cancellation:** Critical post-publishing transactions execute via `context.WithoutCancel()` to guarantee atomic PostgreSQL state updates even if outer workflow contexts expire.
-
-### 🧠 2. 3-Tier Multi-Pass Deduplication Engine
-Prevents duplicate publications across heterogeneous news outlets reporting on identical events:
-1. **Source Link & FNV-1a Hash Index:** Instant $O(1)$ lookup for exact URL & string matches.
-2. **Normalized Title Matching (`title_norm`):** Strips stop-words (Danish/English), numbers, and punctuation; matches on significant 5-word trigrams in PostgreSQL.
-3. **Content Hash Index:** Hashes structural article text to detect identical syndications across different domain roots.
-
-### 📊 3. Non-LLM Editorial Signal & Cross-Source Boosting
-- **Zero-Cost Pre-Filtering:** Evaluates all candidate stories via keyword weights before invoking LLM APIs, saving up to 80% of daily AI quota.
-- **Jaccard Similarity Clustering:** Automatically detects when multiple independent news outlets report on the same story, applying an editorial boost score ($\text{Score} += 15 \times \text{Sources}$) to push high-impact breaking events to the top of the queue.
-
-### 🌐 4. Cloudflare Worker Breaking News Radar
-- Edge-deployed JavaScript worker running 3-minute cron checks on Danish emergency feeds (`senestenyt`).
-- Employs regex pattern matching for urgent Danish keywords (`LIGE NU`, `PRESSEMØDE`, `HUL I IGENNEM`) and triggers zero-latency `repository_dispatch` webhooks to activate emergency GitHub Action runners.
-
----
-
-## 🛠️ Tech Stack & Dependencies
-
-- **Language:** Go 1.26+ (Standard Library focused, minimal third-party dependencies)
-- **Database:** Serverless PostgreSQL ([Neon.tech](https://neon.tech)) + REST Sync to [Supabase](https://supabase.com)
-- **AI Services:** Google Gemini SDK (`generative-ai-go`), Groq REST API
-- **Scraping & Parsing:** `goquery` (HTML DOM querying), `gofeed` (RSS/Atom parsing)
-- **Deployment:** GitHub Actions Workflows + Cloudflare Workers
-
----
+- **Language:** Go 1.26+ (standard library focused, minimal dependencies)
+- **Database:** Serverless PostgreSQL ([Neon.tech](https://neon.tech)) + [Supabase](https://supabase.com) archive
+- **AI:** Google Gemini (`google.golang.org/genai`) with Groq fallback
+- **Parsing:** `goquery` (HTML), `gofeed` (RSS/Atom)
+- **Site:** Hugo + GitHub Pages
+- **Deployment:** GitHub Actions
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- Go `1.26` or higher installed locally.
-- A running PostgreSQL database (or Neon connection string).
-- API Keys for Google Gemini, Groq, and Telegram Bot.
+- Go 1.26+
+- PostgreSQL connection string (Neon recommended)
+- Telegram bot token + channel chat ID (+ optional admin chat ID for alerts)
+- Google Gemini API key(s) and a Groq API key
 
-### Environment Setup
+### Configuration
 
-Create a `.env` file in the root directory:
+See `.env.example` for a full template. The essential variables:
 
 ```env
 DATABASE_URL=postgres://user:password@ep-cool-db.neon.tech/main?sslmode=require
 USE_POSTGRES=true
 TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_CHAT_ID=-1001234567890
+TELEGRAM_ADMIN_ID=123456789
 GEMINI_API_KEY=AIzaSy...
 GROQ_API_KEY=gsk_...
+GEMINI_MODEL=gemini-3.5-flash
+AI_PROVIDERS=gemini,groq
 BOT_MODE=single
-AI_REQUEST_DELAY_SECONDS=8
 ```
+
+Commonly tuned (all optional):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PUBLISH_LIMIT` / `MAX_NEWS_LIMIT` | 1 | Posts per run |
+| `MAX_GEMINI_REQUESTS` | — | Hard cap on Gemini text calls per run |
+| `AI_REQUEST_DELAY_SECONDS` | 7 | Pause between AI text-generation requests |
+| `MAX_EMBEDDING_REQUESTS` | 12 | Per-run cap on embedding calls (≤0 = unlimited) |
+| `SEMANTIC_DEDUP_ENABLE` / `SEMANTIC_DEDUP_SHADOW_MODE` | true / true | Semantic dedup on; Tier 2 observes only |
+| `CACHE_FILE_PATH`, `CACHE_TTL_HOURS` | `sent_news.json`, 48 | File-cache fallback (when PostgreSQL is off) |
+| `ENABLE_INLINE_BUTTONS` | true | Inline buttons under Telegram posts |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | — | Website archive; Supabase auto-enables when both are set |
 
 ### Running Locally
 
 ```bash
-# Clone the repository
 git clone https://github.com/deusflow/News.git
 cd News
-
-# Install dependencies
 go mod download
 
 # Run unit tests
 go test ./...
 
-# Execute the news bot cycle
+# Execute a bot cycle (reads .env / environment)
 go run ./cmd/dknews
+
+# Weekly digest / monthly calendar / breaking mode
+go run ./cmd/dknews -mode=digest
+go run ./cmd/dknews -mode=calendar
+go run ./cmd/dknews -mode=breaking
 ```
 
 ---
@@ -134,24 +169,41 @@ go run ./cmd/dknews
 ```
 .
 ├── cmd/
-│   └── dknews/            # Application entry point
+│   ├── dknews/             # Application entry point (mode dispatch)
+│   └── testdb/             # Database smoke-test helper
 ├── internal/
-│   ├── ai/                # Multi-provider LLM manager (Gemini, Groq, Fallback)
-│   ├── app/               # Application orchestrator, pipeline & DLQ handlers
-│   ├── breaking/          # Emergency news execution workflow
-│   ├── config/            # YAML & Env configuration loader
-│   ├── news/              # Scoring math, relevance gates, and prompt builders
-│   ├── publisher/         # Telegram media formatting & delivery engine
-│   ├── rss/               # RSS/Atom feed fetching & parsing
-│   ├── scraper/           # HTML article extractors & domain-specific parsers
-│   └── storage/           # Neon PostgreSQL & Supabase sync repositories
+│   ├── ai/                 # Multi-provider AI manager (queue, delay, fallback)
+│   │   ├── embedding/      # Gemini embedder + similarity math
+│   │   ├── gemini/         # Gemini client
+│   │   └── groq/           # Groq client
+│   ├── app/                # Orchestrator: gates, publishing, DLQ, delayed posts
+│   ├── breaking/           # Emergency (breaking news) mode
+│   ├── calendar/           # Monthly calendar mode
+│   ├── config/             # Env/YAML configuration loader
+│   ├── digest/             # Weekly digest mode
+│   ├── logger/             # Structured logging
+│   ├── metrics/            # Run metrics + health endpoint data
+│   ├── news/               # Scoring, relevance gates, prompts, formatting
+│   ├── publisher/          # Telegram media formatting & delivery engine
+│   ├── rss/                # RSS/Atom fetching
+│   ├── scraper/            # Article extraction (incl. nyidanmark parser)
+│   ├── telegram/           # Telegram API client (messages, buttons, YouTube)
+│   ├── storage/            # Neon PostgreSQL + Supabase repositories, file cache
+│   └── website/            # Hugo markdown generator
+├── configs/
+│   ├── feeds.yaml          # RSS sources list
+│   └── keywords.yaml       # Keyword scoring weights
 ├── scripts/
-│   └── cloudflare_breaking_worker.js # Cloudflare Edge Radar Worker
-└── .github/workflows/     # GitHub Actions CI/CD cron schedules
+│   ├── cloudflare_breaking_worker.js  # Optional edge radar for breaking mode
+│   ├── generate-pages.sh   # Supabase → Hugo markdown (site deploy)
+│   └── supabase-migration.sql
+├── website/                # Hugo site source
+└── .github/workflows/      # All CI schedules and the Pages deployment
 ```
-
----
 
 ## 🛡️ License
 
-Distributed under the MIT License. See `LICENSE` for details.
+All Rights Reserved — see [`LICENSE`](LICENSE). The code is public for review
+and transparency, but copying, modification, and derivative deployments
+(including competing bots or sites) are not permitted without written
+permission from the owner.
