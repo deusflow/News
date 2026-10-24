@@ -10,6 +10,10 @@ on:
     - cron: '0 19 * * *'   # 21:00 Denmark — вечерний прайм
   workflow_dispatch: { }
 
+concurrency:
+  group: news-scheduled
+  cancel-in-progress: false
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -27,16 +31,13 @@ jobs:
       CACHE_TTL_HOURS: 48
 
       # Bot configuration — publish limit defaults to 1 per run (configurable via PUBLISH_LIMIT)
+      MAX_AI_REQUESTS: 10
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 1
 
       # Feature flags
       ENABLE_INLINE_BUTTONS: 'true'
-
-      # Website generation (DISABLED - site builds from Supabase)
-      ENABLE_WEBSITE: 'false'
-      WEBSITE_CONTENT_DIR: 'website/content'
 
       # API Keys and Tokens
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -45,8 +46,9 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-      GEMINI_MODEL: gemini-3.5-flash
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
       AI_PROVIDERS: "gemini,groq"
       AI_REQUEST_DELAY_SECONDS: '8'
       MIN_KEYWORD_SCORE: '6'
@@ -61,40 +63,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true
-
-      - name: Go env (debug)
-        run: |
-          go version
-          go env GOMOD GOWORK GO111MODULE GOPATH GOTOOLCHAIN
-          pwd
-          ls -la
-
-      # Оставляем файловый кеш как fallback, но теперь PostgreSQL - основной источник
-      - name: Restore sent_news.json cache (fallback)
-        id: cache-sent
-        uses: actions/cache@v4
-        continue-on-error: true
-        with:
-          path: sent_news.json
-          key: sent-news-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            sent-news-${{ runner.os }}-${{ github.ref_name }}-
-            sent-news-${{ runner.os }}-
-            sent-news-
-
-      - name: Show restored cache file (if any)
-        run: |
-          echo "Workspace: $PWD"
-          ls -la
-          echo "--- sent_news.json (restored) ---"
-          test -f sent_news.json && cat sent_news.json || echo "No previous cache"
 
       - name: Prepare deps and bin dir
         run: |
@@ -107,7 +82,6 @@ jobs:
           go build -o bin/dknews ./cmd/dknews
         working-directory: ${{ github.workspace }}
 
-
       - name: Run bot
         run: |
           echo "🚀 Starting Danish News Bot..."
@@ -115,27 +89,10 @@ jobs:
           ./bin/dknews | tee run.log
         working-directory: ${{ github.workspace }}
 
-      # Website posts are now generated on-the-fly during site deployment
-      # No git commits needed - bot only saves to Supabase database
-
-      - name: Show resulting cache file
-        run: |
-          echo "--- sent_news.json (after run) ---"
-          test -f sent_news.json && cat sent_news.json || echo "Cache file not created (using PostgreSQL)"
-        working-directory: ${{ github.workspace }}
-
       - name: Upload run log (optional)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: run-log-${{ github.run_number }}
           path: run.log
           if-no-files-found: ignore
-
-      - name: Upload sent_news.json as artifact (fallback)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sent-news-cache-${{ github.run_number }}
-          path: sent_news.json
-          if-no-files-found: warn

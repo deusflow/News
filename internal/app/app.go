@@ -22,7 +22,6 @@ import (
 	"github.com/deusflow/News/internal/scraper"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
-	"github.com/deusflow/News/internal/website"
 )
 
 // getPublishLimit returns the maximum number of news items to publish per run.
@@ -108,41 +107,38 @@ func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem
 
 // TelegramNewsSender implements NewsSender
 type TelegramNewsSender struct {
-	cfg              *config.Config
-	cacheAdapter     CacheAdapter
-	metrics          *metrics.Metrics
-	websiteGenerator *website.Generator
-	supabaseClient   *storage.SupabaseClient
-	embedder         embedding.Embedder
+	cfg            *config.Config
+	cacheAdapter   CacheAdapter
+	metrics        *metrics.Metrics
+	supabaseClient *storage.SupabaseClient
+	embedder       embedding.Embedder
 }
 
-func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient, emb embedding.Embedder) *TelegramNewsSender {
+func NewTelegramNewsSender(cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, supabase *storage.SupabaseClient, emb embedding.Embedder) *TelegramNewsSender {
 	return &TelegramNewsSender{
-		cfg:              cfg,
-		cacheAdapter:     cacheAdapter,
-		metrics:          m,
-		websiteGenerator: websiteGen,
-		supabaseClient:   supabase,
-		embedder:         emb,
+		cfg:            cfg,
+		cacheAdapter:   cacheAdapter,
+		metrics:        m,
+		supabaseClient: supabase,
+		embedder:       emb,
 	}
 }
 
 func (s *TelegramNewsSender) Send(ctx context.Context, newsList []news.News) {
-	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.websiteGenerator, s.supabaseClient, s.embedder)
+	sendBestNews(ctx, newsList, s.cfg, s.cacheAdapter, s.metrics, s.supabaseClient, s.embedder)
 }
 
 type App struct {
-	cfg              *config.Config
-	metrics          *metrics.Metrics
-	cacheAdapter     CacheAdapter
-	aiManager        *ai.Manager
-	fetcher          NewsFetcher
-	processor        NewsProcessor
-	sender           NewsSender
-	keywords         *config.KeywordsConfig
-	websiteGenerator *website.Generator
-	supabaseClient   *storage.SupabaseClient
-	embedder         embedding.Embedder
+	cfg            *config.Config
+	metrics        *metrics.Metrics
+	cacheAdapter   CacheAdapter
+	aiManager      *ai.Manager
+	fetcher        NewsFetcher
+	processor      NewsProcessor
+	sender         NewsSender
+	keywords       *config.KeywordsConfig
+	supabaseClient *storage.SupabaseClient
+	embedder       embedding.Embedder
 }
 
 // GetAIManager returns the AI Manager instance.
@@ -199,7 +195,8 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	var aiProviders []ai.Provider
 
 	for _, pName := range cfg.AI.Providers {
-		switch strings.TrimSpace(strings.ToLower(pName)) {
+		pLower := strings.TrimSpace(strings.ToLower(pName))
+		switch pLower {
 		case "gemini":
 			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
 			client, err := gemini.NewClient(keys, cfg.AI.GeminiModel)
@@ -208,16 +205,106 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				continue // Не падаем, пробуем следующего
 			}
 			aiProviders = append(aiProviders, client)
-			logger.Info("AI Provider added", "name", "gemini")
+			logger.Info("AI Provider added", "name", "gemini", "model", cfg.AI.GeminiModel)
+
+		case "gemini-flash-lite":
+			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
+			model := os.Getenv("GEMINI_FLASH_LITE_MODEL")
+			if model == "" {
+				model = "gemini-3.5-flash-lite"
+			}
+			client, err := gemini.NewClient(keys, model)
+			if err != nil {
+				logger.Error("Failed to init Gemini Flash Lite", "error", err)
+				continue
+			}
+			aiProviders = append(aiProviders, client)
+			logger.Info("AI Provider added", "name", "gemini-flash-lite", "model", model)
 
 		case "groq":
 			if cfg.AI.GroqAPIKey != "" {
-				client := groq.NewClient(cfg.AI.GroqAPIKey)
+				client := groq.NewClient(cfg.AI.GroqAPIKey, cfg.AI.GroqModel)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "groq")
+				logger.Info("AI Provider added", "name", "groq", "model", cfg.AI.GroqModel)
 			} else {
 				logger.Warn("Groq API Key is missing, skipping")
 			}
+
+		case "cerebras":
+			key := os.Getenv("CEREBRAS_API_KEY")
+			if key != "" {
+				model := os.Getenv("CEREBRAS_MODEL")
+				if model == "" {
+					model = "llama-3.3-70b"
+				}
+				baseURL := os.Getenv("CEREBRAS_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://api.cerebras.ai/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions("cerebras", key, model, baseURL)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "cerebras", "model", model)
+			} else {
+				logger.Warn("Cerebras API Key is missing, skipping")
+			}
+
+		case "openrouter":
+			key := os.Getenv("OPENROUTER_API_KEY")
+			if key != "" {
+				model := os.Getenv("OPENROUTER_MODEL")
+				if model == "" {
+					model = "qwen/qwen-2.5-72b-instruct"
+				}
+				baseURL := os.Getenv("OPENROUTER_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://openrouter.ai/api/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions("openrouter", key, model, baseURL)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "openrouter", "model", model)
+			} else {
+				logger.Warn("OpenRouter API Key is missing, skipping")
+			}
+
+		case "openai":
+			key := os.Getenv("OPENAI_API_KEY")
+			if key != "" {
+				model := os.Getenv("OPENAI_MODEL")
+				if model == "" {
+					model = "gpt-4o-mini"
+				}
+				baseURL := os.Getenv("OPENAI_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://api.openai.com/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions("openai", key, model, baseURL)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "openai", "model", model)
+			} else {
+				logger.Warn("OpenAI API Key is missing, skipping")
+			}
+
+		case "qwen":
+			key := os.Getenv("QWEN_API_KEY")
+			if key == "" {
+				key = os.Getenv("DASHSCOPE_API_KEY")
+			}
+			if key != "" {
+				model := os.Getenv("QWEN_MODEL")
+				if model == "" {
+					model = "qwen-2.5-72b-instruct"
+				}
+				baseURL := os.Getenv("QWEN_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions("qwen", key, model, baseURL)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", "qwen", "model", model)
+			} else {
+				logger.Warn("Qwen API Key is missing, skipping")
+			}
+
 		default:
 			logger.Warn("Unknown AI provider in config, skipping", "provider", pName)
 		}
@@ -239,12 +326,6 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	keywords, err := config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keywords config: %w", err)
-	}
-
-	// Initialize website generator
-	websiteGen := website.NewGenerator(cfg.Website.ContentDir, cfg.Website.Enable)
-	if cfg.Website.Enable {
-		logger.Info("Website generation enabled", "content_dir", cfg.Website.ContentDir)
 	}
 
 	// Initialize Supabase client for website archive
@@ -292,17 +373,16 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	}
 
 	app := &App{
-		cfg:              cfg,
-		metrics:          m,
-		cacheAdapter:     cacheAdapter,
-		aiManager:        aiManager,
-		fetcher:          NewRSSFetcher(feeds),
-		processor:        NewNewsFilterProcessor(cfg, aiManager, m, keywords, cacheAdapter),
-		sender:           NewTelegramNewsSender(cfg, cacheAdapter, m, websiteGen, supabaseClient, embedder),
-		keywords:         keywords,
-		websiteGenerator: websiteGen,
-		supabaseClient:   supabaseClient,
-		embedder:         embedder,
+		cfg:            cfg,
+		metrics:        m,
+		cacheAdapter:   cacheAdapter,
+		aiManager:      aiManager,
+		fetcher:        NewRSSFetcher(feeds),
+		processor:      NewNewsFilterProcessor(cfg, aiManager, m, keywords, cacheAdapter),
+		sender:         NewTelegramNewsSender(cfg, cacheAdapter, m, supabaseClient, embedder),
+		keywords:       keywords,
+		supabaseClient: supabaseClient,
+		embedder:       embedder,
 	}
 
 	return app, nil
@@ -369,7 +449,7 @@ func (a *App) Run(ctx context.Context) {
 	}
 
 	// 4.3 Публикация отложенных важных новостей (Delayed Posts Queue)
-	processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.websiteGenerator, a.supabaseClient)
+	processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.supabaseClient)
 
 	// 5. Скачивание новостей RSS
 	items, err := a.fetcher.Fetch(ctx)
@@ -474,7 +554,7 @@ func (a *App) ReloadConfig() error {
 // sendBestNews publishes up to publishPerRunLimit news items — the highest-scored non-duplicates.
 // sendBestNews publishes up to publishPerRunLimit news items — the highest-scored non-duplicates.
 // newsList MUST already be sorted by score descending (done by FilterAndTranslateWithOptions).
-func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient, embedder embedding.Embedder) {
+func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, supabase *storage.SupabaseClient, embedder embedding.Embedder) {
 	candidates := newsList
 	if cfg.Feature.EnablePublicImpactGate {
 		impactCandidates := make([]news.News, 0, len(newsList))
@@ -710,9 +790,6 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 			if supabase != nil {
 				saveToSupabase(ctx, cacheAdapter, supabase, vc.hash, vc.news)
 			}
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, vc.news)
-			}
 		}
 
 		// Brief pause between sends to avoid Telegram flood limits
@@ -755,7 +832,7 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	}
 }
 
-func processReadyDelayedPosts(ctx context.Context, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, websiteGen *website.Generator, supabase *storage.SupabaseClient) {
+func processReadyDelayedPosts(ctx context.Context, cfg *config.Config, cacheAdapter CacheAdapter, m *metrics.Metrics, supabase *storage.SupabaseClient) {
 	ready, err := cacheAdapter.GetReadyDelayedPosts(ctx)
 	if err != nil {
 		logger.Warn("Failed to check delayed posts queue", "error", err)
@@ -789,44 +866,11 @@ func processReadyDelayedPosts(ctx context.Context, cfg *config.Config, cacheAdap
 			if supabase != nil {
 				saveToSupabase(ctx, cacheAdapter, supabase, dp.Hash, n)
 			}
-			if websiteGen != nil && websiteGen.IsEnabled() {
-				generateWebsitePost(websiteGen, n)
-			}
 			logger.Info("Delayed high-impact post published successfully", "title", dp.Title)
 		} else {
 			logger.Warn("Failed to publish delayed post", "title", dp.Title)
 			_ = cacheAdapter.MarkDelayedPostFailed(dp.ID, "telegram publish failed")
 		}
-	}
-}
-
-// generateWebsitePost converts news.News to website.NewsPost and generates the post with timeout.
-func generateWebsitePost(gen *website.Generator, n news.News) {
-	post := website.NewsPost{
-		Title:            n.Title,
-		TitleUkrainian:   n.TitleUkrainian,
-		Content:          n.Content,
-		ContentUkrainian: n.SummaryUkrainian,
-		ContentDanish:    n.SummaryDanish,
-		SummaryUkrainian: n.SummaryUkrainian,
-		SummaryDanish:    n.SummaryDanish,
-		Link:             n.Link,
-		ImageURL:         n.ImageURL,
-		SourceName:       n.SourceName,
-		Category:         n.Category,
-		Tags:             n.Tags,
-		Mood:             n.Mood,
-		TLDR:             n.TLDR,
-		FunFact:          n.FunFact,
-		WhyItMatters:     n.WhyItMatters,
-		PublishedAt:      n.Published,
-	}
-
-	ctx := context.Background()
-	if err := gen.GeneratePostWithTimeout(ctx, post, 10*time.Second); err != nil {
-		logger.Warn("Failed to generate website post", "title", n.Title, "error", err)
-	} else {
-		logger.Info("Generated website post", "title", n.Title)
 	}
 }
 

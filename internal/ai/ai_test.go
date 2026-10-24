@@ -15,6 +15,7 @@ type mockProvider struct {
 	response    *ai.Response
 	rawResponse string
 	err         error
+	calls       int
 }
 
 func (m *mockProvider) Name() string {
@@ -22,6 +23,7 @@ func (m *mockProvider) Name() string {
 }
 
 func (m *mockProvider) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
+	m.calls++
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -29,6 +31,7 @@ func (m *mockProvider) Generate(ctx context.Context, title, content, systemPromp
 }
 
 func (m *mockProvider) GenerateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	m.calls++
 	if m.err != nil {
 		return "", m.err
 	}
@@ -184,5 +187,58 @@ func TestManager_Fallback(t *testing.T) {
 	}
 	if resp.Danish != "Dansk" {
 		t.Errorf("Expected secondary response, got: %+v", resp)
+	}
+}
+
+func TestManager_Cooldown(t *testing.T) {
+	t.Setenv("AI_REQUEST_DELAY_SECONDS", "0")
+	m := metrics.New()
+
+	p1 := &mockProvider{
+		name: "exhausted_gemini",
+		err:  errors.New("429 RESOURCE_EXHAUSTED quota exceeded"),
+	}
+	p2 := &mockProvider{
+		name: "fallback_groq",
+		response: &ai.Response{
+			Danish:        "Dansk 2",
+			Ukrainian:     "Текст 2",
+			TLDR:          "TLDR 2",
+			Mood:          "neutral",
+			AudienceScore: 5,
+		},
+	}
+
+	mgr := ai.NewManager(m, 10, p1, p2)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Call 1: p1 fails with RESOURCE_EXHAUSTED, falls back to p2, marks p1 on cooldown
+	resp1, err := mgr.Generate(ctx, "Title 1", "Content 1", "sys", "user")
+	if err != nil {
+		t.Fatalf("First Generate() failed: %v", err)
+	}
+	if resp1.Danish != "Dansk 2" {
+		t.Errorf("Expected p2 response, got: %+v", resp1)
+	}
+	if p1.calls != 1 {
+		t.Errorf("Expected p1 to be called once, got %d", p1.calls)
+	}
+
+	// Call 2: p1 is on cooldown, should NOT be called at all!
+	resp2, err := mgr.Generate(ctx, "Title 2", "Content 2", "sys", "user")
+	if err != nil {
+		t.Fatalf("Second Generate() failed: %v", err)
+	}
+	if resp2.Danish != "Dansk 2" {
+		t.Errorf("Expected p2 response, got: %+v", resp2)
+	}
+	if p1.calls != 1 {
+		t.Errorf("Expected p1 to NOT be called on second attempt due to cooldown, got %d calls", p1.calls)
+	}
+	if p2.calls != 2 {
+		t.Errorf("Expected p2 to be called twice, got %d calls", p2.calls)
 	}
 }

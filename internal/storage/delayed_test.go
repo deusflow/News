@@ -53,4 +53,33 @@ func TestFileCache_DelayedPosts(t *testing.T) {
 	if len(readyAfterSent) != 0 {
 		t.Errorf("expected 0 ready posts after marking sent, got %d", len(readyAfterSent))
 	}
+
+	// 5. Enqueue post and simulate worker crash during processing
+	err = cache.EnqueueDelayedPost("hash_crashed", "Crashed Worker Story", "https://example.com/crashed", `{"title":"crashed"}`, -1*time.Minute)
+	if err != nil {
+		t.Fatalf("Enqueue crashed test failed: %v", err)
+	}
+	claimed, err := cache.GetReadyDelayedPosts()
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("Expected 1 claimed post, got %d (err: %v)", len(claimed), err)
+	}
+	// Immediately trying again returns 0 because it's processing
+	again, err := cache.GetReadyDelayedPosts()
+	if err != nil || len(again) != 0 {
+		t.Fatalf("Expected 0 posts while in-flight processing, got %d", len(again))
+	}
+	// Simulate 35 minutes passing with worker dead
+	cache.mu.Lock()
+	staleClaim := time.Now().Add(-35 * time.Minute)
+	cache.delayedPosts[len(cache.delayedPosts)-1].ClaimedAt = &staleClaim
+	cache.mu.Unlock()
+
+	// Should now be reclaimed!
+	reclaimed, err := cache.GetReadyDelayedPosts()
+	if err != nil || len(reclaimed) != 1 {
+		t.Fatalf("Expected 1 reclaimed post after 35m timeout, got %d (err: %v)", len(reclaimed), err)
+	}
+	if reclaimed[0].Hash != "hash_crashed" {
+		t.Errorf("expected hash_crashed, got %s", reclaimed[0].Hash)
+	}
 }

@@ -142,6 +142,10 @@ func (d *EmergencyDetector) checkMeteoAlarm(ctx context.Context) (*EmergencyAler
 	}
 
 	for _, entry := range feed.Entries {
+		if !entry.Updated.IsZero() && time.Since(entry.Updated) > 24*time.Hour {
+			continue
+		}
+
 		sev := strings.ToLower(strings.TrimSpace(entry.Severity))
 		// We only trigger on Severe (Orange) or Extreme (Red) warnings.
 		// Yellow / Moderate or Minor warnings are common routine weather and ignored.

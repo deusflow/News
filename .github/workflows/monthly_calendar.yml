@@ -4,11 +4,21 @@ on:
   schedule:
     # Run on the 28th of every month at 17:00 UTC (18:00/19:00 in Denmark)
     - cron: '0 17 28 * *'
-  workflow_dispatch: { }
+  workflow_dispatch:
+    inputs:
+      target_month:
+        description: 'Target Month ("next", "current", or month number 1-12 / name)'
+        required: false
+        default: 'next'
+
+concurrency:
+  group: monthly-calendar
+  cancel-in-progress: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -16,11 +26,15 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       USE_POSTGRES: 'true'
 
+      # Target Month override for manual run
+      CALENDAR_TARGET_MONTH: ${{ github.event.inputs.target_month || '' }}
+
       # Supabase (for archive and secondary source)
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
       # AI settings
+      MAX_AI_REQUESTS: 2
       MAX_GEMINI_REQUESTS: 2
       BOT_MODE: calendar
 
@@ -31,18 +45,19 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-      GEMINI_MODEL: gemini-3.5-flash
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
       AI_PROVIDERS: "gemini,groq"
 
       GO111MODULE: 'on'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true

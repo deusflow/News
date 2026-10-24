@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultGeminiModel is the standard primary model for news analysis and translation
-	DefaultGeminiModel = "gemini-3.5-flash"
+	DefaultGeminiModel = "gemini-3.8-flash"
 )
 
 type TelegramConfig struct {
@@ -90,11 +90,6 @@ type MonitoringConfig struct {
 	Port                 string
 }
 
-type WebsiteConfig struct {
-	Enable     bool   // if true, generate Hugo posts for website
-	ContentDir string // path to Hugo content directory (e.g., "website/content")
-}
-
 type SupabaseConfig struct {
 	URL        string // Supabase project URL
 	ServiceKey string // Supabase service_role key
@@ -128,7 +123,6 @@ type Config struct {
 	Database      DatabaseConfig
 	Feature       FeatureConfig
 	Monitoring    MonitoringConfig
-	Website       WebsiteConfig
 	Supabase      SupabaseConfig
 	SemanticDedup SemanticDedupConfig
 }
@@ -376,9 +370,6 @@ func Load() (*Config, error) {
 			EnableHTTPMonitoring: false,
 			Port:                 "8080",
 		},
-		Website: WebsiteConfig{
-			ContentDir: "website/content",
-		},
 		Supabase: SupabaseConfig{
 			HTTPTimeoutSeconds:           30,
 			DuplicateCheckTimeoutSeconds: 2,
@@ -398,6 +389,7 @@ func Load() (*Config, error) {
 	cfg.AI.GeminiModel = getEnvOrDefault("GEMINI_MODEL", DefaultGeminiModel)
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	cfg.AI.GroqAPIKey = os.Getenv("GROQ_API_KEY")
+	cfg.AI.GroqModel = getEnvOrDefault("GROQ_MODEL", "openai/gpt-oss-120b")
 
 	// Cache settings
 	cfg.Cache.FilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
@@ -458,8 +450,12 @@ func Load() (*Config, error) {
 		cfg.App.Debug = true
 	}
 
-	// Read MAX_GEMINI_REQUESTS from env
-	if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
+	// Read MAX_AI_REQUESTS or legacy MAX_GEMINI_REQUESTS from env
+	if gr := os.Getenv("MAX_AI_REQUESTS"); gr != "" {
+		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
+			cfg.AI.MaxGeminiRequests = val
+		}
+	} else if gr := os.Getenv("MAX_GEMINI_REQUESTS"); gr != "" {
 		if val, err := strconv.Atoi(gr); err == nil && val > 0 {
 			cfg.AI.MaxGeminiRequests = val
 		}
@@ -506,12 +502,6 @@ func Load() (*Config, error) {
 		cfg.Monitoring.Port = v
 	}
 
-	// Website generation settings
-	if v := os.Getenv("ENABLE_WEBSITE"); v == "true" {
-		cfg.Website.Enable = true
-	}
-	cfg.Website.ContentDir = getEnvOrDefault("WEBSITE_CONTENT_DIR", "website/content")
-
 	// Supabase settings
 	cfg.Supabase.URL = os.Getenv("SUPABASE_URL")
 	cfg.Supabase.ServiceKey = os.Getenv("SUPABASE_SERVICE_KEY")
@@ -543,11 +533,11 @@ func Load() (*Config, error) {
 
 	// Semantic deduplication settings
 	cfg.SemanticDedup.Enable = getEnvBoolOrDefault("SEMANTIC_DEDUP_ENABLE", true)
-	cfg.SemanticDedup.ShadowMode = getEnvBoolOrDefault("SEMANTIC_DEDUP_SHADOW_MODE", true)
+	cfg.SemanticDedup.ShadowMode = getEnvBoolOrDefault("SEMANTIC_DEDUP_SHADOW_MODE", false)
 	cfg.SemanticDedup.Threshold = getEnvFloatOrDefault("SEMANTIC_DEDUP_THRESHOLD", 0.85)
 	cfg.SemanticDedup.ClusterKeyThreshold = getEnvFloatOrDefault("SEMANTIC_DEDUP_CLUSTER_KEY_THRESHOLD", 0.60)
 	cfg.SemanticDedup.LookbackDays = getEnvIntOrDefault("SEMANTIC_DEDUP_LOOKBACK_DAYS", 7)
-	cfg.SemanticDedup.EmbeddingModel = getEnvOrDefault("SEMANTIC_DEDUP_EMBEDDING_MODEL", "text-embedding-004")
+	cfg.SemanticDedup.EmbeddingModel = getEnvOrDefault("SEMANTIC_DEDUP_EMBEDDING_MODEL", "gemini-embedding-001")
 	// Cap on embedding API calls per run: protects the Gemini quota. After the
 	// budget is exhausted, dedup falls back to Tier 1 (cluster key) like on embed errors.
 	cfg.SemanticDedup.MaxEmbeddingRequests = getEnvIntOrDefault("MAX_EMBEDDING_REQUESTS", 12)
@@ -599,7 +589,15 @@ func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
 }
 
 func normalizeProviders(providers []string) []string {
-	allowed := map[string]bool{"gemini": true, "groq": true}
+	allowed := map[string]bool{
+		"gemini":            true,
+		"gemini-flash-lite": true,
+		"groq":              true,
+		"cerebras":          true,
+		"openrouter":        true,
+		"openai":            true,
+		"qwen":              true,
+	}
 	seen := map[string]bool{}
 	ordered := make([]string, 0, len(providers))
 
@@ -612,9 +610,6 @@ func normalizeProviders(providers []string) []string {
 		seen[p] = true
 	}
 
-	if seen["gemini"] && seen["groq"] {
-		return []string{"gemini", "groq"}
-	}
 	if len(ordered) == 0 {
 		return []string{"gemini", "groq"}
 	}

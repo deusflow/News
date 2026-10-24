@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,13 +46,48 @@ var ukrainianMonths = map[time.Month]struct {
 	time.December:  {Nominative: "Грудень", Genitive: "грудня"},
 }
 
-// GetTargetMonth determines the upcoming month for the calendar based on current date.
-// If run on or after the 20th of the month, target is next month; otherwise current month.
+// GetTargetMonth determines the upcoming month for the calendar based on current date or environment override.
+// Can be explicitly overridden with CALENDAR_TARGET_MONTH ("next", "current", month 1-12, or month name).
+// Scheduled fallback: if run on or after the 15th of the month, target is next month; otherwise current month.
 func GetTargetMonth(now time.Time) (time.Month, int, string, string) {
 	target := now
-	if now.Day() >= 20 {
+	envVal := strings.ToLower(strings.TrimSpace(os.Getenv("CALENDAR_TARGET_MONTH")))
+	switch envVal {
+	case "next":
 		target = now.AddDate(0, 1, 0)
+	case "current":
+		target = now
+	default:
+		if num, err := strconv.Atoi(envVal); err == nil && num >= 1 && num <= 12 {
+			targetMonth := time.Month(num)
+			targetYear := now.Year()
+			if targetMonth < now.Month() {
+				targetYear++
+			}
+			target = time.Date(targetYear, targetMonth, 1, 0, 0, 0, 0, now.Location())
+		} else if envVal != "" {
+			found := false
+			for m, names := range ukrainianMonths {
+				if strings.EqualFold(envVal, names.Nominative) || strings.EqualFold(envVal, names.Genitive) || strings.EqualFold(envVal, m.String()) {
+					targetYear := now.Year()
+					if m < now.Month() {
+						targetYear++
+					}
+					target = time.Date(targetYear, m, 1, 0, 0, 0, 0, now.Location())
+					found = true
+					break
+				}
+			}
+			if !found && now.Day() >= 15 {
+				target = now.AddDate(0, 1, 0)
+			}
+		} else {
+			if now.Day() >= 15 {
+				target = now.AddDate(0, 1, 0)
+			}
+		}
 	}
+
 	m := target.Month()
 	y := target.Year()
 	info := ukrainianMonths[m]

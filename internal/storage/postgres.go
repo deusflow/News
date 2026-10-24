@@ -251,9 +251,18 @@ func (pc *PostgresCache) initSchema() error {
 		news_json TEXT NOT NULL,
 		publish_after TIMESTAMP NOT NULL,
 		status VARCHAR(20) NOT NULL DEFAULT 'pending',
+		claimed_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 	CREATE INDEX IF NOT EXISTS idx_delayed_posts_ready ON delayed_posts(publish_after, status);
+
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'delayed_posts' AND column_name = 'claimed_at') THEN
+			ALTER TABLE delayed_posts ADD COLUMN claimed_at TIMESTAMP;
+		END IF;
+	END $$;
 	`
 
 	_, err = pc.db.Exec(additionalSchema)
@@ -957,14 +966,15 @@ func (pc *PostgresCache) MarkFunFactUsed(funFact string) error {
 
 // DelayedPost represents a high-impact news item queued for deferred publication.
 type DelayedPost struct {
-	ID           int       `json:"id"`
-	Hash         string    `json:"hash"`
-	Title        string    `json:"title"`
-	Link         string    `json:"link"`
-	NewsJSON     string    `json:"news_json"`
-	PublishAfter time.Time `json:"publish_after"`
-	Status       string    `json:"status"` // 'pending', 'sent', 'failed'
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int        `json:"id"`
+	Hash         string     `json:"hash"`
+	Title        string     `json:"title"`
+	Link         string     `json:"link"`
+	NewsJSON     string     `json:"news_json"`
+	PublishAfter time.Time  `json:"publish_after"`
+	Status       string     `json:"status"` // 'pending', 'processing', 'sent', 'failed'
+	ClaimedAt    *time.Time `json:"claimed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // EnqueueDelayedPost schedules a high-impact secondary post for publication after delay.
@@ -985,14 +995,23 @@ func (pc *PostgresCache) EnqueueDelayedPost(hash, title, link, newsJSON string, 
 	return nil
 }
 
-// GetReadyDelayedPosts retrieves all pending delayed posts whose publish_after <= NOW().
+// GetReadyDelayedPosts retrieves ready delayed posts whose publish_after <= NOW() and claims them atomically.
 func (pc *PostgresCache) GetReadyDelayedPosts(ctx context.Context) ([]DelayedPost, error) {
 	query := `
-		SELECT id, hash, title, link, news_json, publish_after, status, created_at
-		FROM delayed_posts
-		WHERE publish_after <= NOW() AND status = 'pending'
-		ORDER BY publish_after ASC
-		LIMIT 5;
+		WITH ready AS (
+			SELECT id
+			FROM delayed_posts
+			WHERE publish_after <= (NOW() AT TIME ZONE 'UTC')
+			  AND (status = 'pending' OR (status = 'processing' AND COALESCE(claimed_at, '-infinity'::timestamp) < (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 minutes'))
+			ORDER BY publish_after ASC
+			LIMIT 5
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE delayed_posts
+		SET status = 'processing', claimed_at = (NOW() AT TIME ZONE 'UTC')
+		FROM ready
+		WHERE delayed_posts.id = ready.id
+		RETURNING delayed_posts.id, delayed_posts.hash, delayed_posts.title, delayed_posts.link, delayed_posts.news_json, delayed_posts.publish_after, delayed_posts.status, delayed_posts.created_at;
 	`
 	rows, err := pc.db.QueryContext(ctx, query)
 	if err != nil {

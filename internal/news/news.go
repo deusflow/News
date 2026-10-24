@@ -486,6 +486,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("phase 2: sequential AI processing", "items", len(scraped))
 
 	var result []News
+	aiAttempts := 0
 	aiErrors := 0
 
 	for idx, s := range scraped {
@@ -514,6 +515,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			continue
 		}
 
+		aiAttempts++
 		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
 		if err != nil {
 			logger.Error("AI failed for item", "index", s.index+1, "title", s.item.Title, "error", err)
@@ -623,6 +625,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	}
 
 	logger.Info("phase 2 done", "ready", len(result), "errors", aiErrors)
+
+	if len(result) == 0 && aiAttempts > 0 && aiErrors >= aiAttempts {
+		return nil, fmt.Errorf("all AI candidates failed processing (%d AI errors out of %d candidates attempted, check AI quota/API keys)", aiErrors, aiAttempts)
+	}
 
 	// ── Шаг 6: финальная сортировка с impact-priority ─────────────────────────
 	// 1) Сильные public-impact новости идут выше остальных.

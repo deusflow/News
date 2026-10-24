@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,23 +17,62 @@ import (
 )
 
 type Client struct {
-	apiKey     string
-	model      string
-	httpClient *http.Client
+	name            string
+	apiKey          string
+	model           string
+	baseURL         string
+	reasoningEffort string
+	httpClient      *http.Client
 }
 
-func NewClient(apiKey string) *Client {
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
+func NewClient(apiKey, model string) *Client {
+	baseURL := os.Getenv("GROQ_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.groq.com/openai/v1/chat/completions"
+	}
+	if model == "" {
+		model = "openai/gpt-oss-120b"
+	}
+	return NewClientWithOptions("groq", apiKey, model, baseURL)
+}
+
+// NewClientWithOptions creates an OpenAI-compatible client for any endpoint (Groq, Cerebras, OpenRouter, etc.)
+func NewClientWithOptions(name, apiKey, model, baseURL string) *Client {
+	if name == "" {
+		name = "groq"
+	}
+	if baseURL == "" {
+		baseURL = "https://api.groq.com/openai/v1/chat/completions"
+	}
+	reasoningEffort := os.Getenv("GROQ_REASONING_EFFORT")
+	if reasoningEffort == "" && (strings.Contains(model, "gpt-oss") || strings.Contains(model, "reasoning")) {
+		reasoningEffort = "low"
+	}
 	return &Client{
-		apiKey: apiKey,
-		model:  "openai/gpt-oss-120b", // Быстрая и дешевая модель
+		name:            name,
+		apiKey:          apiKey,
+		model:           model,
+		baseURL:         baseURL,
+		reasoningEffort: reasoningEffort,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 	}
 }
 
+func (c *Client) SetReasoningEffort(effort string) {
+	c.reasoningEffort = effort
+}
+
 func (c *Client) Name() string {
-	return "groq"
+	if c.name == "" {
+		return "groq"
+	}
+	return c.name
 }
 
 func (c *Client) Close() {
@@ -40,11 +80,12 @@ func (c *Client) Close() {
 }
 
 type groqRequest struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-	Stream      bool      `json:"stream"`
-	JSONMode    bool      `json:"json_mode,omitempty"` // Groq поддерживает JSON mode
+	Model           string          `json:"model"`
+	Messages        []message       `json:"messages"`
+	Temperature     float64         `json:"temperature"`
+	Stream          bool            `json:"stream"`
+	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
 type message struct {
@@ -61,7 +102,7 @@ type groqResponse struct {
 }
 
 func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
-	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content))
+	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content), "model", c.model)
 
 	// Для Groq лучше явно добавить инструкцию про JSON в конец
 	finalPrompt := userPrompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown formatting."
@@ -75,12 +116,14 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: finalPrompt},
 		},
-		Temperature: 0.3,
-		Stream:      false,
+		Temperature:     0.3,
+		Stream:          false,
+		ResponseFormat:  &responseFormat{Type: "json_object"},
+		ReasoningEffort: c.reasoningEffort,
 	}
 
 	jsonBody, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		logger.Error("❌ Groq Request Creation Error", "title", title, "error", err)
 		return nil, err
@@ -152,9 +195,10 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 	messages = append(messages, message{Role: "user", Content: userPrompt})
 
 	reqBody := groqRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Temperature: 0.3,
+		Model:           c.model,
+		Messages:        messages,
+		Temperature:     0.3,
+		ReasoningEffort: c.reasoningEffort,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -162,7 +206,7 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 		return "", fmt.Errorf("failed to marshal groq request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create groq request: %w", err)
 	}

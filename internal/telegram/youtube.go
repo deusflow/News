@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/kkdai/youtube/v2"
 )
 
 // 1a. URL type helpers
@@ -35,18 +33,7 @@ func IsDRPageURL(url string) bool {
 // Error = caller must skip video and use photo fallback.
 func GetVideoDurationSeconds(videoURL string) (int, error) {
 	if IsYouTubeURL(videoURL) {
-		client := youtube.Client{
-			HTTPClient: &http.Client{Timeout: 15 * time.Second},
-		}
-
-		video, err := client.GetVideo(videoURL)
-		if err != nil {
-			return 0, err
-		}
-		if video.Duration == 0 {
-			return 0, fmt.Errorf("duration unknown (0s)")
-		}
-		return int(video.Duration.Seconds()), nil
+		return 0, fmt.Errorf("youtube video streaming not supported, using photo fallback")
 	}
 
 	if IsDRPageURL(videoURL) {
@@ -126,82 +113,4 @@ func parseISO8601Duration(s string) (int, error) {
 	}
 
 	return seconds, nil
-}
-
-// 1c. YouTube stream for Level 1 upload
-
-// GetYouTubeStream returns an io.ReadCloser and content size in bytes.
-// Uses AndroidClient for better datacenter IP bypass.
-// Returns nil, 0, error if blocked or no suitable format found.
-// Quality preference: 720p → 480p → 360p
-// HARD SIZE LIMIT: 50 * 1024 * 1024 bytes
-// Format filter: MimeType must contain "video/mp4"
-// Format must have BOTH video and audio (check AudioChannels > 0 or AudioQuality != "")
-func GetYouTubeStream(videoURL string) (io.ReadCloser, int64, error) {
-	const maxVideoBytes = 50 * 1024 * 1024
-
-	client := youtube.Client{
-		HTTPClient: &http.Client{Timeout: 15 * time.Second},
-	}
-
-	video, err := client.GetVideo(videoURL)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var bestFormat *youtube.Format
-
-	// Look for mp4 formats with audio, sorted by resolution preference
-	// For simplicity, find the best format that has video and audio and is <= maxVideoBytes
-	formats := video.Formats.WithAudioChannels()
-
-	// Sort formats to prefer 720p > 480p > 360p
-	var validFormats []youtube.Format
-	for _, f := range formats {
-		if !strings.Contains(f.MimeType, "video/mp4") {
-			continue
-		}
-		if f.ContentLength > maxVideoBytes {
-			continue
-		}
-		// If ContentLength is unknown in format, skip to avoid 50MB telegram fail
-		if f.ContentLength == 0 {
-			continue
-		}
-		// We want both video and audio. WithAudioChannels() already filters for audio.
-		// We should ensure it has a video track (e.g., QualityLabel is set).
-		if f.QualityLabel == "" {
-			continue
-		}
-		validFormats = append(validFormats, f)
-	}
-
-	if len(validFormats) == 0 {
-		return nil, 0, fmt.Errorf("no suitable mp4 format found under 50MB")
-	}
-
-	// Try to find preferred resolutions
-	preferredResolutions := []string{"720p", "480p", "360p"}
-	for _, res := range preferredResolutions {
-		for _, f := range validFormats {
-			if strings.HasPrefix(f.QualityLabel, res) {
-				bestFormat = &f
-				break
-			}
-		}
-		if bestFormat != nil {
-			break
-		}
-	}
-
-	// If preferred not found, use the first valid one
-	if bestFormat == nil {
-		bestFormat = &validFormats[0]
-	}
-
-	stream, size, err := client.GetStream(video, bestFormat)
-	if err != nil {
-		return nil, 0, err
-	}
-	return stream, size, nil
 }

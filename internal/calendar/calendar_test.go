@@ -16,7 +16,7 @@ func TestGetTargetMonth(t *testing.T) {
 		wantGen      string
 	}{
 		{
-			name:      "Before 20th of the month targets current month",
+			name:      "Before 15th of the month targets current month",
 			now:       time.Date(2026, time.September, 5, 12, 0, 0, 0, time.UTC),
 			wantMonth: time.September,
 			wantYear:  2026,
@@ -24,8 +24,8 @@ func TestGetTargetMonth(t *testing.T) {
 			wantGen:   "вересня",
 		},
 		{
-			name:      "On or after 20th of the month targets next month",
-			now:       time.Date(2026, time.September, 28, 19, 0, 0, 0, time.UTC),
+			name:      "On or after 15th of the month targets next month",
+			now:       time.Date(2026, time.September, 16, 19, 0, 0, 0, time.UTC),
 			wantMonth: time.October,
 			wantYear:  2026,
 			wantNom:   "Жовтень",
@@ -57,6 +57,31 @@ func TestGetTargetMonth(t *testing.T) {
 				t.Errorf("GetTargetMonth() gen = %v, want %v", gen, tt.wantGen)
 			}
 		})
+	}
+}
+
+func TestGetTargetMonth_EnvOverrides(t *testing.T) {
+	now := time.Date(2026, time.September, 5, 12, 0, 0, 0, time.UTC)
+
+	// 1. Force "next" even on 5th of September -> October
+	t.Setenv("CALENDAR_TARGET_MONTH", "next")
+	m, y, nom, _ := GetTargetMonth(now)
+	if m != time.October || y != 2026 || nom != "Жовтень" {
+		t.Errorf("CALENDAR_TARGET_MONTH=next failed, got month %v, year %v, nom %s", m, y, nom)
+	}
+
+	// 2. Force specific month by number "11" -> November
+	t.Setenv("CALENDAR_TARGET_MONTH", "11")
+	m, y, nom, _ = GetTargetMonth(now)
+	if m != time.November || y != 2026 || nom != "Листопад" {
+		t.Errorf("CALENDAR_TARGET_MONTH=11 failed, got month %v, year %v, nom %s", m, y, nom)
+	}
+
+	// 3. Force by Ukrainian month name
+	t.Setenv("CALENDAR_TARGET_MONTH", "Грудень")
+	m, y, nom, _ = GetTargetMonth(now)
+	if m != time.December || y != 2026 || nom != "Грудень" {
+		t.Errorf("CALENDAR_TARGET_MONTH=Грудень failed, got month %v, year %v, nom %s", m, y, nom)
 	}
 }
 

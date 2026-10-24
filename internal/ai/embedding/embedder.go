@@ -17,18 +17,31 @@ type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 }
 
-// GeminiEmbedder implements Embedder using Google Gemini (e.g. text-embedding-004) with key rotation.
+// DefaultEmbeddingModel is the current Gemini embedding model.
+// NOTE: text-embedding-004 was shut down by Google on 2026-01-14.
+const DefaultEmbeddingModel = "gemini-embedding-001"
+
+// DefaultEmbeddingDimensions truncates gemini-embedding-001 output (3072 native)
+// via Matryoshka representation to keep JSONB storage small. Cosine similarity
+// normalises vectors, so truncated outputs compare correctly.
+const DefaultEmbeddingDimensions int32 = 768
+
+// GeminiEmbedder implements Embedder using Google Gemini embeddings with key rotation.
 type GeminiEmbedder struct {
-	clients   []*genai.Client
-	modelName string
-	keyIdx    int
-	mu        sync.Mutex
+	clients    []*genai.Client
+	modelName  string
+	dimensions int32
+	keyIdx     int
+	mu         sync.Mutex
 }
 
 // NewGeminiEmbedder initializes a new GeminiEmbedder with key rotation across provided API keys.
 func NewGeminiEmbedder(apiKeys []string, modelName string) (*GeminiEmbedder, error) {
-	if modelName == "" {
-		modelName = "text-embedding-004"
+	if modelName == "" || modelName == "text-embedding-004" {
+		if modelName == "text-embedding-004" {
+			logger.Warn("text-embedding-004 is shut down, using replacement", "model", DefaultEmbeddingModel)
+		}
+		modelName = DefaultEmbeddingModel
 	}
 	ctx := context.Background()
 	var clients []*genai.Client
@@ -54,8 +67,9 @@ func NewGeminiEmbedder(apiKeys []string, modelName string) (*GeminiEmbedder, err
 	}
 
 	return &GeminiEmbedder{
-		clients:   clients,
-		modelName: modelName,
+		clients:    clients,
+		modelName:  modelName,
+		dimensions: DefaultEmbeddingDimensions,
 	}, nil
 }
 
@@ -77,7 +91,12 @@ func (e *GeminiEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 		e.keyIdx = (e.keyIdx + 1) % len(e.clients)
 		e.mu.Unlock()
 
-		resp, err := client.Models.EmbedContent(ctx, e.modelName, genai.Text(text), nil)
+		var embCfg *genai.EmbedContentConfig
+		if e.dimensions > 0 {
+			dims := e.dimensions
+			embCfg = &genai.EmbedContentConfig{OutputDimensionality: &dims}
+		}
+		resp, err := client.Models.EmbedContent(ctx, e.modelName, genai.Text(text), embCfg)
 		if err != nil {
 			lastErr = err
 			logger.Warn("Gemini EmbedContent attempt failed", "attempt", i+1, "error", err)

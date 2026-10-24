@@ -38,7 +38,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Check for Reddit mode
+	// Check for bot execution mode
 	botMode := os.Getenv("BOT_MODE")
 	for i, arg := range os.Args {
 	if arg == "-mode=breaking" || arg == "--mode=breaking" {

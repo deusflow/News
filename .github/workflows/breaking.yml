@@ -15,9 +15,14 @@ on:
         description: 'Breaking News URL (leave empty for auto-detection)'
         required: false
 
+concurrency:
+  group: breaking-scan
+  cancel-in-progress: false
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -30,6 +35,7 @@ jobs:
       BREAKING_URL: ${{ github.event.client_payload.url || github.event.inputs.url }}
 
       # AI settings
+      MAX_AI_REQUESTS: 2
       MAX_GEMINI_REQUESTS: 2
       BOT_MODE: breaking
 
@@ -40,18 +46,19 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-      GEMINI_MODEL: gemini-3.5-flash
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
       AI_PROVIDERS: "gemini,groq"
 
       GO111MODULE: 'on'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
           cache: true

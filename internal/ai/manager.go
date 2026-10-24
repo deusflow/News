@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/deusflow/News/internal/logger"
@@ -13,7 +15,7 @@ import (
 
 // defaultDelay is the minimum pause between consecutive AI API calls.
 //
-// Gemini Free Tier limits (gemini-3.5-flash, as of 2026):
+// Gemini Free Tier limits (gemini-3.8-flash, as of 2026):
 //   - 10 RPM  (requests per minute)  → minimum 6s between calls
 //   - 250 RPD (requests per day)
 //   - 1 000 000 TPM (tokens per minute)
@@ -53,11 +55,13 @@ type Manager struct {
 	providers []Provider
 	metrics   *metrics.Metrics
 
-	jobQueue     chan aiJob
-	cancelCtx    context.CancelFunc
-	delay        time.Duration
-	maxRequests  int
-	requestCount int
+	jobQueue       chan aiJob
+	cancelCtx      context.CancelFunc
+	delay          time.Duration
+	maxRequests    int
+	requestCount   int
+	cooldownMu     sync.Mutex
+	exhaustedUntil map[string]time.Time
 }
 
 func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Manager {
@@ -65,19 +69,20 @@ func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Man
 
 	delay := defaultDelay
 	if v := os.Getenv("AI_REQUEST_DELAY_SECONDS"); v != "" {
-		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+		if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
 			delay = time.Duration(secs) * time.Second
 			logger.Info("AI request delay overridden", "delay", delay, "env_value", v)
 		}
 	}
 
 	mgr := &Manager{
-		providers:   providers,
-		metrics:     m,
-		jobQueue:    make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
-		cancelCtx:   cancel,
-		delay:       delay,
-		maxRequests: maxRequests,
+		providers:      providers,
+		metrics:        m,
+		jobQueue:       make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
+		cancelCtx:      cancel,
+		delay:          delay,
+		maxRequests:    maxRequests,
+		exhaustedUntil: make(map[string]time.Time),
 	}
 
 	logger.Info("AI Manager started",
@@ -87,6 +92,43 @@ func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Man
 	go mgr.worker(ctx)
 
 	return mgr
+}
+
+func (m *Manager) isCooldown(provider string) bool {
+	m.cooldownMu.Lock()
+	defer m.cooldownMu.Unlock()
+	if until, ok := m.exhaustedUntil[provider]; ok {
+		if time.Now().Before(until) {
+			return true
+		}
+		delete(m.exhaustedUntil, provider)
+	}
+	return false
+}
+
+func (m *Manager) markCooldown(provider string, duration time.Duration) {
+	if duration <= 0 {
+		duration = 5 * time.Minute
+	}
+	m.cooldownMu.Lock()
+	defer m.cooldownMu.Unlock()
+	m.exhaustedUntil[provider] = time.Now().Add(duration)
+	logger.Warn("AI provider marked on cooldown", "provider", provider, "cooldown", duration)
+}
+
+func isExhaustionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter >= 3*time.Minute {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "exhausted") ||
+		strings.Contains(lower, "quota") ||
+		strings.Contains(lower, "daily limit") ||
+		strings.Contains(lower, "resource_exhausted") ||
+		strings.Contains(lower, "rate_limit_exceeded")
 }
 
 func (m *Manager) Close() {
@@ -172,6 +214,11 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 	var lastErr error
 
 	for _, provider := range m.providers {
+		if m.isCooldown(provider.Name()) {
+			logger.Info("AI provider on cooldown, skipping", "provider", provider.Name())
+			continue
+		}
+
 		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
 			return nil, fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
 		}
@@ -185,11 +232,27 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			return rsp, nil
 		}
 
+		if isExhaustionError(err) {
+			m.markCooldown(provider.Name(), 5*time.Minute)
+			logger.Warn("AI provider exhausted, falling back", "provider", provider.Name(), "error", err)
+			lastErr = err
+			continue
+		}
+
 		retryAfter := 0
 		if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 0 {
 			retryAfter = int(perr.RetryAfter.Seconds())
 		} else if secs, ok := ParseRetryAfterSeconds(err.Error()); ok {
 			retryAfter = secs
+		}
+
+		if retryAfter > 180 {
+			m.markCooldown(provider.Name(), time.Duration(retryAfter)*time.Second)
+			logger.Warn("AI provider rate limited for long period, marking cooldown",
+				"provider", provider.Name(),
+				"wait_sec", retryAfter)
+			lastErr = err
+			continue
 		}
 
 		if retryAfter > 0 && retryAfter <= 180 {
@@ -218,6 +281,7 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount)
 				return resp2, nil
 			}
+			m.markCooldown(provider.Name(), 5*time.Minute)
 			lastErr = err2
 			continue
 		}
@@ -234,6 +298,11 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 	var lastErr error
 
 	for _, provider := range m.providers {
+		if m.isCooldown(provider.Name()) {
+			logger.Info("AI provider on cooldown, skipping", "provider", provider.Name())
+			continue
+		}
+
 		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
 			return "", fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
 		}
@@ -245,7 +314,19 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 		if err != nil {
 			logger.Error("Provider Raw failed", "provider", provider.Name(), "error", err)
 
+			if isExhaustionError(err) {
+				m.markCooldown(provider.Name(), 5*time.Minute)
+				lastErr = err
+				continue
+			}
+
 			if rlErr, ok := err.(*ProviderError); ok && rlErr.Kind == ErrorKindRateLimited {
+				if rlErr.RetryAfter > 3*time.Minute {
+					m.markCooldown(provider.Name(), rlErr.RetryAfter)
+					lastErr = err
+					continue
+				}
+
 				logger.Warn("Rate limited Raw", "provider", provider.Name(), "wait_sec", rlErr.RetryAfter.Seconds())
 				select {
 				case <-time.After(rlErr.RetryAfter):
@@ -254,6 +335,7 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 					if retryErr == nil {
 						return rawText, nil
 					}
+					m.markCooldown(provider.Name(), 5*time.Minute)
 					lastErr = retryErr
 					continue
 				case <-ctx.Done():

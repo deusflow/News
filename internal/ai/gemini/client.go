@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/deusflow/News/internal/ai"
 	"github.com/deusflow/News/internal/config"
@@ -116,7 +117,7 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 		return nil, fmt.Errorf("gemini generate error: %w", err)
 	}
 
-	return nil, fmt.Errorf("all gemini keys exhausted due to rate limits")
+	return nil, ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits"), 5*time.Minute)
 }
 
 // GenerateRaw returns raw text output for lightweight triage without enforcing JSON schema.
@@ -153,5 +154,5 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 		return "", fmt.Errorf("gemini generate error: %w", err)
 	}
 
-	return "", fmt.Errorf("all gemini keys exhausted due to rate limits")
+	return "", ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits"), 5*time.Minute)
 }

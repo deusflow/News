@@ -110,16 +110,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 				videoCaption = news.FormatCaptionForPhoto(n, 1024)
 			}
 
-			if telegram.IsYouTubeURL(n.VideoURL) {
-				reader, size, streamErr := telegram.GetYouTubeStream(n.VideoURL)
-				if streamErr == nil {
-					defer reader.Close()
-					err = telegram.SendVideoStream(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, reader, size, "video.mp4", videoCaption, buttons)
-					if err == nil {
-						videoSent = true
-					}
-				}
-			} else if telegram.IsDRDirectVideo(n.VideoURL) {
+			if telegram.IsDRDirectVideo(n.VideoURL) {
 				size, sizeErr := telegram.GetRemoteContentLength(n.VideoURL)
 				if sizeErr == nil && size <= maxTelegramURLVideoBytes {
 					err = telegram.SendVideoURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.VideoURL, videoCaption, buttons)

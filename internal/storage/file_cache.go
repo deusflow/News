@@ -294,16 +294,25 @@ func (fc *FileCache) EnqueueDelayedPost(hash, title, link, newsJSON string, dela
 	return nil
 }
 
-// GetReadyDelayedPosts returns delayed posts ready to send.
+// GetReadyDelayedPosts returns delayed posts ready to send and marks them as processing atomically.
 func (fc *FileCache) GetReadyDelayedPosts() ([]DelayedPost, error) {
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
 
 	now := time.Now()
 	var ready []DelayedPost
-	for _, p := range fc.delayedPosts {
-		if p.Status == "pending" && (p.PublishAfter.Before(now) || p.PublishAfter.Equal(now)) {
-			ready = append(ready, p)
+	for i := range fc.delayedPosts {
+		p := &fc.delayedPosts[i]
+		isStuckProcessing := p.Status == "processing" && (p.ClaimedAt == nil || now.Sub(*p.ClaimedAt) > 30*time.Minute)
+		if (p.Status == "pending" || isStuckProcessing) &&
+			(p.PublishAfter.Before(now) || p.PublishAfter.Equal(now)) {
+			p.Status = "processing"
+			claimedNow := now
+			p.ClaimedAt = &claimedNow
+			ready = append(ready, *p)
+			if len(ready) >= 5 {
+				break
+			}
 		}
 	}
 	return ready, nil
