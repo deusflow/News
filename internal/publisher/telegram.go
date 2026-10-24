@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
@@ -208,10 +209,19 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	// Telegram message sent successfully: lock reservation permanently to prevent duplicates
 	publishSuccess = true
 
-	// 8. Success handling
-	if err := p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding); err != nil {
-		logger.Error("CRITICAL: Failed to mark news as sent in DB cache", "title", n.Title, "hash", hash, "error", err)
-		alertMsg := fmt.Sprintf("⚠️ News was sent to Telegram, but failed to save sent status to DB!\nTitle: %s\nHash: %s\nError: %v\n\nRisk: May cause duplicate post on next run!", n.Title, hash, err)
+	// 8. Success handling: retry saving to DB up to 3 times with pause, do not rollback reservation
+	var saveErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		saveErr = p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding)
+		if saveErr == nil {
+			break
+		}
+		logger.Warn("Failed to mark news as sent in DB cache, retrying...", "attempt", attempt, "hash", hash, "error", saveErr)
+		time.Sleep(500 * time.Millisecond)
+	}
+	if saveErr != nil {
+		logger.Error("CRITICAL: Failed to mark news as sent in DB cache after 3 retries", "title", n.Title, "hash", hash, "error", saveErr)
+		alertMsg := fmt.Sprintf("⚠️ News was sent to Telegram, but failed to save sent status to DB after 3 retries!\nTitle: %s\nHash: %s\nError: %v\n\nRisk: May cause duplicate post on next run!", n.Title, hash, saveErr)
 		_ = telegram.SendAdminAlert(p.cfg.Telegram.Token, p.cfg.Telegram.AdminChatID, alertMsg)
 	}
 	if strings.TrimSpace(n.FunFact) != "" {

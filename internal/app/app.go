@@ -215,11 +215,12 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		case "gemini-flash-lite":
 			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
 			model := os.Getenv("GEMINI_FLASH_LITE_MODEL")
-			if model == "" {
-				model = "gemini-3.5-flash-lite"
-			}
 			if hasModel && customModel != "" {
 				model = customModel
+			}
+			if model == "" {
+				logger.Warn("Gemini Flash Lite model is not specified, skipping (set GEMINI_FLASH_LITE_MODEL or use gemini-flash-lite:<model>)")
+				continue
 			}
 			client, err := gemini.NewClient(keys, model)
 			if err != nil {
@@ -280,11 +281,12 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			key := os.Getenv("OPENROUTER_API_KEY")
 			if key != "" {
 				model := os.Getenv("OPENROUTER_MODEL")
-				if model == "" {
-					model = "qwen/qwen3.8-27b"
-				}
 				if hasModel && customModel != "" {
 					model = customModel
+				}
+				if model == "" {
+					logger.Warn("OpenRouter model is not specified, skipping (set OPENROUTER_MODEL or use openrouter:<model>)")
+					continue
 				}
 				name := "openrouter"
 				if hasModel && customModel != "" {
@@ -305,11 +307,12 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			key := os.Getenv("OPENAI_API_KEY")
 			if key != "" {
 				model := os.Getenv("OPENAI_MODEL")
-				if model == "" {
-					model = "gpt-4o-mini"
-				}
 				if hasModel && customModel != "" {
 					model = customModel
+				}
+				if model == "" {
+					logger.Warn("OpenAI model is not specified, skipping (set OPENAI_MODEL or use openai:<model>)")
+					continue
 				}
 				name := "openai"
 				if hasModel && customModel != "" {
@@ -333,11 +336,12 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			}
 			if key != "" {
 				model := os.Getenv("QWEN_MODEL")
-				if model == "" {
-					model = "qwen/qwen3.8-27b"
-				}
 				if hasModel && customModel != "" {
 					model = customModel
+				}
+				if model == "" {
+					logger.Warn("Qwen model is not specified, skipping (set QWEN_MODEL or use qwen:<model>)")
+					continue
 				}
 				name := "qwen"
 				if hasModel && customModel != "" {
@@ -351,10 +355,14 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				aiProviders = append(aiProviders, client)
 				logger.Info("AI Provider added", "name", name, "model", model)
 			} else if cfg.AI.GroqAPIKey != "" {
-				// Fallback: If no Alibaba/DashScope key is configured, run Qwen on Groq (qwen/qwen3.8-27b)
-				model := "qwen/qwen3.8-27b"
+				// Fallback: If no Alibaba/DashScope key is configured, run Qwen on Groq only if model is specified
+				model := os.Getenv("QWEN_MODEL")
 				if hasModel && customModel != "" {
 					model = customModel
+				}
+				if model == "" {
+					logger.Warn("Qwen model for Groq is not specified, skipping (set QWEN_MODEL or use qwen:<model>)")
+					continue
 				}
 				name := "qwen (via Groq)"
 				if hasModel && customModel != "" {

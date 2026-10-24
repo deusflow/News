@@ -128,15 +128,16 @@ func (fc *FileCache) IsAlreadySent(hash string) bool {
 		return false
 	}
 
-	// Case 1: Finalized post within TTL
-	if item.Category != "" || item.TitleUkrainian != "" {
-		cutoffTime := time.Now().Add(-time.Duration(fc.ttlHours) * time.Hour)
-		return item.SentAt.After(cutoffTime)
+	cutoffTime := time.Now().Add(-time.Duration(fc.ttlHours) * time.Hour)
+
+	// Case 1: Post was sent within TTL: finalized OR legacy row (ReservedAt == nil)
+	if item.SentAt.After(cutoffTime) && (item.Category != "" || item.TitleUkrainian != "" || item.ReservedAt == nil) {
+		return true
 	}
 
-	// Case 2: Fresh active reservation (< 15 min old)
-	if item.ReservedAt != nil {
-		return time.Since(*item.ReservedAt) < 15*time.Minute
+	// Case 2: Fresh active reservation (< 15 min old, unfinalized)
+	if item.ReservedAt != nil && time.Since(*item.ReservedAt) < 15*time.Minute {
+		return true
 	}
 
 	return false

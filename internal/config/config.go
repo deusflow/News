@@ -18,8 +18,6 @@ const (
 	DefaultGeminiModel = "gemini-3.8-flash"
 	// DefaultGroqModel is the standard primary model on GroqCloud
 	DefaultGroqModel = "openai/gpt-oss-120b"
-	// DefaultQwenGroqModel is the standard Qwen model on GroqCloud
-	DefaultQwenGroqModel = "qwen/qwen3.8-27b"
 )
 
 

@@ -310,8 +310,8 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 		SELECT COUNT(*) FROM sent_news 
 		WHERE hash = $1 
 		  AND (
-		    -- Case 1: Post was finalized/sent successfully and is within TTL
-		    (content_hash IS NOT NULL AND sent_at > $2)
+		    -- Case 1: Post was finalized or legacy row, and sent_at is within TTL
+		    (sent_at > $2 AND (content_hash IS NOT NULL OR reserved_at IS NULL))
 		    OR
 		    -- Case 2: Fresh active reservation (< 15 min old) held by another worker
 		    (content_hash IS NULL AND reserved_at IS NOT NULL AND reserved_at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 minutes')
@@ -542,9 +542,13 @@ func stripNumericSeparators(content string) string {
 func (pc *PostgresCache) MarkAsSent(hash, title, link, category, source string) error {
 	// Use INSERT ON CONFLICT to handle race conditions
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, category, source, sent_at)
-		VALUES ($1, $2, $3, $3, $4, $5, NOW())
-		ON CONFLICT (hash) DO UPDATE SET sent_at = NOW()
+		INSERT INTO sent_news (hash, title, link, source_url, category, source, sent_at, reserved_at)
+		VALUES ($1, $2, $3, $3, $4, $5, NOW(), NULL)
+		ON CONFLICT (hash) DO UPDATE SET
+			sent_at = NOW(),
+			category = EXCLUDED.category,
+			source = EXCLUDED.source,
+			reserved_at = NULL
 	`
 
 	_, err := pc.db.Exec(query, hash, title, link, category, source)
@@ -581,16 +585,19 @@ func (pc *PostgresCache) MarkAsSentWithSemanticData(hash, title, link, content, 
 	}
 
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced, title_ukrainian, story_cluster_key, embedding)
-		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE, $8, $9, $10)
+		INSERT INTO sent_news (hash, title, link, source_url, content_hash, title_norm, category, source, sent_at, supabase_synced, title_ukrainian, story_cluster_key, embedding, reserved_at)
+		VALUES ($1, $2, $3, $3, $4, $5, $6, $7, NOW(), FALSE, $8, $9, $10, NULL)
 		ON CONFLICT (hash) DO UPDATE SET
 			sent_at = NOW(),
 			content_hash = EXCLUDED.content_hash,
+			category = EXCLUDED.category,
+			source = EXCLUDED.source,
 			source_url = EXCLUDED.source_url,
 			title_norm = EXCLUDED.title_norm,
 			title_ukrainian = COALESCE(EXCLUDED.title_ukrainian, sent_news.title_ukrainian),
 			story_cluster_key = COALESCE(EXCLUDED.story_cluster_key, sent_news.story_cluster_key),
-			embedding = COALESCE(EXCLUDED.embedding, sent_news.embedding)
+			embedding = COALESCE(EXCLUDED.embedding, sent_news.embedding),
+			reserved_at = NULL
 	`
 
 	_, err := pc.db.Exec(query, hash, title, link, contentHash, titleNorm, category, source, titleUA, clusterKey, embeddingJSON)

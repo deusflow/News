@@ -85,7 +85,7 @@ func TestFileCache_DelayedPosts(t *testing.T) {
 }
 
 func TestFileCache_ReservationAndIsAlreadySent(t *testing.T) {
-	cache := NewFileCache("test_res.json", 24)
+	cache := NewFileCache("test_res.json", 168)
 
 	hash := "test_file_res"
 	// 1. Reserve
@@ -124,7 +124,7 @@ func TestFileCache_ReservationAndIsAlreadySent(t *testing.T) {
 		t.Errorf("Expected stale reservation to be reclaimed, got %v", reclaimed)
 	}
 
-	// Legacy row with ReservedAt == nil cannot be reclaimed
+	// Legacy row with ReservedAt == nil, sent 3 days ago within 7 days TTL
 	legacyHash := "test_legacy_nil"
 	cache.mu.Lock()
 	cache.items[legacyHash] = SentNewsItem{
@@ -139,6 +139,35 @@ func TestFileCache_ReservationAndIsAlreadySent(t *testing.T) {
 	legacyReclaim, _ := cache.TryReservePublish(legacyHash, "Legacy", "https://example.com")
 	if legacyReclaim {
 		t.Errorf("Legacy row with nil ReservedAt should NOT be reclaimed")
+	}
+	if !cache.IsAlreadySent(legacyHash) {
+		t.Errorf("Legacy row with nil ReservedAt within TTL should be considered already sent")
+	}
+
+	// Full cycle test: TryReservePublish -> MarkAsSent -> shift 20m -> IsAlreadySent true, TryReservePublish false
+	fullCycleHash := "test_fc_full_cycle"
+	res1, err := cache.TryReservePublish(fullCycleHash, "FC Title", "https://example.com/fc")
+	if err != nil || !res1 {
+		t.Fatalf("TryReservePublish for fullCycleHash failed: %v", err)
+	}
+
+	cache.MarkAsSent(fullCycleHash, "FC Title", "https://example.com/fc", "general", "DR")
+
+	cache.mu.Lock()
+	fcItem := cache.items[fullCycleHash]
+	fcItem.SentAt = time.Now().Add(-20 * time.Minute)
+	cache.items[fullCycleHash] = fcItem
+	cache.mu.Unlock()
+
+	if !cache.IsAlreadySent(fullCycleHash) {
+		t.Errorf("IsAlreadySent after 20m for fullCycleHash want true, got false")
+	}
+	res2, err := cache.TryReservePublish(fullCycleHash, "FC Title", "https://example.com/fc")
+	if err != nil {
+		t.Fatalf("TryReservePublish returned error: %v", err)
+	}
+	if res2 {
+		t.Errorf("TryReservePublish after MarkAsSent want false, got true")
 	}
 }
 

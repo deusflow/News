@@ -62,12 +62,7 @@ func TestAllowedModelDefaults(t *testing.T) {
 		t.Errorf("DefaultGroqModel %q is not in allowed active Groq models whitelist: %v", DefaultGroqModel, allowedGroqModels)
 	}
 
-	// 2. Check DefaultQwenGroqModel
-	if !allowedGroqModels[DefaultQwenGroqModel] {
-		t.Errorf("DefaultQwenGroqModel %q is not in allowed active Groq models whitelist: %v", DefaultQwenGroqModel, allowedGroqModels)
-	}
-
-	// 3. Check default providers from normalizeProviders
+	// 2. Check default providers from normalizeProviders
 	defaultProviders := normalizeProviders(nil)
 	if len(defaultProviders) == 0 {
 		t.Fatalf("Default providers should not be empty")
@@ -89,14 +84,11 @@ func TestAllowedModelDefaults(t *testing.T) {
 		}
 	}
 
-	// 4. Ensure no legacy or deprecated keywords exist in model defaults
+	// 3. Ensure no legacy or deprecated keywords exist in model defaults
 	forbiddenSubstrings := []string{"llama", "versatile", "instant"}
 	for _, forbidden := range forbiddenSubstrings {
 		if containsWholeWord(DefaultGroqModel, forbidden) {
 			t.Errorf("DefaultGroqModel %q contains deprecated keyword %q", DefaultGroqModel, forbidden)
-		}
-		if containsWholeWord(DefaultQwenGroqModel, forbidden) {
-			t.Errorf("DefaultQwenGroqModel %q contains deprecated keyword %q", DefaultQwenGroqModel, forbidden)
 		}
 	}
 }

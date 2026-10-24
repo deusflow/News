@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"time"
@@ -132,7 +133,7 @@ func TestPostgresLive_TryReservePublish_ConcurrencyAndStaleReclaim(t *testing.T)
 		t.Skip("Skipping live Postgres test: TEST_DATABASE_URL not set")
 	}
 
-	cache, err := NewPostgresCache(dbURL, 24)
+	cache, err := NewPostgresCache(dbURL, 168)
 	if err != nil {
 		t.Fatalf("Failed to initialize PostgresCache: %v", err)
 	}
@@ -263,6 +264,11 @@ func TestPostgresLive_TryReservePublish_ConcurrencyAndStaleReclaim(t *testing.T)
 		t.Fatalf("CRITICAL: Legacy row with reserved_at IS NULL was reclaimed, want false")
 	}
 
+	// Legacy row within TTL (3 days ago vs 7 days TTL) must return true in IsAlreadySent
+	if !cache.IsAlreadySent(legacyHash) {
+		t.Fatalf("IsAlreadySent for legacy row (reserved_at NULL, content_hash NULL, sent_at 3 days ago) want true, got false")
+	}
+
 	// 7. IsAlreadySent checks: fresh reservation = true, expired reservation = false, finalized = true
 	freshHash := "hash_test_is_already_sent_fresh"
 	staleHash := "hash_test_is_already_sent_stale"
@@ -292,6 +298,61 @@ func TestPostgresLive_TryReservePublish_ConcurrencyAndStaleReclaim(t *testing.T)
 	}
 	if cache.IsAlreadySent(staleHash) {
 		t.Errorf("IsAlreadySent for expired reservation (>15m) returned true, want false")
+	}
+
+	// 8. Full cycle test: TryReservePublish -> MarkAsSentWithContent -> time shift 20m -> IsAlreadySent true, TryReservePublish false
+	fullCycleHash := "hash_test_full_cycle"
+	_, _ = cache.db.Exec("DELETE FROM sent_news WHERE hash = $1;", fullCycleHash)
+
+	// Step a: TryReservePublish succeeds
+	resFC, err := cache.TryReservePublish(fullCycleHash, "Full Cycle Title", "https://example.com/full")
+	if err != nil || !resFC {
+		t.Fatalf("TryReservePublish in full cycle failed: res=%v, err=%v", resFC, err)
+	}
+
+	// Step b: MarkAsSentWithContent succeeds and updates row
+	testContent := "This is full article content containing more than one hundred characters to properly trigger content hashing and test deduplication behavior accurately."
+	err = cache.MarkAsSentWithContent(fullCycleHash, "Full Cycle Title", "https://example.com/full", testContent, "general", "DR")
+	if err != nil {
+		t.Fatalf("MarkAsSentWithContent in full cycle failed: %v", err)
+	}
+
+	// Verify DB state: content_hash IS NOT NULL and reserved_at IS NULL
+	var cHash sql.NullString
+	var rAt sql.NullTime
+	err = cache.db.QueryRow("SELECT content_hash, reserved_at FROM sent_news WHERE hash = $1", fullCycleHash).Scan(&cHash, &rAt)
+	if err != nil {
+		t.Fatalf("Failed to query sent_news for full cycle: %v", err)
+	}
+	if !cHash.Valid || cHash.String == "" {
+		t.Errorf("Expected content_hash to be populated, got NULL/empty")
+	}
+	if rAt.Valid {
+		t.Errorf("Expected reserved_at to be NULL after finalization, got %v", rAt.Time)
+	}
+
+	// Step c: Shift time by 20 minutes
+	_, err = cache.db.Exec(`
+		UPDATE sent_news 
+		SET sent_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '20 minutes'
+		WHERE hash = $1;
+	`, fullCycleHash)
+	if err != nil {
+		t.Fatalf("Failed to shift sent_at by 20 minutes: %v", err)
+	}
+
+	// Step d: IsAlreadySent must be true
+	if !cache.IsAlreadySent(fullCycleHash) {
+		t.Errorf("IsAlreadySent after 20 minutes want true, got false")
+	}
+
+	// Step e: TryReservePublish must be false
+	fcReserved, err := cache.TryReservePublish(fullCycleHash, "Full Cycle Title", "https://example.com/full")
+	if err != nil {
+		t.Fatalf("TryReservePublish after 20 minutes returned error: %v", err)
+	}
+	if fcReserved {
+		t.Errorf("TryReservePublish after 20 minutes want false, got true")
 	}
 }
 

@@ -210,11 +210,20 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	// Message is successfully published to Telegram
 	breakingSuccess = true
 
-	// Mark as sent in DB cache to guarantee no duplicates
+	// Mark as sent in DB cache to guarantee no duplicates: retry up to 3 times, do not rollback reservation
 	if cache != nil {
 		hash := cache.GenerateNewsHash(title, url)
-		if markErr := cache.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName); markErr != nil {
-			logger.Error("Failed to mark breaking news as sent in cache", "hash", hash, "error", markErr)
+		var markErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			markErr = cache.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+			if markErr == nil {
+				break
+			}
+			logger.Warn("Failed to mark breaking news as sent in cache, retrying...", "attempt", attempt, "hash", hash, "error", markErr)
+			time.Sleep(500 * time.Millisecond)
+		}
+		if markErr != nil {
+			logger.Error("CRITICAL: Failed to mark breaking news as sent in cache after 3 retries", "hash", hash, "error", markErr)
 		}
 	}
 
