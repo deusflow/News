@@ -243,5 +243,56 @@ func TestPostgresLive_TryReservePublish_ConcurrencyAndStaleReclaim(t *testing.T)
 	if err != nil || !res2 {
 		t.Fatalf("Re-reservation after cancel failed: res=%v, err=%v", res2, err)
 	}
+
+	// 6. Legacy row protection: rows with reserved_at IS NULL, content_hash IS NULL must NEVER be reclaimed
+	legacyHash := "hash_legacy_null_reserved"
+	_, _ = cache.db.Exec("DELETE FROM sent_news WHERE hash = $1;", legacyHash)
+	_, err = cache.db.Exec(`
+		INSERT INTO sent_news (hash, title, link, source_url, sent_at, reserved_at, content_hash)
+		VALUES ($1, 'Legacy Title', 'https://example.com/legacy', 'https://example.com/legacy', (NOW() AT TIME ZONE 'UTC') - INTERVAL '3 days', NULL, NULL);
+	`, legacyHash)
+	if err != nil {
+		t.Fatalf("Failed to insert legacy test row: %v", err)
+	}
+
+	legacyReclaim, err := cache.TryReservePublish(legacyHash, "Legacy Title", "https://example.com/legacy")
+	if err != nil {
+		t.Fatalf("TryReservePublish error on legacy row: %v", err)
+	}
+	if legacyReclaim {
+		t.Fatalf("CRITICAL: Legacy row with reserved_at IS NULL was reclaimed, want false")
+	}
+
+	// 7. IsAlreadySent checks: fresh reservation = true, expired reservation = false, finalized = true
+	freshHash := "hash_test_is_already_sent_fresh"
+	staleHash := "hash_test_is_already_sent_stale"
+	_, _ = cache.db.Exec("DELETE FROM sent_news WHERE hash IN ($1, $2);", freshHash, staleHash)
+
+	// Create fresh reservation
+	resFresh, err := cache.TryReservePublish(freshHash, "Fresh Title", "https://example.com/fresh")
+	if err != nil || !resFresh {
+		t.Fatalf("Failed to create fresh reservation: %v", err)
+	}
+	if !cache.IsAlreadySent(freshHash) {
+		t.Errorf("IsAlreadySent for fresh reservation (<15m) returned false, want true")
+	}
+
+	// Create stale reservation (aged > 15m)
+	resStale, err := cache.TryReservePublish(staleHash, "Stale Title", "https://example.com/stale")
+	if err != nil || !resStale {
+		t.Fatalf("Failed to create stale reservation: %v", err)
+	}
+	_, err = cache.db.Exec(`
+		UPDATE sent_news 
+		SET reserved_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '25 minutes'
+		WHERE hash = $1;
+	`, staleHash)
+	if err != nil {
+		t.Fatalf("Failed to age stale reservation: %v", err)
+	}
+	if cache.IsAlreadySent(staleHash) {
+		t.Errorf("IsAlreadySent for expired reservation (>15m) returned true, want false")
+	}
 }
+
 

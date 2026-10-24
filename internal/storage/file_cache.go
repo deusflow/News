@@ -20,11 +20,13 @@ type SentNewsItem struct {
 	TitleUkrainian  string    `json:"title_ukrainian,omitempty"`
 	StoryClusterKey string    `json:"story_cluster_key,omitempty"`
 	Embedding       []float32 `json:"embedding,omitempty"`
-	Link            string    `json:"link"`
-	Category        string    `json:"category"`
-	SentAt          time.Time `json:"sent_at"`
-	Source          string    `json:"source"`
+	Link            string     `json:"link"`
+	Category        string     `json:"category"`
+	SentAt          time.Time  `json:"sent_at"`
+	ReservedAt      *time.Time `json:"reserved_at,omitempty"`
+	Source          string     `json:"source"`
 }
+
 
 // FileCache manages sent news items in a JSON file
 type FileCache struct {
@@ -116,7 +118,7 @@ func (fc *FileCache) GenerateNewsHash(title, link string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16] // Use first 16 characters
 }
 
-// IsAlreadySent checks if news was already sent
+// IsAlreadySent checks if news was already sent (or currently actively reserved)
 func (fc *FileCache) IsAlreadySent(hash string) bool {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -126,10 +128,20 @@ func (fc *FileCache) IsAlreadySent(hash string) bool {
 		return false
 	}
 
-	// Check if item is still within TTL
-	cutoffTime := time.Now().Add(-time.Duration(fc.ttlHours) * time.Hour)
-	return item.SentAt.After(cutoffTime)
+	// Case 1: Finalized post within TTL
+	if item.Category != "" || item.TitleUkrainian != "" {
+		cutoffTime := time.Now().Add(-time.Duration(fc.ttlHours) * time.Hour)
+		return item.SentAt.After(cutoffTime)
+	}
+
+	// Case 2: Fresh active reservation (< 15 min old)
+	if item.ReservedAt != nil {
+		return time.Since(*item.ReservedAt) < 15*time.Minute
+	}
+
+	return false
 }
+
 
 // MarkAsSent marks news as sent
 func (fc *FileCache) MarkAsSent(hash, title, link, category, source string) {
@@ -357,21 +369,27 @@ func (fc *FileCache) TryReservePublish(hash, title, url string) (bool, error) {
 		if item.Category != "" || item.TitleUkrainian != "" {
 			return false, nil
 		}
-		// If active reservation (< 15 min), conflict
-		if now.Sub(item.SentAt) < 15*time.Minute {
+		// If legacy unreserved row (ReservedAt == nil): do NOT reclaim
+		if item.ReservedAt == nil {
 			return false, nil
 		}
-		// Stale reservation (> 15 min), allow reclaim
+		// If active reservation (< 15 min), conflict
+		if now.Sub(*item.ReservedAt) < 15*time.Minute {
+			return false, nil
+		}
+		// Stale reservation (> 15 min with ReservedAt != nil), allow reclaim
 	}
 
 	fc.items[hash] = SentNewsItem{
-		Hash:   hash,
-		Title:  title,
-		Link:   url,
-		SentAt: now,
+		Hash:       hash,
+		Title:      title,
+		Link:       url,
+		SentAt:     now,
+		ReservedAt: &now,
 	}
 	return true, nil
 }
+
 
 // CancelPublishReservation releases the in-memory reservation if publishing fails.
 func (fc *FileCache) CancelPublishReservation(hash string) error {

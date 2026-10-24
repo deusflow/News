@@ -301,12 +301,22 @@ func (pc *PostgresCache) initSchema() error {
 	return nil
 }
 
-// IsAlreadySent checks if news was already sent (within TTL window)
+// IsAlreadySent checks if news was already sent (or currently actively reserved by another runner)
 func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
 
 	var count int
-	query := `SELECT COUNT(*) FROM sent_news WHERE hash = $1 AND sent_at > $2`
+	query := `
+		SELECT COUNT(*) FROM sent_news 
+		WHERE hash = $1 
+		  AND (
+		    -- Case 1: Post was finalized/sent successfully and is within TTL
+		    (content_hash IS NOT NULL AND sent_at > $2)
+		    OR
+		    -- Case 2: Fresh active reservation (< 15 min old) held by another worker
+		    (content_hash IS NULL AND reserved_at IS NOT NULL AND reserved_at > (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 minutes')
+		  );
+	`
 	err := pc.db.QueryRow(query, hash, cutoffTime).Scan(&count)
 
 	if err != nil {
@@ -316,6 +326,7 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 
 	return count > 0
 }
+
 
 // IsContentDuplicate checks if content with similar hash already exists
 // Uses SimHash-like approach: generates hash from normalized content words
@@ -1077,8 +1088,8 @@ func (pc *PostgresCache) MarkDelayedPostFailed(id int, errMsg string) error {
 }
 
 // TryReservePublish atomically claims a news hash prior to publishing to Telegram.
-// Returns (true, nil) if the reservation was claimed (or if a stale unfinalized reservation > 15m was reclaimed),
-// or (false, nil) if another runner currently holds an active reservation or already finalized the item.
+// Returns (true, nil) if the reservation was claimed (or if a stale reservation > 15m was reclaimed),
+// or (false, nil) if another runner currently holds an active reservation, already finalized the item, or it's a legacy unreserved row.
 func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error) {
 	query := `
 		INSERT INTO sent_news (hash, title, link, source_url, sent_at, reserved_at)
@@ -1089,13 +1100,14 @@ func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error
 			source_url = EXCLUDED.source_url,
 			reserved_at = (NOW() AT TIME ZONE 'UTC')
 		WHERE sent_news.content_hash IS NULL
-		  AND COALESCE(sent_news.reserved_at, sent_news.sent_at, '-infinity'::timestamp) < (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 minutes'
+		  AND sent_news.reserved_at IS NOT NULL
+		  AND sent_news.reserved_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 minutes'
 		RETURNING id;
 	`
 	var id int
 	err := pc.db.QueryRow(query, hash, title, url).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Conflict: another runner has already finalized this item, or an active reservation (< 15m) is in progress
+		// Conflict: another runner has already finalized this item, an active reservation (< 15m) is in progress, or legacy row with reserved_at IS NULL
 		return false, nil
 	}
 	if err != nil {
@@ -1103,6 +1115,7 @@ func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error
 	}
 	return true, nil
 }
+
 
 // CancelPublishReservation releases the unfulfilled reservation if Telegram sending fails.
 func (pc *PostgresCache) CancelPublishReservation(hash string) error {

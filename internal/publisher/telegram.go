@@ -205,6 +205,9 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		return outText, false
 	}
 
+	// Telegram message sent successfully: lock reservation permanently to prevent duplicates
+	publishSuccess = true
+
 	// 8. Success handling
 	if err := p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding); err != nil {
 		logger.Error("CRITICAL: Failed to mark news as sent in DB cache", "title", n.Title, "hash", hash, "error", err)
@@ -217,8 +220,8 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		}
 	}
 	p.metrics.IncrementTelegramMessagesSent()
-	publishSuccess = true
 
 	return outText, true
+
 
 }

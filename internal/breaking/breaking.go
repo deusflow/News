@@ -207,7 +207,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		return fmt.Errorf("failed to send breaking telegram message: %w", err)
 	}
 
-
+	// Message is successfully published to Telegram
+	breakingSuccess = true
 
 	// Mark as sent in DB cache to guarantee no duplicates
 	if cache != nil {
@@ -226,7 +227,6 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		"title", title,
 		"category", n.Category,
 		"audience_score", n.AudienceScore)
-	breakingSuccess = true
 	return nil
 }
 

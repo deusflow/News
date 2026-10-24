@@ -83,3 +83,62 @@ func TestFileCache_DelayedPosts(t *testing.T) {
 		t.Errorf("expected hash_crashed, got %s", reclaimed[0].Hash)
 	}
 }
+
+func TestFileCache_ReservationAndIsAlreadySent(t *testing.T) {
+	cache := NewFileCache("test_res.json", 24)
+
+	hash := "test_file_res"
+	// 1. Reserve
+	ok, err := cache.TryReservePublish(hash, "Test Title", "https://example.com")
+	if err != nil || !ok {
+		t.Fatalf("TryReservePublish failed: ok=%v, err=%v", ok, err)
+	}
+
+	// Fresh reservation counts as already sent in IsAlreadySent
+	if !cache.IsAlreadySent(hash) {
+		t.Errorf("IsAlreadySent for fresh reservation want true, got false")
+	}
+
+	// Second reservation fails
+	ok2, _ := cache.TryReservePublish(hash, "Test Title", "https://example.com")
+	if ok2 {
+		t.Errorf("Concurrent TryReservePublish should fail, but got true")
+	}
+
+	// Age reservation by 20 minutes
+	cache.mu.Lock()
+	stale := time.Now().Add(-20 * time.Minute)
+	item := cache.items[hash]
+	item.ReservedAt = &stale
+	cache.items[hash] = item
+	cache.mu.Unlock()
+
+	// Expired reservation is NOT already sent
+	if cache.IsAlreadySent(hash) {
+		t.Errorf("IsAlreadySent for expired reservation (>15m) want false, got true")
+	}
+
+	// Expired reservation can be reclaimed
+	reclaimed, err := cache.TryReservePublish(hash, "Test Title", "https://example.com")
+	if err != nil || !reclaimed {
+		t.Errorf("Expected stale reservation to be reclaimed, got %v", reclaimed)
+	}
+
+	// Legacy row with ReservedAt == nil cannot be reclaimed
+	legacyHash := "test_legacy_nil"
+	cache.mu.Lock()
+	cache.items[legacyHash] = SentNewsItem{
+		Hash:       legacyHash,
+		Title:      "Legacy Title",
+		Link:       "https://example.com/legacy",
+		SentAt:     time.Now().Add(-72 * time.Hour),
+		ReservedAt: nil,
+	}
+	cache.mu.Unlock()
+
+	legacyReclaim, _ := cache.TryReservePublish(legacyHash, "Legacy", "https://example.com")
+	if legacyReclaim {
+		t.Errorf("Legacy row with nil ReservedAt should NOT be reclaimed")
+	}
+}
+

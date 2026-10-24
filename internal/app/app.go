@@ -254,12 +254,12 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			key := os.Getenv("CEREBRAS_API_KEY")
 			if key != "" {
 				model := os.Getenv("CEREBRAS_MODEL")
-				if model == "" {
-					model = "openai/gpt-oss-120b"
-				}
-
 				if hasModel && customModel != "" {
 					model = customModel
+				}
+				if model == "" {
+					logger.Warn("Cerebras model is not specified, skipping (set CEREBRAS_MODEL or use cerebras:<model>)")
+					continue
 				}
 				name := "cerebras"
 				if hasModel && customModel != "" {
