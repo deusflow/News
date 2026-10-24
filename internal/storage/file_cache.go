@@ -351,14 +351,24 @@ func (fc *FileCache) TryReservePublish(hash, title, url string) (bool, error) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
-	if _, exists := fc.items[hash]; exists {
-		return false, nil
+	now := time.Now()
+	if item, exists := fc.items[hash]; exists {
+		// If finalized (Category is set upon successful publication), conflict
+		if item.Category != "" || item.TitleUkrainian != "" {
+			return false, nil
+		}
+		// If active reservation (< 15 min), conflict
+		if now.Sub(item.SentAt) < 15*time.Minute {
+			return false, nil
+		}
+		// Stale reservation (> 15 min), allow reclaim
 	}
+
 	fc.items[hash] = SentNewsItem{
 		Hash:   hash,
 		Title:  title,
 		Link:   url,
-		SentAt: time.Now(),
+		SentAt: now,
 	}
 	return true, nil
 }
@@ -368,8 +378,11 @@ func (fc *FileCache) CancelPublishReservation(hash string) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
-	delete(fc.items, hash)
+	if item, exists := fc.items[hash]; exists && item.Category == "" && item.TitleUkrainian == "" {
+		delete(fc.items, hash)
+	}
 	return nil
 }
+
 
 

@@ -255,8 +255,9 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			if key != "" {
 				model := os.Getenv("CEREBRAS_MODEL")
 				if model == "" {
-					model = "llama-3.3-70b"
+					model = "openai/gpt-oss-120b"
 				}
+
 				if hasModel && customModel != "" {
 					model = customModel
 				}

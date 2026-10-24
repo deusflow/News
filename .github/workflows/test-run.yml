@@ -7,6 +7,21 @@ jobs:
   test-run:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dknews_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       # === КЛЮЧИ ТЕСТОВОГО КАНАЛА ===
       # Тут мы подставляем твои специальные секреты для тестов
@@ -24,11 +39,14 @@ jobs:
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
 
       # === БЕЗОПАСНЫЙ РЕЖИМ (SAFE MODE) ===
-      # Отключаем PostgreSQL, чтобы тесты не попадали в основную базу
+      # Отключаем PostgreSQL для прогона бота в канал, чтобы не трогать прод
       USE_POSTGRES: 'false'
 
       # Используем файловый кэш (он создастся временно в контейнере)
       CACHE_FILE_PATH: "test_cache.json"
+
+      # URL локального тестового PostgreSQL контейнера для live-тестов
+      TEST_DATABASE_URL: "postgres://postgres:postgrespassword@localhost:5432/dknews_test?sslmode=disable"
 
       # === ОСТАЛЬНЫЕ НАСТРОЙКИ ===
       MAX_NEWS_LIMIT: 3             # Берем мало новостей для теста
@@ -54,8 +72,13 @@ jobs:
           go mod download
           mkdir -p bin
 
+      - name: 🧪 Run Go Tests (Unit & Live PostgreSQL Integration)
+        run: |
+          go test -v ./...
+
       - name: Build
         run: go build -o bin/dknews ./cmd/dknews
+
 
       - name: 🚀 Run on TEST Channel
         run: |

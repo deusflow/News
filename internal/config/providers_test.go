@@ -48,3 +48,56 @@ func TestNormalizeProviders(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowedModelDefaults(t *testing.T) {
+	// Whitelist of active models verified in official documentation
+	allowedGroqModels := map[string]bool{
+		"openai/gpt-oss-120b": true,
+		"openai/gpt-oss-20b":  true,
+		"qwen/qwen3.8-27b":    true,
+	}
+
+	// 1. Check DefaultGroqModel
+	if !allowedGroqModels[DefaultGroqModel] {
+		t.Errorf("DefaultGroqModel %q is not in allowed active Groq models whitelist: %v", DefaultGroqModel, allowedGroqModels)
+	}
+
+	// 2. Check DefaultQwenGroqModel
+	if !allowedGroqModels[DefaultQwenGroqModel] {
+		t.Errorf("DefaultQwenGroqModel %q is not in allowed active Groq models whitelist: %v", DefaultQwenGroqModel, allowedGroqModels)
+	}
+
+	// 3. Check default providers from normalizeProviders
+	defaultProviders := normalizeProviders(nil)
+	if len(defaultProviders) == 0 {
+		t.Fatalf("Default providers should not be empty")
+	}
+
+	allowedProviders := map[string]bool{
+		"gemini":            true,
+		"gemini-flash-lite": true,
+		"groq":              true,
+		"cerebras":          true,
+		"openrouter":        true,
+		"openai":            true,
+		"qwen":              true,
+	}
+
+	for _, p := range defaultProviders {
+		if !allowedProviders[p] {
+			t.Errorf("Default provider %q is not in allowed providers whitelist", p)
+		}
+	}
+
+	// 4. Ensure no legacy or deprecated keywords exist in model defaults
+	forbiddenSubstrings := []string{"llama", "versatile", "instant"}
+	for _, forbidden := range forbiddenSubstrings {
+		if containsWholeWord(DefaultGroqModel, forbidden) {
+			t.Errorf("DefaultGroqModel %q contains deprecated keyword %q", DefaultGroqModel, forbidden)
+		}
+		if containsWholeWord(DefaultQwenGroqModel, forbidden) {
+			t.Errorf("DefaultQwenGroqModel %q contains deprecated keyword %q", DefaultQwenGroqModel, forbidden)
+		}
+	}
+}
+

@@ -59,12 +59,6 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
 
-	// Ensure all queries and timestamps operate strictly in UTC
-	if _, err := db.Exec("SET timezone = 'UTC';"); err != nil {
-		return nil, fmt.Errorf("failed to set timezone to UTC: %v", err)
-	}
-
-
 	// Set connection pool limits for Neon free tier (max 5–10 connections)
 	db.SetMaxOpenConns(3)
 	db.SetMaxIdleConns(2)
@@ -100,6 +94,7 @@ func (pc *PostgresCache) initSchema() error {
 		link TEXT NOT NULL,
 		category VARCHAR(50),
 		source VARCHAR(100),
+		reserved_at TIMESTAMP,
 		sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
@@ -211,6 +206,21 @@ func (pc *PostgresCache) initSchema() error {
 	}
 	if _, err = pc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sent_news_story_cluster_key ON sent_news(story_cluster_key);`); err != nil {
 		return fmt.Errorf("failed to create story_cluster_key index: %v", err)
+	}
+
+	// Step 4e: Migration - Add reserved_at column for publish lock leasing
+	migrationReservedAt := `
+	DO $$ 
+	BEGIN 
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'sent_news' AND column_name = 'reserved_at') THEN
+			ALTER TABLE sent_news ADD COLUMN reserved_at TIMESTAMP;
+		END IF;
+	END $$;
+	CREATE INDEX IF NOT EXISTS idx_sent_news_reserved_at ON sent_news(reserved_at) WHERE content_hash IS NULL;
+	`
+	if _, err = pc.db.Exec(migrationReservedAt); err != nil {
+		return fmt.Errorf("failed to run reserved_at migration: %v", err)
 	}
 
 	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
@@ -545,6 +555,10 @@ func (pc *PostgresCache) MarkAsSentWithSemanticData(hash, title, link, content, 
 	contentHash := ""
 	if len(content) >= 100 {
 		contentHash = generateContentHash(content)
+	} else if strings.TrimSpace(content) != "" {
+		contentHash = generateContentHash(content)
+	} else {
+		contentHash = "finalized_" + hash
 	}
 	titleNorm := normalizeTitleForDedup(title)
 
@@ -1063,18 +1077,25 @@ func (pc *PostgresCache) MarkDelayedPostFailed(id int, errMsg string) error {
 }
 
 // TryReservePublish atomically claims a news hash prior to publishing to Telegram.
-// Returns (true, nil) if the reservation was claimed, or (false, nil) if another runner already reserved or sent it.
+// Returns (true, nil) if the reservation was claimed (or if a stale unfinalized reservation > 15m was reclaimed),
+// or (false, nil) if another runner currently holds an active reservation or already finalized the item.
 func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error) {
 	query := `
-		INSERT INTO sent_news (hash, title, link, source_url, sent_at)
-		VALUES ($1, $2, $3, $3, (NOW() AT TIME ZONE 'UTC'))
-		ON CONFLICT (hash) DO NOTHING
+		INSERT INTO sent_news (hash, title, link, source_url, sent_at, reserved_at)
+		VALUES ($1, $2, $3, $3, (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'))
+		ON CONFLICT (hash) DO UPDATE SET
+			title = EXCLUDED.title,
+			link = EXCLUDED.link,
+			source_url = EXCLUDED.source_url,
+			reserved_at = (NOW() AT TIME ZONE 'UTC')
+		WHERE sent_news.content_hash IS NULL
+		  AND COALESCE(sent_news.reserved_at, sent_news.sent_at, '-infinity'::timestamp) < (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 minutes'
 		RETURNING id;
 	`
 	var id int
 	err := pc.db.QueryRow(query, hash, title, url).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Conflict: another runner has already reserved or sent this item
+		// Conflict: another runner has already finalized this item, or an active reservation (< 15m) is in progress
 		return false, nil
 	}
 	if err != nil {
@@ -1089,4 +1110,5 @@ func (pc *PostgresCache) CancelPublishReservation(hash string) error {
 	_, err := pc.db.Exec(query, hash)
 	return err
 }
+
 

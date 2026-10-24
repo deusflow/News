@@ -55,6 +55,15 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		}
 	}
 
+	var publishSuccess bool
+	defer func() {
+		if hash != "" && !publishSuccess {
+			if cancelErr := p.cacheAdapter.CancelPublishReservation(hash); cancelErr != nil {
+				logger.Error("Failed to cancel publish reservation on exit", "hash", hash, "error", cancelErr)
+			}
+		}
+	}()
+
 	// 1. Fallback Image
 
 	if n.ImageURL == "" {
@@ -189,18 +198,12 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 
 	// 7. Error handling & DLQ
 	if err != nil {
-		if hash != "" {
-			if cancelErr := p.cacheAdapter.CancelPublishReservation(hash); cancelErr != nil {
-				logger.Error("Failed to cancel publish reservation", "hash", hash, "error", cancelErr)
-			}
-		}
 		logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
 		if saveErr := p.cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
 			logger.Error("Failed to save to DLQ", "error", saveErr)
 		}
 		return outText, false
 	}
-
 
 	// 8. Success handling
 	if err := p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding); err != nil {
@@ -214,6 +217,8 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		}
 	}
 	p.metrics.IncrementTelegramMessagesSent()
+	publishSuccess = true
 
 	return outText, true
+
 }

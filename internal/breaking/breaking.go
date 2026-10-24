@@ -94,6 +94,16 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		}
 	}
 
+	var breakingSuccess bool
+	defer func() {
+		if cache != nil && hash != "" && !breakingSuccess {
+			if cancelErr := cache.CancelPublishReservation(hash); cancelErr != nil {
+				logger.Error("Failed to cancel breaking publish reservation on exit", "hash", hash, "error", cancelErr)
+			}
+		}
+	}()
+
+
 
 	// Scrape the full article for context (skip if alert URL is generic portal)
 	content := ""
@@ -194,11 +204,9 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	}
 
 	if err != nil {
-		if cache != nil && hash != "" {
-			_ = cache.CancelPublishReservation(hash)
-		}
 		return fmt.Errorf("failed to send breaking telegram message: %w", err)
 	}
+
 
 
 	// Mark as sent in DB cache to guarantee no duplicates
@@ -218,8 +226,10 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		"title", title,
 		"category", n.Category,
 		"audience_score", n.AudienceScore)
+	breakingSuccess = true
 	return nil
 }
+
 
 // buildEmergencyFallbackNews builds a structured deterministic emergency news item
 // when AI is unavailable or fails, ensuring critical alerts are never lost.

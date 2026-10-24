@@ -16,7 +16,12 @@ import (
 const (
 	// DefaultGeminiModel is the standard primary model for news analysis and translation
 	DefaultGeminiModel = "gemini-3.8-flash"
+	// DefaultGroqModel is the standard primary model on GroqCloud
+	DefaultGroqModel = "openai/gpt-oss-120b"
+	// DefaultQwenGroqModel is the standard Qwen model on GroqCloud
+	DefaultQwenGroqModel = "qwen/qwen3.8-27b"
 )
+
 
 type TelegramConfig struct {
 	Token       string
@@ -42,8 +47,9 @@ type AIConfig struct {
 	GeminiAPIKey2     string
 	GeminiAPIKey3     string
 	GeminiModel       string // model name, defaults to DefaultGeminiModel
-	GroqModel         string // model name, e.g. "llama-3.3-70b-versatile" (default if empty)
+	GroqModel         string // model name, e.g. "openai/gpt-oss-120b" (default if empty)
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
+
 	GroqAPIKey        string
 	Providers         []string // List of AI providers, e.g. ["gemini", "groq"]
 }
@@ -389,7 +395,8 @@ func Load() (*Config, error) {
 	cfg.AI.GeminiModel = getEnvOrDefault("GEMINI_MODEL", DefaultGeminiModel)
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	cfg.AI.GroqAPIKey = os.Getenv("GROQ_API_KEY")
-	cfg.AI.GroqModel = getEnvOrDefault("GROQ_MODEL", "openai/gpt-oss-120b")
+	cfg.AI.GroqModel = getEnvOrDefault("GROQ_MODEL", DefaultGroqModel)
+
 
 	// Cache settings
 	cfg.Cache.FilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
