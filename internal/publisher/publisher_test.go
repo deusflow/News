@@ -51,6 +51,19 @@ func (m *mockCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, content
 	return m.MarkAsSentWithContent(hash, title, link, content, category, source)
 }
 
+func (m *mockCacheAdapter) TryReservePublish(hash, title, url string) (bool, error) {
+	if _, exists := m.sentItems[hash]; exists {
+		return false, nil
+	}
+	m.sentItems[hash] = title
+	return true, nil
+}
+
+func (m *mockCacheAdapter) CancelPublishReservation(hash string) error {
+	delete(m.sentItems, hash)
+	return nil
+}
+
 func TestTelegramPublisher_FunFactDedup(t *testing.T) {
 	cfg := &config.Config{
 		Posting: config.PostingConfig{PhotoTextLimit: 1024},
@@ -85,3 +98,28 @@ func TestTelegramPublisher_FunFactDedup(t *testing.T) {
 		}
 	}
 }
+
+func TestTelegramPublisher_AtomicReservation_PreventsDoublePublish(t *testing.T) {
+	cfg := &config.Config{
+		Posting: config.PostingConfig{PhotoTextLimit: 1024},
+		Telegram: config.TelegramConfig{
+			Token:  "dummy_token",
+			ChatID: "dummy_chat",
+		},
+	}
+	m := metrics.New()
+	cache := newMockCacheAdapter()
+	cache.sentItems["conflict_hash"] = "Already Reserved"
+
+	pub := publisher.NewTelegramPublisher(cfg, cache, m)
+	n := news.News{
+		Title: "Concurrent News",
+		Link:  "https://example.com/news",
+	}
+
+	_, sent := pub.Publish(context.Background(), n, "conflict_hash")
+	if sent {
+		t.Errorf("Expected publish to be skipped due to reservation conflict, but got sent=true")
+	}
+}
+

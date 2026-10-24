@@ -345,3 +345,31 @@ func (fc *FileCache) MarkDelayedPostFailed(id int, errMsg string) error {
 	}
 	return nil
 }
+
+// TryReservePublish atomically checks and reserves a news item in memory cache.
+func (fc *FileCache) TryReservePublish(hash, title, url string) (bool, error) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	if _, exists := fc.items[hash]; exists {
+		return false, nil
+	}
+	fc.items[hash] = SentNewsItem{
+		Hash:   hash,
+		Title:  title,
+		Link:   url,
+		SentAt: time.Now(),
+	}
+	return true, nil
+}
+
+// CancelPublishReservation releases the in-memory reservation if publishing fails.
+func (fc *FileCache) CancelPublishReservation(hash string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	delete(fc.items, hash)
+	return nil
+}
+
+

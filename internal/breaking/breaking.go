@@ -27,7 +27,10 @@ type DedupeChecker interface {
 	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
 	MarkDelayedPostSent(id int) error
 	MarkDelayedPostFailed(id int, errMsg string) error
+	TryReservePublish(hash, title, url string) (bool, error)
+	CancelPublishReservation(hash string) error
 }
+
 
 // Run processes a breaking news item received via repository_dispatch, manual trigger,
 // or auto-discovered via official Danish emergency feeds (DMI MeteoAlarm / major infrastructure alerts).
@@ -68,18 +71,29 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 			"category", alert.Category)
 	}
 
-	// Pre-send deduplication check to prevent double-posting on workflow retries
+	// Pre-send deduplication check and atomic reservation to prevent double-posting on workflow retries/concurrent runs
+	hash := ""
 	if cache != nil {
 		if cache.IsSourceURLSent(url) {
 			logger.Warn("Breaking news URL was already sent previously, skipping to prevent duplicate", "url", url)
 			return nil
 		}
-		hash := cache.GenerateNewsHash(title, url)
+		hash = cache.GenerateNewsHash(title, url)
 		if cache.IsAlreadySent(hash) {
 			logger.Warn("Breaking news hash was already sent previously, skipping to prevent duplicate", "hash", hash)
 			return nil
 		}
+		reserved, resErr := cache.TryReservePublish(hash, title, url)
+		if resErr != nil {
+			logger.Error("Failed to reserve breaking publish lock", "hash", hash, "error", resErr)
+			return resErr
+		}
+		if !reserved {
+			logger.Warn("Breaking news already reserved or sent by another runner, skipping", "hash", hash, "url", url)
+			return nil
+		}
 	}
+
 
 	// Scrape the full article for context (skip if alert URL is generic portal)
 	content := ""
@@ -180,8 +194,12 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	}
 
 	if err != nil {
+		if cache != nil && hash != "" {
+			_ = cache.CancelPublishReservation(hash)
+		}
 		return fmt.Errorf("failed to send breaking telegram message: %w", err)
 	}
+
 
 	// Mark as sent in DB cache to guarantee no duplicates
 	if cache != nil {

@@ -196,22 +196,30 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 
 	for _, pName := range cfg.AI.Providers {
 		pLower := strings.TrimSpace(strings.ToLower(pName))
-		switch pLower {
+		base, customModel, hasModel := strings.Cut(pLower, ":")
+		switch base {
 		case "gemini":
 			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
-			client, err := gemini.NewClient(keys, cfg.AI.GeminiModel)
+			model := cfg.AI.GeminiModel
+			if hasModel && customModel != "" {
+				model = customModel
+			}
+			client, err := gemini.NewClient(keys, model)
 			if err != nil {
 				logger.Error("Failed to init Gemini", "error", err)
 				continue // Не падаем, пробуем следующего
 			}
 			aiProviders = append(aiProviders, client)
-			logger.Info("AI Provider added", "name", "gemini", "model", cfg.AI.GeminiModel)
+			logger.Info("AI Provider added", "name", "gemini", "model", model)
 
 		case "gemini-flash-lite":
 			keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
 			model := os.Getenv("GEMINI_FLASH_LITE_MODEL")
 			if model == "" {
 				model = "gemini-3.5-flash-lite"
+			}
+			if hasModel && customModel != "" {
+				model = customModel
 			}
 			client, err := gemini.NewClient(keys, model)
 			if err != nil {
@@ -223,9 +231,21 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 
 		case "groq":
 			if cfg.AI.GroqAPIKey != "" {
-				client := groq.NewClient(cfg.AI.GroqAPIKey, cfg.AI.GroqModel)
+				model := cfg.AI.GroqModel
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "groq"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("groq:%s", customModel)
+				}
+				baseURL := os.Getenv("GROQ_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://api.groq.com/openai/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions(name, cfg.AI.GroqAPIKey, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "groq", "model", cfg.AI.GroqModel)
+				logger.Info("AI Provider added", "name", name, "model", model)
 			} else {
 				logger.Warn("Groq API Key is missing, skipping")
 			}
@@ -237,13 +257,20 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				if model == "" {
 					model = "llama-3.3-70b"
 				}
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "cerebras"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("cerebras:%s", customModel)
+				}
 				baseURL := os.Getenv("CEREBRAS_BASE_URL")
 				if baseURL == "" {
 					baseURL = "https://api.cerebras.ai/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions("cerebras", key, model, baseURL)
+				client := groq.NewClientWithOptions(name, key, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "cerebras", "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model)
 			} else {
 				logger.Warn("Cerebras API Key is missing, skipping")
 			}
@@ -253,15 +280,22 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			if key != "" {
 				model := os.Getenv("OPENROUTER_MODEL")
 				if model == "" {
-					model = "qwen/qwen-2.5-72b-instruct"
+					model = "qwen/qwen3.8-27b"
+				}
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "openrouter"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("openrouter:%s", customModel)
 				}
 				baseURL := os.Getenv("OPENROUTER_BASE_URL")
 				if baseURL == "" {
 					baseURL = "https://openrouter.ai/api/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions("openrouter", key, model, baseURL)
+				client := groq.NewClientWithOptions(name, key, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "openrouter", "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model)
 			} else {
 				logger.Warn("OpenRouter API Key is missing, skipping")
 			}
@@ -273,13 +307,20 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				if model == "" {
 					model = "gpt-4o-mini"
 				}
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "openai"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("openai:%s", customModel)
+				}
 				baseURL := os.Getenv("OPENAI_BASE_URL")
 				if baseURL == "" {
 					baseURL = "https://api.openai.com/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions("openai", key, model, baseURL)
+				client := groq.NewClientWithOptions(name, key, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "openai", "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model)
 			} else {
 				logger.Warn("OpenAI API Key is missing, skipping")
 			}
@@ -292,23 +333,48 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			if key != "" {
 				model := os.Getenv("QWEN_MODEL")
 				if model == "" {
-					model = "qwen-2.5-72b-instruct"
+					model = "qwen/qwen3.8-27b"
+				}
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "qwen"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("qwen:%s", customModel)
 				}
 				baseURL := os.Getenv("QWEN_BASE_URL")
 				if baseURL == "" {
 					baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions("qwen", key, model, baseURL)
+				client := groq.NewClientWithOptions(name, key, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", "qwen", "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model)
+			} else if cfg.AI.GroqAPIKey != "" {
+				// Fallback: If no Alibaba/DashScope key is configured, run Qwen on Groq (qwen/qwen3.8-27b)
+				model := "qwen/qwen3.8-27b"
+				if hasModel && customModel != "" {
+					model = customModel
+				}
+				name := "qwen (via Groq)"
+				if hasModel && customModel != "" {
+					name = fmt.Sprintf("qwen:%s (via Groq)", customModel)
+				}
+				baseURL := os.Getenv("GROQ_BASE_URL")
+				if baseURL == "" {
+					baseURL = "https://api.groq.com/openai/v1/chat/completions"
+				}
+				client := groq.NewClientWithOptions(name, cfg.AI.GroqAPIKey, model, baseURL)
+				aiProviders = append(aiProviders, client)
+				logger.Info("AI Provider added", "name", name, "model", model)
 			} else {
-				logger.Warn("Qwen API Key is missing, skipping")
+				logger.Warn("Neither Qwen/DashScope nor Groq API Key available for Qwen, skipping")
 			}
 
 		default:
 			logger.Warn("Unknown AI provider in config, skipping", "provider", pName)
 		}
 	}
+
 
 	if len(aiProviders) == 0 {
 		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")

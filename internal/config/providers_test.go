@@ -31,6 +31,12 @@ func TestNormalizeProviders(t *testing.T) {
 			input:    []string{"gemini", "unknown_provider", "cerebras", "gemini"},
 			expected: []string{"gemini", "cerebras"},
 		},
+		{
+			name:     "provider:model syntax with multiple Groq models for rate limit fallback",
+			input:    []string{"gemini", "groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b", "groq:openai/gpt-oss-120b"},
+			expected: []string{"gemini", "groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b"},
+		},
+
 	}
 
 	for _, tt := range tests {

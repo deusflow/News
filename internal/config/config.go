@@ -603,7 +603,11 @@ func normalizeProviders(providers []string) []string {
 
 	for _, p := range providers {
 		p = strings.TrimSpace(strings.ToLower(p))
-		if p == "" || !allowed[p] || seen[p] {
+		if p == "" {
+			continue
+		}
+		base, _, _ := strings.Cut(p, ":")
+		if !allowed[base] || seen[p] {
 			continue
 		}
 		ordered = append(ordered, p)
@@ -615,6 +619,7 @@ func normalizeProviders(providers []string) []string {
 	}
 	return ordered
 }
+
 
 func (c *Config) Validate() error {
 	if c.Telegram.Token == "" {

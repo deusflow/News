@@ -19,7 +19,10 @@ type CacheAdapter interface {
 	SaveFailedNews(title, link, imageURL, messageText, errorMsg string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
+	TryReservePublish(hash, title, url string) (bool, error)
+	CancelPublishReservation(hash string) error
 }
+
 
 // TelegramPublisher handles formatting and sending news to Telegram.
 type TelegramPublisher struct {
@@ -39,7 +42,21 @@ func NewTelegramPublisher(cfg *config.Config, cacheAdapter CacheAdapter, m *metr
 // Publish formats and sends a single news item to Telegram, handling images, videos, and fallbacks.
 // It returns the final text sent to Telegram, and a boolean indicating if it was successfully sent.
 func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash string) (string, bool) {
+	// 0. Pre-reserve atomic lock to prevent race conditions with concurrent workflows
+	if hash != "" {
+		reserved, resErr := p.cacheAdapter.TryReservePublish(hash, n.Title, n.Link)
+		if resErr != nil {
+			logger.Error("Failed to reserve publish lock", "hash", hash, "title", n.Title, "error", resErr)
+			return "", false
+		}
+		if !reserved {
+			logger.Info("News item already reserved or published by another worker, skipping", "hash", hash, "title", n.Title)
+			return "", false
+		}
+	}
+
 	// 1. Fallback Image
+
 	if n.ImageURL == "" {
 		c := news.ValidateCategory(n.Category)
 		n.ImageURL = news.GetCategoryImage(c)
@@ -172,12 +189,18 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 
 	// 7. Error handling & DLQ
 	if err != nil {
+		if hash != "" {
+			if cancelErr := p.cacheAdapter.CancelPublishReservation(hash); cancelErr != nil {
+				logger.Error("Failed to cancel publish reservation", "hash", hash, "error", cancelErr)
+			}
+		}
 		logger.Error("Failed to send telegram message", "title", n.Title, "error", err)
 		if saveErr := p.cacheAdapter.SaveFailedNews(n.Title, n.Link, n.ImageURL, outText, err.Error()); saveErr != nil {
 			logger.Error("Failed to save to DLQ", "error", saveErr)
 		}
 		return outText, false
 	}
+
 
 	// 8. Success handling
 	if err := p.cacheAdapter.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding); err != nil {

@@ -40,7 +40,12 @@ type CacheAdapter interface {
 	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
 	MarkDelayedPostSent(id int) error
 	MarkDelayedPostFailed(id int, errMsg string) error
+
+	// Atomic Publish Reservation (prevents concurrent duplicate posts)
+	TryReservePublish(hash, title, url string) (bool, error)
+	CancelPublishReservation(hash string) error
 }
+
 
 // FileCacheAdapter — Ленивый партнер (Файловый кэш).
 // Он подписывает контракт, но для новых методов просто говорит "Ок" и ничего не делает.
@@ -152,6 +157,15 @@ func (f *FileCacheAdapter) MarkDelayedPostFailed(id int, errMsg string) error {
 	return f.cache.MarkDelayedPostFailed(id, errMsg)
 }
 
+func (f *FileCacheAdapter) TryReservePublish(hash, title, url string) (bool, error) {
+	return f.cache.TryReservePublish(hash, title, url)
+}
+
+func (f *FileCacheAdapter) CancelPublishReservation(hash string) error {
+	return f.cache.CancelPublishReservation(hash)
+}
+
+
 // PostgresCacheAdapter —  партнер (Postgres).
 // Он реально выполняет работу, вызывая методы из storage.
 type PostgresCacheAdapter struct {
@@ -258,3 +272,12 @@ func (p *PostgresCacheAdapter) MarkDelayedPostSent(id int) error {
 func (p *PostgresCacheAdapter) MarkDelayedPostFailed(id int, errMsg string) error {
 	return p.cache.MarkDelayedPostFailed(id, errMsg)
 }
+
+func (p *PostgresCacheAdapter) TryReservePublish(hash, title, url string) (bool, error) {
+	return p.cache.TryReservePublish(hash, title, url)
+}
+
+func (p *PostgresCacheAdapter) CancelPublishReservation(hash string) error {
+	return p.cache.CancelPublishReservation(hash)
+}
+

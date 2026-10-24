@@ -38,6 +38,17 @@ type FailedItem struct {
 
 // NewPostgresCache creates a new PostgreSQL cache instance
 func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, error) {
+	// Ensure driver DSN configures session timezone to UTC for all pooled connections
+	if !strings.Contains(connectionString, "timezone=") {
+		if strings.Contains(connectionString, "?") {
+			connectionString += "&timezone=UTC"
+		} else if strings.HasPrefix(connectionString, "postgres://") || strings.HasPrefix(connectionString, "postgresql://") {
+			connectionString += "?timezone=UTC"
+		} else {
+			connectionString += " timezone=UTC"
+		}
+	}
+
 	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
@@ -47,6 +58,12 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
+
+	// Ensure all queries and timestamps operate strictly in UTC
+	if _, err := db.Exec("SET timezone = 'UTC';"); err != nil {
+		return nil, fmt.Errorf("failed to set timezone to UTC: %v", err)
+	}
+
 
 	// Set connection pool limits for Neon free tier (max 5–10 connections)
 	db.SetMaxOpenConns(3)
@@ -1044,3 +1061,32 @@ func (pc *PostgresCache) MarkDelayedPostFailed(id int, errMsg string) error {
 	_, err := pc.db.Exec(query, id)
 	return err
 }
+
+// TryReservePublish atomically claims a news hash prior to publishing to Telegram.
+// Returns (true, nil) if the reservation was claimed, or (false, nil) if another runner already reserved or sent it.
+func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error) {
+	query := `
+		INSERT INTO sent_news (hash, title, link, source_url, sent_at)
+		VALUES ($1, $2, $3, $3, (NOW() AT TIME ZONE 'UTC'))
+		ON CONFLICT (hash) DO NOTHING
+		RETURNING id;
+	`
+	var id int
+	err := pc.db.QueryRow(query, hash, title, url).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Conflict: another runner has already reserved or sent this item
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// CancelPublishReservation releases the unfulfilled reservation if Telegram sending fails.
+func (pc *PostgresCache) CancelPublishReservation(hash string) error {
+	query := `DELETE FROM sent_news WHERE hash = $1 AND content_hash IS NULL;`
+	_, err := pc.db.Exec(query, hash)
+	return err
+}
+

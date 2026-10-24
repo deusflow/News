@@ -52,6 +52,19 @@ func (m *mockDedupeChecker) MarkDelayedPostFailed(id int, errMsg string) error {
 	return nil
 }
 
+func (m *mockDedupeChecker) TryReservePublish(hash, title, url string) (bool, error) {
+	if m.sentHashes[hash] {
+		return false, nil
+	}
+	m.sentHashes[hash] = true
+	return true, nil
+}
+
+func (m *mockDedupeChecker) CancelPublishReservation(hash string) error {
+	delete(m.sentHashes, hash)
+	return nil
+}
+
 func TestBreaking_Deduplication(t *testing.T) {
 	url := "https://www.dr.dk/nyheder/test-breaking"
 	title := "Test Breaking Title"
@@ -87,3 +100,41 @@ func TestBreaking_Deduplication(t *testing.T) {
 		t.Errorf("Should not have marked duplicate as sent")
 	}
 }
+
+func TestBreaking_AtomicReservation_PreventsConcurrentRun(t *testing.T) {
+	url := "https://www.dr.dk/nyheder/test-breaking-2"
+	title := "Test Breaking Title 2"
+
+	os.Setenv("BREAKING_URL", url)
+	os.Setenv("BREAKING_TITLE", title)
+	defer func() {
+		os.Unsetenv("BREAKING_URL")
+		os.Unsetenv("BREAKING_TITLE")
+	}()
+
+	cache := &mockDedupeChecker{
+		sentURLs:   make(map[string]bool),
+		sentHashes: make(map[string]bool),
+	}
+	// Simulate that another concurrent worker already claimed the hash
+	hash := cache.GenerateNewsHash(title, url)
+	cache.sentHashes[hash] = true
+
+	cfg := &config.Config{
+		Telegram: config.TelegramConfig{
+			Token:  "test_token",
+			ChatID: "test_chat",
+		},
+	}
+	m := metrics.New()
+	mgr := ai.NewManager(m, 5)
+
+	err := breaking.Run(context.Background(), cfg, mgr, cache)
+	if err != nil {
+		t.Fatalf("Expected nil error on duplicate hash reservation, got: %v", err)
+	}
+	if len(cache.markedHash) > 0 {
+		t.Errorf("Should not have marked duplicate as sent")
+	}
+}
+
