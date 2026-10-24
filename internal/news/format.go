@@ -11,14 +11,6 @@ var (
 	youtubeURLRegex = regexp.MustCompile(`https?://(?:www\.)?(?:youtube\.com/watch\?v=[^\s<]+|youtu\.be/[^\s<]+)`)
 )
 
-// moodEmoji maps validated mood values to their display emoji.
-var moodEmoji = map[string]string{
-	"positive": "🟢",
-	"negative": "🔴",
-	"shocking": "⚡",
-	"urgent":   "🚨",
-	"neutral":  "🔵",
-}
 
 // ──────────────────────────────────────────────────────────────────────
 // formatHeader — строка ТЕМЫ (перша строка поста).
@@ -166,8 +158,9 @@ func FormatNewsWithImage(n News) string {
 
 	// 2. TLDR-заголовок
 	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
-		b.WriteString("💬 <b>" + tldr + "</b>")
-		b.WriteString("\n\n")
+		b.WriteString("💬 <b>")
+		b.WriteString(tldr)
+		b.WriteString("</b>\n\n")
 	}
 
 	// 3. Датская версия: заголовок + body
@@ -175,9 +168,12 @@ func FormatNewsWithImage(n News) string {
 	if dkTitle == "" {
 		dkTitle = strings.TrimSpace(n.Title)
 	}
-	b.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
+	b.WriteString("🇩🇰 <b>")
+	b.WriteString(dkTitle)
+	b.WriteString("</b>")
 	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle))); dk != "" {
-		b.WriteString("\n" + dk)
+		b.WriteString("\n")
+		b.WriteString(dk)
 	}
 	b.WriteString("\n\n")
 
@@ -186,9 +182,12 @@ func FormatNewsWithImage(n News) string {
 	if ukTitle == "" {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
-	b.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	b.WriteString("🇺🇦 <b>")
+	b.WriteString(ukTitle)
+	b.WriteString("</b>")
 	if ua := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))); ua != "" {
-		b.WriteString("\n" + ua)
+		b.WriteString("\n")
+		b.WriteString(ua)
 	}
 	b.WriteString("\n\n")
 
@@ -202,7 +201,9 @@ func FormatNewsWithImage(n News) string {
 		if extra.Len() > 0 {
 			extra.WriteString("\n\n")
 		}
-		extra.WriteString("💡 <i>" + fact + "</i>")
+		extra.WriteString("💡 <i>")
+		extra.WriteString(fact)
+		extra.WriteString("</i>")
 	}
 	if extra.Len() > 0 {
 		b.WriteString("<blockquote expandable>")
@@ -218,7 +219,8 @@ func FormatNewsWithImage(n News) string {
 
 	// 8. YouTube URL (plain text at the end for native Telegram preview)
 	if videoURL := ExtractVideoURL(n); videoURL != "" {
-		b.WriteString("\n\n" + videoURL)
+		b.WriteString("\n\n")
+		b.WriteString(videoURL)
 	}
 
 	return b.String()
@@ -241,8 +243,9 @@ func FormatLongreadTeaser(n News) string {
 	b.WriteString("\n\n")
 
 	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
-		b.WriteString("💬 <b>" + tldr + "</b>")
-		b.WriteString("\n\n")
+		b.WriteString("💬 <b>")
+		b.WriteString(tldr)
+		b.WriteString("</b>\n\n")
 	}
 
 	b.WriteString("👇 <i>Детальний розбір читайте у наступному повідомленні</i>")
@@ -268,9 +271,12 @@ func FormatLongreadBody(n News) string {
 	if dkTitle == "" {
 		dkTitle = strings.TrimSpace(n.Title)
 	}
-	b.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
+	b.WriteString("🇩🇰 <b>")
+	b.WriteString(dkTitle)
+	b.WriteString("</b>")
 	if dk := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle))); dk != "" {
-		b.WriteString("\n" + dk)
+		b.WriteString("\n")
+		b.WriteString(dk)
 	}
 	b.WriteString("\n\n")
 
@@ -279,9 +285,12 @@ func FormatLongreadBody(n News) string {
 	if ukTitle == "" {
 		ukTitle = strings.TrimSpace(n.Title)
 	}
-	b.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	b.WriteString("🇺🇦 <b>")
+	b.WriteString(ukTitle)
+	b.WriteString("</b>")
 	if ua := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle))); ua != "" {
-		b.WriteString("\n" + ua)
+		b.WriteString("\n")
+		b.WriteString(ua)
 	}
 	b.WriteString("\n\n")
 
@@ -295,7 +304,9 @@ func FormatLongreadBody(n News) string {
 		if extra.Len() > 0 {
 			extra.WriteString("\n\n")
 		}
-		extra.WriteString("💡 <i>" + fact + "</i>")
+		extra.WriteString("💡 <i>")
+		extra.WriteString(fact)
+		extra.WriteString("</i>")
 	}
 	if extra.Len() > 0 {
 		b.WriteString("<blockquote expandable>")
@@ -311,7 +322,8 @@ func FormatLongreadBody(n News) string {
 
 	// 6. YouTube URL
 	if videoURL := ExtractVideoURL(n); videoURL != "" {
-		b.WriteString("\n\n" + videoURL)
+		b.WriteString("\n\n")
+		b.WriteString(videoURL)
 	}
 
 	return b.String()
@@ -361,17 +373,24 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	sb.WriteString(formatHeader(n))
 	sb.WriteString("\n\n")
 	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
-		sb.WriteString("💬 <b>" + tldr + "</b>")
-		sb.WriteString("\n\n")
+		sb.WriteString("💬 <b>")
+		sb.WriteString(tldr)
+		sb.WriteString("</b>\n\n")
 	}
-	sb.WriteString("🇩🇰 <b>" + dkTitle + "</b>")
+	sb.WriteString("🇩🇰 <b>")
+	sb.WriteString(dkTitle)
+	sb.WriteString("</b>")
 	if dkBody != "" {
-		sb.WriteString("\n" + dkBody)
+		sb.WriteString("\n")
+		sb.WriteString(dkBody)
 	}
 	sb.WriteString("\n\n")
-	sb.WriteString("🇺🇦 <b>" + ukTitle + "</b>")
+	sb.WriteString("🇺🇦 <b>")
+	sb.WriteString(ukTitle)
+	sb.WriteString("</b>")
 	if uaBody != "" {
-		sb.WriteString("\n" + uaBody)
+		sb.WriteString("\n")
+		sb.WriteString(uaBody)
 	}
 	core := sb.String()
 
@@ -386,13 +405,16 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	assemble := func(w, f, t string) string {
 		var extra strings.Builder
 		if w != "" {
-			extra.WriteString("🧭 <b>Чому це важливо:</b> " + w)
+			extra.WriteString("🧭 <b>Чому це важливо:</b> ")
+			extra.WriteString(w)
 		}
 		if f != "" {
 			if extra.Len() > 0 {
 				extra.WriteString("\n\n")
 			}
-			extra.WriteString("💡 <i>" + f + "</i>")
+			extra.WriteString("💡 <i>")
+			extra.WriteString(f)
+			extra.WriteString("</i>")
 		}
 		
 		res := core
