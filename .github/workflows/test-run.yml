@@ -30,7 +30,7 @@ jobs:
 
       # === НАСТРОЙКИ AI (Тестируем новый Fallback) ===
       # Используем ту же логику, что и в основном боте
-      AI_PROVIDERS: "gemini,groq"
+      AI_PROVIDERS: "gemini,groq,groq:qwen/qwen3.8-27b"
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}

@@ -48,7 +48,7 @@ jobs:
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
-      AI_PROVIDERS: "gemini,groq"
+      AI_PROVIDERS: "gemini,groq,groq:qwen/qwen3.8-27b"
 
       GO111MODULE: 'on'
 
