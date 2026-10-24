@@ -142,7 +142,7 @@ func (d *EmergencyDetector) checkMeteoAlarm(ctx context.Context) (*EmergencyAler
 	}
 
 	for _, entry := range feed.Entries {
-		if !entry.Updated.IsZero() && time.Since(entry.Updated) > 24*time.Hour {
+		if !entry.Updated.IsZero() && time.Since(entry.Updated) > 12*time.Hour {
 			continue
 		}
 

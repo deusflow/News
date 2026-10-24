@@ -67,10 +67,10 @@ Fuzzy matching includes a normalized-title 5-word key (`title_norm`), a content 
 with significant numbers, and optional semantic dedup:
 
 - **Tier 1 — story cluster key** (Jaccard token overlap across recent stories).
-- **Tier 2 — embeddings** (`text-embedding-004` by default), cosine similarity.
+- **Tier 2 — embeddings** (`gemini-embedding-001` with 768 dimensions), cosine similarity.
   Runs in **shadow mode by default**: it logs what *would* be rejected but does not
   block publication. Embedding calls are capped per run by `MAX_EMBEDDING_REQUESTS`
-  (default 12) so they cannot silently burn the weekend Gemini quota; once the budget
+  (default 12) so they cannot silently burn the Gemini quota; once the budget
   is exhausted, dedup falls back to Tier 1.
 
 ## 🧠 AI Quota Protections

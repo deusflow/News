@@ -108,7 +108,7 @@ type SemanticDedupConfig struct {
 	Threshold            float64 // cosine similarity threshold for duplicate (default: 0.85)
 	ClusterKeyThreshold  float64 // token jaccard threshold for cluster key (default: 0.60)
 	LookbackDays         int     // days to look back for duplicates (default: 7)
-	EmbeddingModel       string  // default: "text-embedding-004"
+	EmbeddingModel       string  // default: "gemini-embedding-001"
 	MaxEmbeddingRequests int     // per-run cap on Gemini embedding calls (default: 12; <=0 = unlimited)
 }
 
