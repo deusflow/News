@@ -654,6 +654,10 @@ func (pc *PostgresCache) GetRecentStories(lookback time.Duration) ([]SentStoryRe
 		records = append(records, rec)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating recent stories: %w", err)
+	}
+
 	return records, nil
 }
 
@@ -931,6 +935,9 @@ func (pc *PostgresCache) GetFailedNews(limit int) ([]FailedItem, error) {
 		}
 		items = append(items, i)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating failed news: %w", err)
+	}
 	return items, nil
 }
 
@@ -1077,6 +1084,11 @@ func (pc *PostgresCache) GetReadyDelayedPosts(ctx context.Context) ([]DelayedPos
 		}
 		posts = append(posts, dp)
 	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating ready delayed posts: %w", err)
+	}
+
 	return posts, nil
 }
 
