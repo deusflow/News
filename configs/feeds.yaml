@@ -51,13 +51,50 @@ feeds:
     active: true
     categories: [ denmark, society, integration ]
 
-  - url: https://nyheder.tv2.dk/feed
+  - url: https://feeds.services.tv2.dk/api/feeds/nyheder/rss
     name: TV 2 Nyheder
     lang: da
     priority: 105
-    weight: 10
-    active: false  # ❌ RSS фид мёртв с ~2019, возвращает 404
+    weight: 12
+    active: true
     categories: [denmark, news, society]
+    # Крупнейший новостной телеканал Дании (официальный рабочий RSS API)
+
+  - url: https://www.dr.dk/nyheder/service/feeds/indland
+    name: DR Indland
+    lang: da
+    priority: 110
+    weight: 13
+    active: true
+    categories: [denmark, news, society]
+    # Внутренние новости Дании (без иностранного шума)
+
+  - url: https://www.dr.dk/nyheder/service/feeds/penge
+    name: DR Penge
+    lang: da
+    priority: 100
+    weight: 10
+    active: true
+    categories: [economy, society]
+    # Личные финансы, налоги, потребительские цены
+
+  - url: https://fagbladet3f.dk/feed/
+    name: Fagbladet 3F
+    lang: da
+    priority: 95
+    weight: 14
+    active: true
+    categories: [work, society, integration, economy]
+    # Главный профсоюз Дании: права работников, overenskomst, dagpenge, зарплаты
+
+  - url: https://borsen.dk/rss
+    name: Børsen
+    lang: da
+    priority: 90
+    weight: 8
+    active: true
+    categories: [economy, society, work]
+    # Деловая и экономическая пресса Дании
 
   - url: https://www.berlingske.dk/next-api/feeds/alle
     name: Berlingske
@@ -86,7 +123,7 @@ feeds:
     categories: [denmark, crime, society]
     # Таблоид (JP/Politikens Hus) — много мусора, ценен для crime
 
-  - url: https://www.information.dk/rss
+  - url: https://www.information.dk/feed
     name: Information
     lang: da
     priority: 100
@@ -94,7 +131,7 @@ feeds:
     active: true
     categories: [denmark, society, politics]
 
-  - url: https://politiken.dk/rss/seneste
+  - url: https://politiken.dk/rss/senestenyt.rss
     name: Politiken
     lang: da
     priority: 100

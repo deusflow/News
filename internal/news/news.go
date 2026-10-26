@@ -122,7 +122,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	var recent []*rss.FeedItem
 	cutoff := time.Now().Add(-opts.MaxAge)
 	for _, item := range items {
-		if item.PublishedParsed != nil && item.PublishedParsed.After(cutoff) {
+		pubTime := item.PublishedParsed
+		if pubTime == nil {
+			pubTime = item.UpdatedParsed
+		}
+		if pubTime != nil && pubTime.After(cutoff) {
 			recent = append(recent, item)
 		}
 	}
@@ -139,7 +143,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 	// Сортируем: свежие сначала; при равной свежести — выше приоритет источника.
 	sort.Slice(candidates, func(i, j int) bool {
-		ti, tj := candidates[i].PublishedParsed, candidates[j].PublishedParsed
+		ti := candidates[i].PublishedParsed
+		if ti == nil {
+			ti = candidates[i].UpdatedParsed
+		}
+		tj := candidates[j].PublishedParsed
+		if tj == nil {
+			tj = candidates[j].UpdatedParsed
+		}
 		if ti == nil || tj == nil {
 			return false
 		}
@@ -788,6 +799,8 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 	published := time.Now()
 	if item.PublishedParsed != nil {
 		published = *item.PublishedParsed
+	} else if item.UpdatedParsed != nil {
+		published = *item.UpdatedParsed
 	}
 
 	// Категорию из AI валидируем через whitelist/aliases — галлюцинации не пройдут.

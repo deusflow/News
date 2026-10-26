@@ -186,7 +186,11 @@ func (d *EmergencyDetector) checkNewsFeeds(ctx context.Context) (*EmergencyAlert
 
 		for _, item := range feed.Items {
 			// Check publication time — only fresh news within the last 60 mins
-			if item.PublishedParsed != nil && item.PublishedParsed.Before(oneHourAgo) {
+			pubTime := item.PublishedParsed
+			if pubTime == nil {
+				pubTime = item.UpdatedParsed
+			}
+			if pubTime != nil && pubTime.Before(oneHourAgo) {
 				continue
 			}
 
