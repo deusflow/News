@@ -48,8 +48,10 @@ type AIConfig struct {
 	GroqModel         string // model name, e.g. "openai/gpt-oss-120b" (default if empty)
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 
-	GroqAPIKey        string
-	Providers         []string // List of AI providers, e.g. ["gemini", "groq"]
+	GroqAPIKey  string
+	GroqAPIKey2 string
+	GroqAPIKey3 string
+	Providers   []string // List of AI providers, e.g. ["gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"]
 }
 
 type RSSConfig struct {
@@ -393,6 +395,8 @@ func Load() (*Config, error) {
 	cfg.AI.GeminiModel = getEnvOrDefault("GEMINI_MODEL", DefaultGeminiModel)
 	cfg.Database.URL = os.Getenv("DATABASE_URL")
 	cfg.AI.GroqAPIKey = os.Getenv("GROQ_API_KEY")
+	cfg.AI.GroqAPIKey2 = os.Getenv("GROQ_API_KEY_2")
+	cfg.AI.GroqAPIKey3 = os.Getenv("GROQ_API_KEY_3")
 	cfg.AI.GroqModel = getEnvOrDefault("GROQ_MODEL", DefaultGroqModel)
 
 

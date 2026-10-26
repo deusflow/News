@@ -755,11 +755,22 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 
 	// Guard: отсекаем стабы, пейволлы и попытки модели оправдаться («деталі невідомі»)
 	if isStubOrApology(resp) {
-		logger.Warn("skipping item: AI flagged insufficient substance or generated apology text",
+		logger.Info("editorial decision: skipped stub/paywall story",
 			"index", index+1,
 			"title", title,
 			"concrete_anchor", resp.ConcreteAnchor,
-			"audience_score", resp.AudienceScore)
+			"audience_score", resp.AudienceScore,
+			"status", "rejected")
+		return nil, nil
+	}
+
+	// Editorial filter: drop low relevance stories (audience_score 1-2: foreign debates, celebrity gossip, routine sports)
+	if resp.AudienceScore <= 2 {
+		logger.Info("editorial decision: skipped low relevance story (audience_score 1-2)",
+			"index", index+1,
+			"title", title,
+			"audience_score", resp.AudienceScore,
+			"status", "rejected")
 		return nil, nil
 	}
 
@@ -907,7 +918,11 @@ func isStubOrApology(resp *ai.Response) bool {
 	}
 	ca := strings.ToLower(strings.TrimSpace(resp.ConcreteAnchor))
 	if ca == "insufficient_substance" ||
+		strings.Contains(ca, "insufficient_substance") ||
 		strings.Contains(ca, "не містить конкретики") ||
+		strings.Contains(ca, "деталі невідомі") ||
+		strings.Contains(ca, "подробиці не уточнюються") ||
+		strings.Contains(ca, "ikke oplyst") ||
 		strings.Contains(ca, "ikke tilgængelig") ||
 		strings.Contains(ca, "mangler detaljer") {
 		return true
@@ -923,6 +938,9 @@ func isStubOrApology(resp *ai.Response) bool {
 		"i det åbne kildemateriale",
 		"det åbne kildemateriale",
 		"åbne kildemateriale",
+		"ikke oplyst",
+		"detaljer kendes ikke",
+		"fremgår ikke af artiklen",
 		"першоджерело не містить",
 		"джерело не містить",
 		"не містить додаткових",
@@ -931,6 +949,9 @@ func isStubOrApology(resp *ai.Response) bool {
 		"недоступні в відкритому",
 		"у відкритому доступі немає",
 		"деталі не розголошуються в джерелі",
+		"деталі невідомі",
+		"подробиці не уточнюються",
+		"у статті не повідомляється",
 	}
 
 	for _, marker := range apologyMarkers {

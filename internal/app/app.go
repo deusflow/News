@@ -231,7 +231,14 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			logger.Info("AI Provider added", "name", "gemini-flash-lite", "model", model)
 
 		case "groq":
-			if cfg.AI.GroqAPIKey != "" {
+			groqKeys := []string{cfg.AI.GroqAPIKey, cfg.AI.GroqAPIKey2, cfg.AI.GroqAPIKey3}
+			var validGroqKeys []string
+			for _, k := range groqKeys {
+				if strings.TrimSpace(k) != "" {
+					validGroqKeys = append(validGroqKeys, strings.TrimSpace(k))
+				}
+			}
+			if len(validGroqKeys) > 0 {
 				model := cfg.AI.GroqModel
 				if hasModel && customModel != "" {
 					model = customModel
@@ -244,9 +251,9 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				if baseURL == "" {
 					baseURL = "https://api.groq.com/openai/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions(name, cfg.AI.GroqAPIKey, model, baseURL)
+				client := groq.NewClientWithKeys(name, validGroqKeys, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", name, "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model, "keys_count", len(validGroqKeys))
 			} else {
 				logger.Warn("Groq API Key is missing, skipping")
 			}

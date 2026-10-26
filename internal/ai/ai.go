@@ -176,3 +176,53 @@ func AsProviderError(err error) (*ProviderError, bool) {
 	}
 	return nil, false
 }
+
+// SanitizeJSON strips markdown code fences (```json ... ``` or ``` ... ```),
+// preambles, and epilogues, extracting the outermost JSON object ({ ... }) or array ([ ... ]).
+func SanitizeJSON(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	// 1. If wrapped in markdown block, extract content inside fences
+	if start := strings.Index(raw, "```"); start >= 0 {
+		afterFence := raw[start+3:]
+		// Skip optional lang identifier (e.g. "json") on the same line
+		if nl := strings.IndexByte(afterFence, '\n'); nl >= 0 {
+			afterFence = afterFence[nl+1:]
+		}
+		if end := strings.Index(afterFence, "```"); end >= 0 {
+			raw = strings.TrimSpace(afterFence[:end])
+		} else {
+			raw = strings.TrimSpace(afterFence)
+		}
+	}
+
+	// 2. Find outermost JSON delimiters ({...} or [...])
+	firstBrace := strings.IndexByte(raw, '{')
+	firstBracket := strings.IndexByte(raw, '[')
+
+	startIdx := -1
+	endIdx := -1
+
+	if firstBrace >= 0 && (firstBracket < 0 || firstBrace < firstBracket) {
+		lastBrace := strings.LastIndexByte(raw, '}')
+		if lastBrace > firstBrace {
+			startIdx = firstBrace
+			endIdx = lastBrace + 1
+		}
+	} else if firstBracket >= 0 {
+		lastBracket := strings.LastIndexByte(raw, ']')
+		if lastBracket > firstBracket {
+			startIdx = firstBracket
+			endIdx = lastBracket + 1
+		}
+	}
+
+	if startIdx >= 0 && endIdx > startIdx {
+		return strings.TrimSpace(raw[startIdx:endIdx])
+	}
+
+	return strings.TrimSpace(raw)
+}

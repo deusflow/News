@@ -54,6 +54,24 @@ func TestIsStubOrApology(t *testing.T) {
 			wantStub: true,
 		},
 		{
+			name: "Flagged with meta-excuse in Ukrainian details unknown",
+			resp: &ai.Response{
+				ConcreteAnchor: "деталі невідомі",
+				Danish:         "En artikel er udgivet.",
+				Ukrainian:      "Новина без подробиць, деталі невідомі.",
+			},
+			wantStub: true,
+		},
+		{
+			name: "Flagged with ikke oplyst in Danish",
+			resp: &ai.Response{
+				ConcreteAnchor: "ikke oplyst",
+				Danish:         "Årsagen er ikke oplyst i kilden.",
+				Ukrainian:      "Причина не розголошується.",
+			},
+			wantStub: true,
+		},
+		{
 			name: "Valid news item passes cleanly",
 			resp: &ai.Response{
 				ConcreteAnchor: "3.200 til 4.100 kr.",

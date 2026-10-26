@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deusflow/News/internal/logger"
 )
@@ -123,13 +124,32 @@ func sanitizeURL(raw string) string {
 	return raw
 }
 
+const maxTelegramCaptionRunes = 1024
+
 // SendPhoto sends a photo with caption
 func SendPhoto(token string, chatID string, photoURL string, caption string) (int, error) {
 	return SendPhotoWithButtons(token, chatID, photoURL, caption, nil)
 }
 
-// SendPhotoWithButtons sends a photo with buttons
+// SendPhotoWithButtons sends a photo with buttons.
+// If caption exceeds 1024 runes, it gracefully falls back by sending the photo without caption
+// followed by the full caption text and buttons as a separate message, preventing Telegram HTTP 400 Bad Request.
 func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) (int, error) {
+	if utf8.RuneCountInString(caption) > maxTelegramCaptionRunes {
+		logger.Warn("Telegram photo caption exceeds 1024 runes; falling back to photo + separate text message",
+			"caption_len", utf8.RuneCountInString(caption))
+		photoURLReq := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
+		photoMsgID, photoErr := executeRequest(context.Background(), photoURLReq, map[string]interface{}{
+			"chat_id": chatID,
+			"photo":   photoURL,
+		})
+		if photoErr == nil {
+			return SendMessageWithButtons(token, chatID, caption, buttons, false, photoMsgID)
+		}
+		logger.Warn("Failed to send photo in caption length fallback; falling back to text message", "error", photoErr)
+		return SendMessageWithButtons(token, chatID, caption, buttons, true, 0)
+	}
+
 	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
 	body := map[string]interface{}{
 		"chat_id":    chatID,
@@ -144,7 +164,20 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 		}
 	}
 
-	return executeRequest(context.Background(), url, body)
+	msgID, err := executeRequest(context.Background(), url, body)
+	if err != nil && strings.Contains(err.Error(), "caption is too long") {
+		logger.Warn("Telegram API rejected caption length; retrying as photo + separate text message", "error", err)
+		photoMsgID, photoErr := executeRequest(context.Background(), url, map[string]interface{}{
+			"chat_id": chatID,
+			"photo":   photoURL,
+		})
+		if photoErr == nil {
+			return SendMessageWithButtons(token, chatID, caption, buttons, false, photoMsgID)
+		}
+		return SendMessageWithButtons(token, chatID, caption, buttons, true, 0)
+	}
+
+	return msgID, err
 }
 
 // retryBaseDelay is the base sleep between network-error retries.

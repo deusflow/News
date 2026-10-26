@@ -35,7 +35,7 @@ Criteria for selection:
 - Topics relevant to foreigners/immigrants in Denmark
 - Surprising or unusual Danish news that provides cultural insight
 
-Do NOT pick: sports results, celebrity gossip, weather, minor local incidents, routine municipal budgets.
+Do NOT pick: sports results, celebrity gossip, weather, minor local incidents, routine municipal budgets, foreign internal party debates, or paywalled stubs.
 
 Return ONLY valid JSON: {"selected": [0, 5, 12]}
 If none are worth selecting, return: {"selected": []}
@@ -66,19 +66,15 @@ func runTriage(ctx context.Context, rejected []triageHeadline, provider ai.Provi
 		return nil
 	}
 
-	if rawJSON == "" {
-		logger.Warn("AI triage returned no parseable JSON")
+	cleanedJSON := ai.SanitizeJSON(rawJSON)
+	if cleanedJSON == "" {
+		logger.Warn("AI triage returned no parseable JSON", "raw", rawJSON)
 		return nil
 	}
 
-	// Strip markdown fences if any
-	rawJSON = strings.ReplaceAll(rawJSON, "```json", "")
-	rawJSON = strings.ReplaceAll(rawJSON, "```", "")
-	rawJSON = strings.TrimSpace(rawJSON)
-
 	var result triageResponse
-	if err := json.Unmarshal([]byte(rawJSON), &result); err != nil {
-		logger.Warn("AI triage JSON parse failed", "error", err, "raw", rawJSON)
+	if err := json.Unmarshal([]byte(cleanedJSON), &result); err != nil {
+		logger.Warn("AI triage JSON parse failed", "error", err, "raw", rawJSON, "sanitized", cleanedJSON)
 		return nil
 	}
 

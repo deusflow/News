@@ -90,11 +90,7 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			}
 
 			rawText := resp.Text()
-			jsonText := strings.TrimSpace(rawText)
-			jsonText = strings.TrimPrefix(jsonText, "```json")
-			jsonText = strings.TrimPrefix(jsonText, "```")
-			jsonText = strings.TrimSuffix(jsonText, "```")
-			jsonText = strings.TrimSpace(jsonText)
+			jsonText := ai.SanitizeJSON(rawText)
 
 			var data ai.Response
 			if err := json.Unmarshal([]byte(jsonText), &data); err != nil {
@@ -108,16 +104,16 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 
 		logger.Error("❌ Gemini API Error", "title", title, "key_idx", c.keyIdx, "error", err)
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "503") || strings.Contains(lower, "unavailable") || strings.Contains(lower, "overloaded") {
 			c.keyIdx = (c.keyIdx + 1) % len(c.clients)
-			logger.Warn("Gemini 429/Quota limit hit. Switching key.", "next_key_idx", c.keyIdx)
+			logger.Warn("Gemini limit/transient error hit. Switching key.", "next_key_idx", c.keyIdx)
 			continue
 		}
 
 		return nil, fmt.Errorf("gemini generate error: %w", err)
 	}
 
-	return nil, ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits"), 5*time.Minute)
+	return nil, ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits/errors"), 5*time.Minute)
 }
 
 // GenerateRaw returns raw text output for lightweight triage without enforcing JSON schema.
@@ -146,7 +142,7 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 		}
 
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") {
+		if strings.Contains(lower, "429") || strings.Contains(lower, "rate") || strings.Contains(lower, "quota") || strings.Contains(lower, "resource_exhausted") || strings.Contains(lower, "503") || strings.Contains(lower, "unavailable") || strings.Contains(lower, "overloaded") {
 			c.keyIdx = (c.keyIdx + 1) % len(c.clients)
 			continue
 		}
@@ -154,5 +150,5 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 		return "", fmt.Errorf("gemini generate error: %w", err)
 	}
 
-	return "", ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits"), 5*time.Minute)
+	return "", ai.NewRateLimitedError(c.Name(), fmt.Errorf("all gemini keys exhausted due to rate limits/errors"), 5*time.Minute)
 }

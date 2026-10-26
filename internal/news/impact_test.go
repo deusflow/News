@@ -123,6 +123,35 @@ func TestPassesAudienceRelevanceGate_Bypass(t *testing.T) {
 	if PassesAudienceRelevanceGate(newsItemBlock) {
 		t.Error("expected crime news with AudienceScore=3 to be blocked by the gate")
 	}
+
+	// Foreign party debate or routine gossip with AudienceScore=1 or 2 should be rejected cleanly.
+	lowScoreItem := News{
+		Title:             "Svensk partilederdebat i Riksdagen",
+		Category:          "politics",
+		AudienceScore:     2,
+		HasDenmarkContext: true,
+	}
+	if PassesAudienceRelevanceGate(lowScoreItem) {
+		t.Error("expected news with AudienceScore=2 to be rejected by the gate")
+	}
+	if PassesPublicImpactGate(lowScoreItem) {
+		t.Error("expected news with AudienceScore=2 to be rejected by public impact gate")
+	}
+
+	// Insufficient substance (paywall stub) must be rejected cleanly.
+	stubItem := News{
+		Title:             "Statsministeren udtaler sig om ny plan",
+		Category:          "politics",
+		AudienceScore:     8,
+		ConcreteAnchor:    "insufficient_substance",
+		HasDenmarkContext: true,
+	}
+	if PassesAudienceRelevanceGate(stubItem) {
+		t.Error("expected stub news with concrete_anchor=insufficient_substance to be blocked by audience gate")
+	}
+	if PassesPublicImpactGate(stubItem) {
+		t.Error("expected stub news with concrete_anchor=insufficient_substance to be blocked by public impact gate")
+	}
 }
 
 func TestApplyCrossSourceBoost(t *testing.T) {

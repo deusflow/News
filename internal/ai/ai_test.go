@@ -242,3 +242,51 @@ func TestManager_Cooldown(t *testing.T) {
 		t.Errorf("Expected p2 to be called twice, got %d calls", p2.calls)
 	}
 }
+
+func TestSanitizeJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain json object",
+			input:    `{"summary": "test", "mood": "neutral"}`,
+			expected: `{"summary": "test", "mood": "neutral"}`,
+		},
+		{
+			name: "wrapped in markdown fence with json tag",
+			input: "```json\n{\n  \"summary\": \"hello\"\n}\n```",
+			expected: "{\n  \"summary\": \"hello\"\n}",
+		},
+		{
+			name: "wrapped in markdown fence without lang tag",
+			input: "```\n{\n  \"summary\": \"hello\"\n}\n```",
+			expected: "{\n  \"summary\": \"hello\"\n}",
+		},
+		{
+			name: "with preamble and epilogue text",
+			input: "Here is your JSON response:\n```json\n{\"summary\": \"test\"}\n```\nHope this helps!",
+			expected: `{"summary": "test"}`,
+		},
+		{
+			name: "json array with text around it",
+			input: "Selected indices:\n```json\n[0, 5, 12]\n```\nDone.",
+			expected: `[0, 5, 12]`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ai.SanitizeJSON(tt.input)
+			if got != tt.expected {
+				t.Errorf("SanitizeJSON() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

@@ -394,9 +394,9 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	}
 	core := sb.String()
 
-	// If core alone doesn't fit — signal caller to use text mode instead.
+	// If core alone exceeds maxLen — cleanly truncate at sentence boundary and close tags.
 	if utf8.RuneCountInString(core) > maxLen {
-		return ""
+		return TruncateCaptionHTML(core, maxLen)
 	}
 
 	tags := formatTags(n.Tags)
@@ -462,7 +462,14 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	}
 
 	// 4. Why didn't fit, core only
-	return tryVideo(core)
+	caption := tryVideo(core)
+	if utf8.RuneCountInString(caption) > maxLen {
+		caption = TruncateCaptionHTML(caption, maxLen)
+	}
+	if utf8.RuneCountInString(caption) <= maxLen {
+		return caption
+	}
+	return ""
 }
 
 // ShouldUsePhoto возвращает true только если:
@@ -477,6 +484,111 @@ func ShouldUsePhoto(n News, maxLen int) bool {
 	}
 	caption := FormatCaptionForPhoto(n, maxLen)
 	return caption != ""
+}
+
+// TruncateCaptionHTML safely truncates HTML text to fit within maxRunes runes,
+// preserving sentence or word boundaries and automatically closing any unclosed HTML tags.
+func TruncateCaptionHTML(text string, maxRunes int) string {
+	if maxRunes <= 0 {
+		maxRunes = 1024
+	}
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+
+	runes := []rune(text)
+	// Leave room for closing tags and ellipsis
+	target := maxRunes - 25
+	if target <= 0 {
+		target = maxRunes / 2
+	}
+	if target > len(runes) {
+		target = len(runes)
+	}
+
+	truncated := string(runes[:target])
+
+	// Try to find the last clean sentence boundary
+	lastSentence := -1
+	for _, sep := range []string{".\n", "!\n", "?\n", ". ", "! ", "? "} {
+		if idx := strings.LastIndex(truncated, sep); idx > lastSentence {
+			lastSentence = idx + len(sep) - 1
+		}
+	}
+
+	if lastSentence > target/2 {
+		truncated = truncated[:lastSentence]
+	} else if lastSpace := strings.LastIndexAny(truncated, " \n\t"); lastSpace > target/2 {
+		truncated = strings.TrimRight(truncated[:lastSpace], " .,:;!?-–—") + "..."
+	}
+
+	// Close any unclosed HTML tags
+	truncated = closeUnclosedHTMLTags(truncated)
+
+	// Final safety check: if closing tags pushed it over maxRunes, slice runes hard and close again
+	if utf8.RuneCountInString(truncated) > maxRunes {
+		hardLimit := maxRunes - 25
+		if hardLimit > 0 && hardLimit < len(runes) {
+			truncated = closeUnclosedHTMLTags(string(runes[:hardLimit]) + "...")
+		}
+	}
+
+	return truncated
+}
+
+func closeUnclosedHTMLTags(s string) string {
+	knownTags := []string{"blockquote", "b", "i", "u", "s", "a", "code", "pre"}
+	var opened []string
+
+	lower := strings.ToLower(s)
+	i := 0
+	for i < len(lower) {
+		if lower[i] == '<' {
+			end := strings.IndexByte(lower[i:], '>')
+			if end < 0 {
+				break
+			}
+			tagContent := lower[i+1 : i+end]
+			tagContent = strings.TrimSpace(tagContent)
+
+			if strings.HasPrefix(tagContent, "/") {
+				closingTag := strings.TrimPrefix(tagContent, "/")
+				fields := strings.Fields(closingTag)
+				if len(fields) > 0 {
+					tag := fields[0]
+					for j := len(opened) - 1; j >= 0; j-- {
+						if opened[j] == tag {
+							opened = append(opened[:j], opened[j+1:]...)
+							break
+						}
+					}
+				}
+			} else {
+				fields := strings.Fields(tagContent)
+				if len(fields) > 0 {
+					tagName := fields[0]
+					for _, kt := range knownTags {
+						if tagName == kt {
+							opened = append(opened, tagName)
+							break
+						}
+					}
+				}
+			}
+			i += end + 1
+		} else {
+			i++
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(s)
+	for j := len(opened) - 1; j >= 0; j-- {
+		sb.WriteString("</")
+		sb.WriteString(opened[j])
+		sb.WriteString(">")
+	}
+	return sb.String()
 }
 
 // sanitizeAIField cleans up common AI hallucinations from text fields:
@@ -497,3 +609,4 @@ func sanitizeAIField(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
+

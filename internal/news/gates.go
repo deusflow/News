@@ -2,6 +2,7 @@ package news
 
 import (
 	"sort"
+	"strings"
 )
 
 const (
@@ -27,6 +28,12 @@ func isCoreImpactCategory(c Category) bool {
 
 // PassesPublicImpactGate marks candidates that should be prioritized for publication.
 func PassesPublicImpactGate(n News) bool {
+	if strings.EqualFold(strings.TrimSpace(n.ConcreteAnchor), "insufficient_substance") {
+		return false
+	}
+	if n.AudienceScore > 0 && n.AudienceScore < gateAudienceScoreMinValid {
+		return false
+	}
 	if n.CoreImpactScore >= gateCoreImpactMin {
 		return true
 	}
@@ -40,6 +47,11 @@ func PassesPublicImpactGate(n News) bool {
 // PassesAudienceRelevanceGate is a strict filter ensuring we do not publish empty noise.
 // It allows structural/country-wide news, good lifestyle stories, but drops bare local incidents.
 func PassesAudienceRelevanceGate(n News) bool {
+	// Immediate rejection for stubs or paywalls
+	if strings.EqualFold(strings.TrimSpace(n.ConcreteAnchor), "insufficient_substance") {
+		return false
+	}
+
 	// If AI evaluated the news and gave it a low relevance score for Ukrainians, block it immediately
 	// 1-3 scores correspond to weak/irrelevant connection.
 	if n.AudienceScore > 0 && n.AudienceScore < gateAudienceScoreMinValid {

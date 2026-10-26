@@ -60,3 +60,44 @@ func TestSanitizeStartFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateCaptionHTML_ClosesTagsAndRespectsMaxRunes(t *testing.T) {
+	input := "<b>Заголовок новини</b>\n\nПерше речення досить довге. <i>Друге речення містить важливі деталі, які ми не хочемо різати посередині слова.</i> Тretie речення вже зайве."
+	truncated := TruncateCaptionHTML(input, 60)
+
+	if len([]rune(truncated)) > 60 {
+		t.Fatalf("expected truncated string length <= 60 runes, got %d runes: %q", len([]rune(truncated)), truncated)
+	}
+
+	// Check that tags are closed
+	if strings.Count(truncated, "<b>") != strings.Count(truncated, "</b>") {
+		t.Errorf("unbalanced <b> tags: %q", truncated)
+	}
+	if strings.Count(truncated, "<i>") != strings.Count(truncated, "</i>") {
+		t.Errorf("unbalanced <i> tags: %q", truncated)
+	}
+}
+
+func TestFormatCaptionForPhoto_Enforces1024Limit(t *testing.T) {
+	longText := strings.Repeat("Це дуже довгий текст речення, який описує масштабну подію у Данії. ", 30)
+	n := News{
+		Title:            "Масштабна реформа",
+		TitleDanish:      "Omfattende reform i Danmark",
+		TitleUkrainian:   "Масштабна реформа в Данії",
+		SummaryDanish:    longText,
+		SummaryUkrainian: longText,
+		WhyItMatters:     "Це суттєво змінить податкову систему та правила ринку праці для всіх жителів.",
+		FunFact:          "Данія є однією з країн із найвищим рівнем цифровізації держпослуг.",
+		Category:         "society",
+		Tags:             []string{"реформа", "данія", "податки"},
+	}
+
+	caption := FormatCaptionForPhoto(n, 1024)
+	if len([]rune(caption)) > 1024 {
+		t.Fatalf("caption exceeds 1024 runes: %d", len([]rune(caption)))
+	}
+	if caption == "" {
+		t.Fatalf("expected non-empty caption fallback from TruncateCaptionHTML")
+	}
+}
+

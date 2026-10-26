@@ -33,8 +33,8 @@ func TestNormalizeProviders(t *testing.T) {
 		},
 		{
 			name:     "provider:model syntax with multiple Groq models for rate limit fallback",
-			input:    []string{"gemini", "groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b", "groq:openai/gpt-oss-120b"},
-			expected: []string{"gemini", "groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b"},
+			input:    []string{"gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b", "groq:openai/gpt-oss-120b"},
+			expected: []string{"gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"},
 		},
 
 	}
@@ -54,7 +54,6 @@ func TestAllowedModelDefaults(t *testing.T) {
 	allowedGroqModels := map[string]bool{
 		"openai/gpt-oss-120b": true,
 		"openai/gpt-oss-20b":  true,
-		"qwen/qwen3.8-27b":    true,
 	}
 
 	// 1. Check DefaultGroqModel
