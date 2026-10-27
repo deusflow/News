@@ -21,12 +21,12 @@ type NewsBudget struct {
 //	DK body:   320 chars
 //	separator:  ~2 chars   ("\n\n")
 //	UA title:  ~75 chars   ("🇺🇦 <b>Title</b>\n")
-//	UA body:   320 chars
+//	UA body:   350 chars
 //	─────────────────────
-//	Total:     ~902 chars  ✅ fits in 1024 with ~122 chars spare for tags
+//	Total:     ~932 chars  ✅ fits in 1024 with ~92 chars spare for tags/blockquote
 var DefaultBudget = NewsBudget{
 	DanishChars:       320,
-	UkrainianChars:    320,
+	UkrainianChars:    350,
 	TLDRChars:         90,
 	FunFactChars:      150,
 	WhyItMattersChars: 140,
@@ -55,8 +55,13 @@ USER INPUT:
 - Focus strictly on WHAT happened and HOW it works in practice for ordinary residents, not on political posturing or committee proceedings.
 
 ━━━ 3. BILINGUAL MIRRORING (FOR LANGUAGE LEARNING) ━━━━━━━━━━━━━━━━━━━━━
-- "danish" and "ukrainian" bodies MUST have identical meaning and sentence-by-sentence structure so readers can compare them side-by-side to learn Danish.
+- "danish" and "ukrainian" bodies MUST have identical meaning and parallel sentence-by-sentence structure so readers can easily compare them side-by-side to learn Danish.
 - Keep Danish natural, clear (B1-B2 level), and free of heavy bureaucratic jargon.
+- In "ukrainian", maintain 100%% natural, correct grammar and smooth phrasing:
+  • Strictly agree grammatical genders and cases (e.g. "урядова вимога", not "урядовий вимога"; "б'є по молоді", not literal "вдаряє молодь").
+  • Translate institutional and legal terms by practical meaning, not word-for-word calques: e.g. "dagpenge на ставці для випускників" rather than "за ставкою випускника після закінчення навчання".
+  • Avoid literal idiom calques: translate the situational meaning naturally (e.g. "studier kræver transporttider" means "навчання забирає багато часу на дорогу", not "курси вимагають поїздки").
+  • Keep sentence subjects clear (do not drop subjects in Ukrainian).
 - In "ukrainian", provide inline glossing for specific Danish concepts, institutions, or terms: e.g., "dagpenge (виплати по безробіттю)", "folketing (парламент Данії)", "SU (державна студентська стипендія)", "kommune (муніципалітет)", "MitID (державний цифровий ключ)".
 - Proper nouns (brands, cities, MitID, Folketing, Skat) stay in original Latin script or standard Ukrainian transliteration.
 
