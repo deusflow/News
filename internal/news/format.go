@@ -164,10 +164,11 @@ func FormatNewsWithImage(n News) string {
 	}
 
 	// 3. Датская версия: заголовок + body
-	dkTitle := strings.TrimSpace(n.TitleDanish)
-	if dkTitle == "" {
-		dkTitle = strings.TrimSpace(n.Title)
+	dkRawTitle := strings.TrimSpace(n.TitleDanish)
+	if dkRawTitle == "" {
+		dkRawTitle = strings.TrimSpace(n.Title)
 	}
+	dkTitle := sanitizeAIField(dkRawTitle)
 	b.WriteString("🇩🇰 <b>")
 	b.WriteString(dkTitle)
 	b.WriteString("</b>")
@@ -178,10 +179,11 @@ func FormatNewsWithImage(n News) string {
 	b.WriteString("\n\n")
 
 	// 4. Украинская версия: заголовок + body
-	ukTitle := strings.TrimSpace(n.TitleUkrainian)
-	if ukTitle == "" {
-		ukTitle = strings.TrimSpace(n.Title)
+	ukRawTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukRawTitle == "" {
+		ukRawTitle = strings.TrimSpace(n.Title)
 	}
+	ukTitle := sanitizeAIField(ukRawTitle)
 	b.WriteString("🇺🇦 <b>")
 	b.WriteString(ukTitle)
 	b.WriteString("</b>")
@@ -267,10 +269,11 @@ func FormatLongreadBody(n News) string {
 	var b strings.Builder
 
 	// 1. Датская версия: заголовок + body
-	dkTitle := strings.TrimSpace(n.TitleDanish)
-	if dkTitle == "" {
-		dkTitle = strings.TrimSpace(n.Title)
+	dkRawTitle := strings.TrimSpace(n.TitleDanish)
+	if dkRawTitle == "" {
+		dkRawTitle = strings.TrimSpace(n.Title)
 	}
+	dkTitle := sanitizeAIField(dkRawTitle)
 	b.WriteString("🇩🇰 <b>")
 	b.WriteString(dkTitle)
 	b.WriteString("</b>")
@@ -281,10 +284,11 @@ func FormatLongreadBody(n News) string {
 	b.WriteString("\n\n")
 
 	// 2. Украинская версия: заголовок + body
-	ukTitle := strings.TrimSpace(n.TitleUkrainian)
-	if ukTitle == "" {
-		ukTitle = strings.TrimSpace(n.Title)
+	ukRawTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukRawTitle == "" {
+		ukRawTitle = strings.TrimSpace(n.Title)
 	}
+	ukTitle := sanitizeAIField(ukRawTitle)
 	b.WriteString("🇺🇦 <b>")
 	b.WriteString(ukTitle)
 	b.WriteString("</b>")
@@ -343,36 +347,30 @@ func FormatLongreadBody(n News) string {
 //  3. Если core (header+tldr+DK+UA) не влезает — вернуть "" → текстовый режим
 //
 // ──────────────────────────────────────────────────────────────────────
-func FormatCaptionForPhoto(n News, maxLen int) string {
-	n.TLDR = sanitizeAIField(n.TLDR)
-	n.FunFact = sanitizeAIField(n.FunFact)
-	n.WhyItMatters = sanitizeAIField(n.WhyItMatters)
-	n.SummaryDanish = sanitizeAIField(n.SummaryDanish)
-	n.SummaryUkrainian = sanitizeAIField(n.SummaryUkrainian)
+func buildCaptionCore(n News) string {
+	tldr := sanitizeAIField(n.TLDR)
+	summaryDanish := sanitizeAIField(n.SummaryDanish)
+	summaryUkrainian := sanitizeAIField(n.SummaryUkrainian)
 
-	// Telegram API hard limit for photo captions is 1024 characters.
-	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
-	if maxLen <= 0 || maxLen > 1024 {
-		maxLen = 1024
+	dkRawTitle := strings.TrimSpace(n.TitleDanish)
+	if dkRawTitle == "" {
+		dkRawTitle = strings.TrimSpace(n.Title)
 	}
+	dkTitle := sanitizeAIField(dkRawTitle)
 
-	dkTitle := strings.TrimSpace(n.TitleDanish)
-	if dkTitle == "" {
-		dkTitle = strings.TrimSpace(n.Title)
+	ukRawTitle := strings.TrimSpace(n.TitleUkrainian)
+	if ukRawTitle == "" {
+		ukRawTitle = strings.TrimSpace(n.Title)
 	}
-	ukTitle := strings.TrimSpace(n.TitleUkrainian)
-	if ukTitle == "" {
-		ukTitle = strings.TrimSpace(n.Title)
-	}
-	dkBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryDanish, dkTitle)))
-	uaBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(n.SummaryUkrainian, ukTitle)))
-	why := strings.TrimSpace(n.WhyItMatters)
+	ukTitle := sanitizeAIField(ukRawTitle)
 
-	// buildCore assembles the mandatory content block — never trimmed.
+	dkBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(summaryDanish, dkTitle)))
+	uaBody := strings.TrimSpace(normalizeVideoLinksForTelegram(removeTitleFromSummary(summaryUkrainian, ukTitle)))
+
 	var sb strings.Builder
 	sb.WriteString(formatHeader(n))
 	sb.WriteString("\n\n")
-	if tldr := strings.TrimSpace(n.TLDR); tldr != "" {
+	if tldr != "" {
 		sb.WriteString("💬 <b>")
 		sb.WriteString(tldr)
 		sb.WriteString("</b>\n\n")
@@ -392,7 +390,24 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 		sb.WriteString("\n")
 		sb.WriteString(uaBody)
 	}
-	core := sb.String()
+	return sb.String()
+}
+
+func FormatCaptionForPhoto(n News, maxLen int) string {
+	n.TLDR = sanitizeAIField(n.TLDR)
+	n.FunFact = sanitizeAIField(n.FunFact)
+	n.WhyItMatters = sanitizeAIField(n.WhyItMatters)
+	n.SummaryDanish = sanitizeAIField(n.SummaryDanish)
+	n.SummaryUkrainian = sanitizeAIField(n.SummaryUkrainian)
+
+	// Telegram API hard limit for photo captions is 1024 characters.
+	// Do NOT raise this above 1024 — Telegram will reject the request with 400.
+	if maxLen <= 0 || maxLen > 1024 {
+		maxLen = 1024
+	}
+
+	why := strings.TrimSpace(n.WhyItMatters)
+	core := buildCaptionCore(n)
 
 	// If core alone exceeds maxLen — cleanly truncate at sentence boundary and close tags.
 	if utf8.RuneCountInString(core) > maxLen {
@@ -474,12 +489,19 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 
 // ShouldUsePhoto возвращает true только если:
 //   - у новости есть ImageURL
-//   - FormatCaptionForPhoto вернул непустую строку (весь контент влезает)
+//   - обязательный текст новости (core: заголовок + DK + UA) полностью помещается в maxLen без обрезки на полуслове
 //
 // Если контент не влезает — бот автоматически переключится на текстовый режим
 // где лимит 4096 символов и новость будет показана полностью на обоих языках.
 func ShouldUsePhoto(n News, maxLen int) bool {
 	if n.ImageURL == "" {
+		return false
+	}
+	if maxLen <= 0 || maxLen > 1024 {
+		maxLen = 1024
+	}
+	core := buildCaptionCore(n)
+	if utf8.RuneCountInString(core) > maxLen {
 		return false
 	}
 	caption := FormatCaptionForPhoto(n, maxLen)
@@ -591,9 +613,34 @@ func closeUnclosedHTMLTags(s string) string {
 	return sb.String()
 }
 
+var preEscapedEntityRegex = regexp.MustCompile(`^&(amp|lt|gt|quot|#\d+|#x[0-9a-fA-F]+);`)
+
+func escapeTelegramHTMLText(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '<':
+			sb.WriteString("&lt;")
+		case '>':
+			sb.WriteString("&gt;")
+		case '&':
+			if preEscapedEntityRegex.MatchString(s[i:]) {
+				sb.WriteByte('&')
+			} else {
+				sb.WriteString("&amp;")
+			}
+		default:
+			sb.WriteByte(s[i])
+		}
+	}
+	return sb.String()
+}
+
 // sanitizeAIField cleans up common AI hallucinations from text fields:
 // - Removes unwanted bolding (**)
 // - Replaces common wrong flags with the Danish flag if they appear at the start
+// - Escapes raw HTML characters (<, >, &) so Telegram's HTML parser never crashes
 func sanitizeAIField(s string) string {
 	s = strings.TrimSpace(s)
 	// Remove markdown bolding and italics
@@ -607,6 +654,47 @@ func sanitizeAIField(s string) string {
 			s = "🇩🇰" + strings.TrimPrefix(s, flag)
 		}
 	}
+	s = escapeTelegramHTMLText(s)
 	return strings.TrimSpace(s)
+}
+
+// BuildCopyTextSnippet returns a clean plain-text Danish snippet (<= 256 runes)
+// for Telegram's CopyTextButton (copy_text) so users can copy the Danish headline/phrase in 1 tap.
+func BuildCopyTextSnippet(n News) string {
+	dkTitle := strings.TrimSpace(n.TitleDanish)
+	if dkTitle == "" {
+		dkTitle = strings.TrimSpace(n.Title)
+	}
+	dkBody := strings.TrimSpace(removeTitleFromSummary(n.SummaryDanish, dkTitle))
+
+	snippet := dkTitle
+	if dkBody != "" {
+		// Add first sentence of Danish summary if it fits within 256 characters
+		firstSentence := dkBody
+		if idx := strings.IndexAny(dkBody, ".!?"); idx != -1 && idx+1 <= len(dkBody) {
+			firstSentence = strings.TrimSpace(dkBody[:idx+1])
+		}
+		candidate := snippet
+		if snippet != "" && !strings.HasSuffix(snippet, ".") && !strings.HasSuffix(snippet, "!") && !strings.HasSuffix(snippet, "?") {
+			candidate += ". " + firstSentence
+		} else if snippet != "" {
+			candidate += " " + firstSentence
+		} else {
+			candidate = firstSentence
+		}
+		if utf8.RuneCountInString(candidate) <= 256 {
+			snippet = candidate
+		}
+	}
+
+	snippet = strings.ReplaceAll(snippet, "**", "")
+	snippet = strings.ReplaceAll(snippet, "*", "")
+	snippet = strings.TrimSpace(snippet)
+
+	runes := []rune(snippet)
+	if len(runes) > 256 {
+		snippet = strings.TrimSpace(string(runes[:253])) + "..."
+	}
+	return snippet
 }
 

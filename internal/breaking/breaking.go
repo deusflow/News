@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -43,6 +44,10 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	var alertDescription string
 
 	if url != "" && title != "" {
+		if !isValidBreakingURL(url) {
+			logger.Warn("Rejected invalid manual BREAKING_URL", "url", url)
+			return fmt.Errorf("invalid breaking news URL: %s", url)
+		}
 		logger.Info("Manual breaking news input provided", "url", url, "title", title)
 	} else {
 		logger.Info("No manual breaking input; scanning DMI and emergency feeds in Denmark")
@@ -175,12 +180,19 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		n.ImageURL = news.GetCategoryImage(cat)
 	}
 
-	// Build inline button
+	// Build inline button (link + 1-tap Danish copy button)
 	var buttons [][]telegram.InlineButton
 	if cfg.Feature.EnableInlineButtons && n.Link != "" {
-		buttons = append(buttons, []telegram.InlineButton{
+		row := []telegram.InlineButton{
 			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		})
+		}
+		if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
+			row = append(row, telegram.InlineButton{
+				Text:     "📋 Копіювати DK",
+				CopyText: &telegram.CopyTextButton{Text: copySnippet},
+			})
+		}
+		buttons = append(buttons, row)
 	}
 
 	// Format using standard formatter (same look as main channel)
@@ -239,6 +251,17 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	return nil
 }
 
+
+func isValidBreakingURL(rawURL string) bool {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	return parsed.Hostname() != ""
+}
 
 // buildEmergencyFallbackNews builds a structured deterministic emergency news item
 // when AI is unavailable or fails, ensuring critical alerts are never lost.
@@ -299,9 +322,16 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 
 		var buttons [][]telegram.InlineButton
 		if cfg.Feature.EnableInlineButtons && n.Link != "" {
-			buttons = append(buttons, []telegram.InlineButton{
+			row := []telegram.InlineButton{
 				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			})
+			}
+			if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
+				row = append(row, telegram.InlineButton{
+					Text:     "📋 Копіювати DK",
+					CopyText: &telegram.CopyTextButton{Text: copySnippet},
+				})
+			}
+			buttons = append(buttons, row)
 		}
 
 		if n.ImageURL == "" {

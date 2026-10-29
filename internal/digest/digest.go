@@ -107,8 +107,11 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 	// Telegram hard limit is 4096 chars — trim whole paragraphs to stay safely under it
 	digestText = truncateForTelegram(digestText)
 
-	// 5. Публикация в Telegram
-	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, digestText)
+	// 5. Публикация в Telegram (через RichMessage Bot API 10.1–10.3 с автоматическим фоллбэком на HTML)
+	richMsg := telegram.InputRichMessage{
+		HTML: digestText,
+	}
+	_, err = telegram.SendRichMessage(ctx, cfg.Telegram.Token, cfg.Telegram.ChatID, richMsg, digestText, nil)
 	if err != nil {
 		return fmt.Errorf("failed to send digest to telegram: %w", err)
 	}

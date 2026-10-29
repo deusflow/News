@@ -100,9 +100,16 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	// 4. Buttons
 	var buttons [][]telegram.InlineButton
 	if p.cfg.Feature.EnableInlineButtons && n.Link != "" {
-		buttons = append(buttons, []telegram.InlineButton{
+		firstRow := []telegram.InlineButton{
 			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		})
+		}
+		if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
+			firstRow = append(firstRow, telegram.InlineButton{
+				Text:     "📋 Копіювати DK",
+				CopyText: &telegram.CopyTextButton{Text: copySnippet},
+			})
+		}
+		buttons = append(buttons, firstRow)
 		if videoURL != "" && videoURL != n.Link {
 			buttons = append(buttons, []telegram.InlineButton{
 				{Text: "🎬 Дивитись відео", URL: videoURL},
@@ -125,7 +132,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	if n.VideoURL != "" {
 		duration, durErr := telegram.GetVideoDurationSeconds(n.VideoURL)
 		allowNative := false
-		if durErr == nil && duration <= maxVideoSeconds {
+		if (durErr == nil && duration <= maxVideoSeconds) || telegram.IsDRDirectVideo(n.VideoURL) {
 			allowNative = true
 		}
 
@@ -137,12 +144,20 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 				videoCaption = news.FormatCaptionForPhoto(n, 1024)
 			}
 
-			if telegram.IsDRDirectVideo(n.VideoURL) {
-				size, sizeErr := telegram.GetRemoteContentLength(n.VideoURL)
+			directMP4 := n.VideoURL
+			if !telegram.IsDRDirectVideo(directMP4) && telegram.IsDRPageURL(directMP4) {
+				if extracted := telegram.ExtractDRDirectVideoURL(directMP4); extracted != "" {
+					directMP4 = extracted
+				}
+			}
+
+			if telegram.IsDRDirectVideo(directMP4) {
+				size, sizeErr := telegram.GetRemoteContentLength(directMP4)
 				if sizeErr == nil && size <= maxTelegramURLVideoBytes {
-					err = telegram.SendVideoURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.VideoURL, videoCaption, buttons)
+					err = telegram.SendVideoURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, directMP4, videoCaption, buttons)
 					if err == nil {
 						videoSent = true
+						outText = videoCaption
 					}
 				}
 			}

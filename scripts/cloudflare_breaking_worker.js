@@ -29,8 +29,19 @@ export default {
     ctx.waitUntil(checkFeeds(env));
   },
 
-  // Для ручного тестирования через браузер
+  // Для ручного тестирования через браузер (защищено от внешнего спама без перенастройки секретов)
   async fetch(request, env, ctx) {
+    const reqUrl = new URL(request.url);
+    const tokenParam = reqUrl.searchParams.get("token") || "";
+    const authHeader = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    const providedToken = tokenParam || authHeader;
+    const expectedSecret = env.RADAR_SECRET || env.GITHUB_PAT || "";
+
+    // Если кто-то просто открыл ссылку воркера без секретного ключа — не запускаем GitHub Actions
+    if (!expectedSecret || providedToken !== expectedSecret) {
+      return new Response("Danish News Radar active (cron mode).", { status: 200 });
+    }
+
     const result = await checkFeeds(env);
     return new Response(`Radar check complete. Found breaking: ${result}`);
   }
@@ -62,7 +73,7 @@ async function checkFeeds(env) {
         
         // Извлекаем ссылку (через link, guid или href attribute)
         const linkMatch = item.match(/<link[^>]*href=["']([^"']+)["']/i) ||
-                          item.match(/<link[^>]*><!\[CDATA\[(.*?)\]\]><\/title>/i) ||
+                          item.match(/<link[^>]*><!\[CDATA\[(.*?)\]\]><\/link>/i) ||
                           item.match(/<link[^>]*>(.*?)<\/link>/i) ||
                           item.match(/<guid[^>]*>(https?:\/\/[^\s<]+)<\/guid>/i);
 

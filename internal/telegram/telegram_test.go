@@ -56,3 +56,14 @@ func TestGetRemoteContentLength_RangeFallback(t *testing.T) {
 		t.Fatalf("expected 777, got %d", size)
 	}
 }
+
+func TestIsDRDirectVideoAndDuration(t *testing.T) {
+	mp4URL := "https://www.dr.dk/nyheder/video/clip123.mp4"
+	if !IsDRDirectVideo(mp4URL) {
+		t.Fatalf("expected %s to be recognized as DR direct video", mp4URL)
+	}
+	dur, err := GetVideoDurationSeconds(mp4URL)
+	if err != nil || dur <= 0 {
+		t.Fatalf("expected DR direct video to return valid duration without error, got dur=%d err=%v", dur, err)
+	}
+}

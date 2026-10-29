@@ -201,6 +201,13 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	if maxAICandidates <= 0 {
 		maxAICandidates = 5
 	}
+	// Не скачиваем и не отправляем в ИИ больше статей, чем позволяет бесплатный лимит запросов (минус 1 запрос на AI Triage)
+	if opts.Config != nil && opts.Config.AI.MaxGeminiRequests > 1 {
+		budget := opts.Config.AI.MaxGeminiRequests - 1
+		if maxAICandidates > budget {
+			maxAICandidates = budget
+		}
+	}
 
 	// preScored is defined at package level (below) so it can be used
 	// by applyCrossSourceBoost and other helpers.

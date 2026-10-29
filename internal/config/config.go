@@ -361,10 +361,10 @@ func Load() (*Config, error) {
 		},
 		Scraper: ScraperConfig{
 			Concurrency: 2,
-			MaxArticles: 15,
+			MaxArticles: 8,
 		},
 		Database: DatabaseConfig{
-			TTL: 48, // default TTL for database records
+			TTL: 840, // default 35 days (840 hours) for monthly calendar, 7-day digest & semantic dedup
 		},
 		Feature: FeatureConfig{
 			EnableInlineButtons:    true,
@@ -405,8 +405,8 @@ func Load() (*Config, error) {
 	cfg.Cache.TTLHours = getEnvIntOrDefault("CACHE_TTL_HOURS", 48)
 	cfg.Cache.DuplicateWindow = getEnvIntOrDefault("DUPLICATE_WINDOW_HOURS", 24)
 
-	// Sync DatabaseTTL with CacheTTLHours if not explicitly set
-	cfg.Database.TTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", cfg.Cache.TTLHours)
+	// Database retention defaults to 840 hours (35 days) so monthly calendar & 7-day dedup/digest work reliably
+	cfg.Database.TTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", 840)
 
 	if policy := os.Getenv("POSTING_POLICY"); policy != "" {
 		cfg.Posting.Policy = policy

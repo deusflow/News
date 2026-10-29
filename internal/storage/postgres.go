@@ -837,9 +837,17 @@ func (pc *PostgresCache) IncrementSyncQueueAttempts(id int, errMsg string) error
 func (pc *PostgresCache) Cleanup() error {
 	cutoffTime := time.Now().Add(-time.Duration(pc.ttlHours) * time.Hour)
 
+	// Keep sent_news and fun_fact_cache for at least 35 days (840 hours) so 7-day semantic dedup,
+	// Sunday Digest, and 35-day Monthly Calendar always have history.
+	historyTTLHours := pc.ttlHours
+	if historyTTLHours < 840 {
+		historyTTLHours = 840
+	}
+	historyCutoff := time.Now().Add(-time.Duration(historyTTLHours) * time.Hour)
+
 	// Clean sent_news
 	query := `DELETE FROM sent_news WHERE sent_at < $1`
-	result, err := pc.db.Exec(query, cutoffTime)
+	result, err := pc.db.Exec(query, historyCutoff)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup sent_news: %v", err)
 	}
@@ -874,7 +882,7 @@ func (pc *PostgresCache) Cleanup() error {
 	}
 
 	queryFunFacts := `DELETE FROM fun_fact_cache WHERE used_at < $1`
-	resultFunFacts, err := pc.db.Exec(queryFunFacts, cutoffTime)
+	resultFunFacts, err := pc.db.Exec(queryFunFacts, historyCutoff)
 	if err != nil {
 		logger.Warn("Failed to cleanup fun_fact_cache", "error", err)
 	} else {

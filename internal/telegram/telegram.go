@@ -152,10 +152,11 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 
 	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
 	body := map[string]interface{}{
-		"chat_id":    chatID,
-		"photo":      photoURL,
-		"caption":    caption,
-		"parse_mode": "HTML",
+		"chat_id":                  chatID,
+		"photo":                    photoURL,
+		"caption":                  caption,
+		"parse_mode":               "HTML",
+		"show_caption_above_media": true,
 	}
 
 	if len(buttons) > 0 {
@@ -335,11 +336,86 @@ func parseContentRangeTotal(contentRange string) (int64, error) {
 	return strconv.ParseInt(total, 10, 64)
 }
 
+// CopyTextButton represents Telegram's copy_text button payload (copies text to clipboard on tap, 1-256 chars).
+type CopyTextButton struct {
+	Text string `json:"text"`
+}
+
 // InlineButton struct
 type InlineButton struct {
-	Text         string `json:"text"`
-	URL          string `json:"url,omitempty"`
-	CallbackData string `json:"callback_data,omitempty"`
+	Text         string          `json:"text"`
+	URL          string          `json:"url,omitempty"`
+	CallbackData string          `json:"callback_data,omitempty"`
+	CopyText     *CopyTextButton `json:"copy_text,omitempty"`
+}
+
+// RichBlockTableCell represents a single cell in Telegram Bot API 10.1+ InputRichBlockTable.
+type RichBlockTableCell struct {
+	Text      string `json:"text,omitempty"`
+	IsHeader  bool   `json:"is_header,omitempty"`
+	Alignment string `json:"alignment,omitempty"`
+	Colspan   int    `json:"colspan,omitempty"`
+	Rowspan   int    `json:"rowspan,omitempty"`
+}
+
+// RichBlockButton represents a button inside InputRichBlockButtons (Bot API 10.1+).
+type RichBlockButton struct {
+	Type  string `json:"type"` // "url" or "copy_text"
+	Text  string `json:"text"`
+	URL   string `json:"url,omitempty"`
+	Value string `json:"value,omitempty"` // text to copy when Type == "copy_text"
+	Style string `json:"style,omitempty"` // "primary", "success", "danger"
+}
+
+// InputRichBlock represents a block in Telegram Bot API 10.1–10.3 InputRichMessage.
+type InputRichBlock struct {
+	Type       string                 `json:"type"` // "paragraph", "heading", "subheading", "table", "blockquote", "expandable_blockquote", "divider", "buttons", "unordered_list"
+	Text       string                 `json:"text,omitempty"`
+	Level      int                    `json:"level,omitempty"`
+	Items      []InputRichBlock       `json:"items,omitempty"`
+	Cells      [][]RichBlockTableCell `json:"cells,omitempty"`
+	IsBordered bool                   `json:"is_bordered,omitempty"`
+	IsStriped  bool                   `json:"is_striped,omitempty"`
+	IsCompact  bool                   `json:"is_compact,omitempty"` // Bot API 10.3 compact table mode
+	Buttons    []RichBlockButton      `json:"buttons,omitempty"`
+}
+
+// InputRichMessage represents the rich_message payload for sendRichMessage (Bot API 10.1–10.3).
+type InputRichMessage struct {
+	HTML   string           `json:"html,omitempty"`
+	Blocks []InputRichBlock `json:"blocks,omitempty"`
+}
+
+// SendRichMessage sends a rich message using Telegram Bot API 10.1–10.3 (/sendRichMessage),
+// supporting compact tables (InputRichBlockTable with is_compact: true) and rich blocks.
+// If the Bot API server or client does not support sendRichMessage yet, it transparently
+// falls back to SendMessageWithButtons / SendMessageAllowPreview so posts never fail.
+func SendRichMessage(ctx context.Context, token string, chatID string, richMsg InputRichMessage, fallbackHTML string, buttons [][]InlineButton) (int, error) {
+	url := fmt.Sprintf("%s%s/sendRichMessage", telegramAPIBase, token)
+
+	body := map[string]interface{}{
+		"chat_id":      chatID,
+		"rich_message": richMsg,
+		"link_preview_options": map[string]interface{}{
+			"is_disabled": true,
+		},
+	}
+	if len(buttons) > 0 {
+		body["reply_markup"] = map[string]interface{}{
+			"inline_keyboard": buttons,
+		}
+	}
+
+	msgID, err := executeRequest(ctx, url, body)
+	if err == nil {
+		return msgID, nil
+	}
+
+	logger.Warn("sendRichMessage returned error; falling back to standard HTML sendMessage", "error", err)
+	if len(buttons) > 0 {
+		return sendMessage(ctx, token, chatID, fallbackHTML, buttons, true, 0)
+	}
+	return sendMessage(ctx, token, chatID, fallbackHTML, nil, true, 0)
 }
 
 // SendVideoStream uploads video from an io.Reader via multipart/form-data.
@@ -409,11 +485,12 @@ func SendVideoEmbed(token, chatID, videoURL, text string, buttons [][]InlineButt
 func SendVideoURL(token, chatID, videoURL, caption string, buttons [][]InlineButton) error {
 	apiURL := fmt.Sprintf("%s%s/sendVideo", telegramAPIBase, token)
 	body := map[string]interface{}{
-		"chat_id":            chatID,
-		"video":              videoURL,
-		"caption":            caption,
-		"parse_mode":         "HTML",
-		"supports_streaming": true,
+		"chat_id":                  chatID,
+		"video":                    videoURL,
+		"caption":                  caption,
+		"parse_mode":               "HTML",
+		"supports_streaming":       true,
+		"show_caption_above_media": true,
 	}
 	if len(buttons) > 0 {
 		body["reply_markup"] = map[string]interface{}{"inline_keyboard": buttons}

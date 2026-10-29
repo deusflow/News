@@ -2,12 +2,12 @@ name: Danish News Bot - Scheduled
 
 on:
   schedule:
-    # Adjust schedule as you like (UTC)
-    - cron: '0 6 * * *'    # 08:00 Denmark — утренние новости
-    - cron: '0 8 * * *'    # 10:00 Denmark — утренний дополнительный
-    - cron: '0 11 * * *'   # 13:00 Denmark — обеденный выпуск
-    - cron: '0 15 * * *'   # 17:00 Denmark — конец рабочего дня
-    - cron: '0 19 * * *'   # 21:00 Denmark — вечерний прайм
+    # Adjust schedule as you like (UTC, Denmark Winter Time CET = UTC+1)
+    - cron: '0 7 * * *'    # 08:00 Denmark — утренние новости
+    - cron: '0 9 * * *'    # 10:00 Denmark — утренний дополнительный
+    - cron: '0 12 * * *'   # 13:00 Denmark — обеденный выпуск
+    - cron: '0 16 * * *'   # 17:00 Denmark — конец рабочего дня
+    - cron: '0 20 * * *'   # 21:00 Denmark — вечерний прайм
   workflow_dispatch: { }
 
 concurrency:
@@ -29,6 +29,7 @@ jobs:
       # Cache settings (fallback if PostgreSQL fails)
       CACHE_FILE_PATH: sent_news.json
       CACHE_TTL_HOURS: 48
+      DATABASE_TTL_HOURS: 840
 
       # Bot configuration — publish limit defaults to 1 per run (configurable via PUBLISH_LIMIT)
       MAX_AI_REQUESTS: 10

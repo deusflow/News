@@ -101,3 +101,72 @@ func TestFormatCaptionForPhoto_Enforces1024Limit(t *testing.T) {
 	}
 }
 
+func TestShouldUsePhoto_SwitchesToTextWhenCoreExceedsLimit(t *testing.T) {
+	longText := strings.Repeat("Це дуже довгий текст речення, який описує масштабну подію у Данії. ", 30)
+	n := News{
+		Title:            "Масштабна реформа",
+		TitleDanish:      "Omfattende reform i Danmark",
+		TitleUkrainian:   "Масштабна реформа в Данії",
+		SummaryDanish:    longText,
+		SummaryUkrainian: longText,
+		ImageURL:         "https://example.com/photo.jpg",
+		Category:         "society",
+	}
+
+	if ShouldUsePhoto(n, 1024) {
+		t.Fatalf("expected ShouldUsePhoto to return false when core text exceeds 1024 runes so story is not cut mid-sentence")
+	}
+
+	shortNews := News{
+		Title:            "Kort nyhed",
+		TitleDanish:      "Kort nyhed i Danmark",
+		TitleUkrainian:   "Коротка новина в Данії",
+		SummaryDanish:    "Et kort resumé på dansk.",
+		SummaryUkrainian: "Короткий опис українською мовою.",
+		ImageURL:         "https://example.com/photo.jpg",
+		Category:         "society",
+	}
+	if !ShouldUsePhoto(shortNews, 1024) {
+		t.Fatalf("expected ShouldUsePhoto to return true when core text fits within 1024 runes")
+	}
+}
+
+func TestSanitizeAIField_EscapesHTMLSpecialChars(t *testing.T) {
+	n := News{
+		Title:            "Mærsk & DSB: <5% stigning > 2%",
+		TitleDanish:      "Mærsk & DSB: <5% stigning > 2%",
+		TitleUkrainian:   "Mærsk & DSB: тариф < 5% та > 2%",
+		SummaryDanish:    "B&O og H&M melder om <10% vækst &amp; stabilitet.",
+		SummaryUkrainian: "Компанії B&O та H&M: ріст <10%.",
+		Category:         "business",
+	}
+
+	out := FormatNewsWithImage(n)
+	if strings.Contains(out, "<5%") || strings.Contains(out, "<10%") || strings.Contains(out, "< 5%") {
+		t.Fatalf("expected raw '<' to be escaped in HTML output, got: %q", out)
+	}
+	if !strings.Contains(out, "Mærsk &amp; DSB") || !strings.Contains(out, "B&amp;O") {
+		t.Fatalf("expected raw '&' to be escaped as '&amp;' in HTML output, got: %q", out)
+	}
+	if strings.Contains(out, "&amp;amp;") {
+		t.Fatalf("expected existing '&amp;' not to be double-escaped, got: %q", out)
+	}
+}
+
+func TestBuildCopyTextSnippet(t *testing.T) {
+	n := News{
+		TitleDanish:   "Nye regler for Forskudsopgørelse og Boligstøtte",
+		SummaryDanish: "Nye regler for Forskudsopgørelse og Boligstøtte. Borgere skal tjekke skat.dk inden 15. november. Derefter gælder nye satser.",
+	}
+	snippet := BuildCopyTextSnippet(n)
+	if snippet == "" {
+		t.Fatalf("expected non-empty copy text snippet")
+	}
+	if len([]rune(snippet)) > 256 {
+		t.Fatalf("expected copy text snippet <= 256 runes, got %d", len([]rune(snippet)))
+	}
+	if !strings.Contains(snippet, "Forskudsopgørelse") {
+		t.Fatalf("expected snippet to contain Danish keyword, got %q", snippet)
+	}
+}
+

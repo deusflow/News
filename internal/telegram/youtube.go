@@ -17,13 +17,45 @@ func IsYouTubeURL(url string) bool {
 }
 
 func IsDRDirectVideo(url string) bool {
-	return (strings.Contains(url, "dr.dk") || strings.Contains(url, "dr.tv")) &&
-		strings.HasSuffix(strings.ToLower(url), ".mp4")
+	lower := strings.ToLower(strings.Split(url, "?")[0])
+	return (strings.Contains(lower, "dr.dk") || strings.Contains(lower, "dr.tv") || strings.Contains(lower, "dr-massive")) &&
+		strings.HasSuffix(lower, ".mp4")
 }
 
 func IsDRPageURL(url string) bool {
 	return (strings.Contains(url, "dr.dk") || strings.Contains(url, "dr.tv")) &&
-		!strings.HasSuffix(strings.ToLower(url), ".mp4")
+		!IsDRDirectVideo(url)
+}
+
+// ExtractDRDirectVideoURL tries to extract a direct .mp4 contentUrl from a DR.dk page's JSON-LD.
+func ExtractDRDirectVideoURL(pageURL string) string {
+	if IsDRDirectVideo(pageURL) {
+		return pageURL
+	}
+	if !IsDRPageURL(pageURL) {
+		return ""
+	}
+	req, err := http.NewRequest("GET", pageURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	html := string(body)
+	contentURLRegex := regexp.MustCompile(`"contentUrl"\s*:\s*"(https?://[^"]+\.mp4[^"]*)"`)
+	if m := contentURLRegex.FindStringSubmatch(html); len(m) > 1 {
+		return m[1]
+	}
+	return ""
 }
 
 // 1b. Duration detection
@@ -34,6 +66,12 @@ func IsDRPageURL(url string) bool {
 func GetVideoDurationSeconds(videoURL string) (int, error) {
 	if IsYouTubeURL(videoURL) {
 		return 0, fmt.Errorf("youtube video streaming not supported, using photo fallback")
+	}
+
+	// Direct DR.dk .mp4 video clips do not have HTML JSON-LD headers; allow native upload
+	// (caller still verifies byte size via GetRemoteContentLength <= maxTelegramURLVideoBytes).
+	if IsDRDirectVideo(videoURL) {
+		return 60, nil
 	}
 
 	if IsDRPageURL(videoURL) {
