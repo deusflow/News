@@ -58,11 +58,18 @@ func LoadFeeds(path string) ([]FeedSource, error) {
 // rssHTTPClient is shared across all feed fetches to reuse connections.
 var rssHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
-// FetchAllFeeds downloads and parses all active feeds concurrently.
-// The context is forwarded to every HTTP request — cancelling it (e.g. on
-// SIGTERM) will stop in-flight feed fetches immediately.
-func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, error) {
+// FeedStatus tracks the outcome of fetching a specific RSS feed source
+type FeedStatus struct {
+	Source    FeedSource
+	ItemCount int
+	Err       error
+}
+
+// FetchAllFeedsDetailed downloads and parses all active feeds concurrently,
+// returning the parsed items, a per-feed status map, and an overall error if all active feeds failed.
+func FetchAllFeedsDetailed(ctx context.Context, sources []FeedSource) ([]*FeedItem, map[string]FeedStatus, error) {
 	var allItems []*FeedItem
+	statuses := make(map[string]FeedStatus)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	successCount := 0
@@ -92,21 +99,24 @@ func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, erro
 			parser.Client = rssHTTPClient
 
 			feed, err := parser.ParseURLWithContext(s.URL, ctx)
+			mu.Lock()
+			defer mu.Unlock()
+
 			if err != nil {
 				if ctx.Err() != nil {
 					logger.Info("Feed fetch cancelled", "source", s.Name, "error", ctx.Err())
 				} else {
 					logger.Warn("Error parsing RSS feed", "url", s.URL, "source", s.Name, "error", err)
 				}
+				statuses[s.Name] = FeedStatus{Source: s, ItemCount: 0, Err: err}
 				return
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
 			successCount++
 			for _, item := range feed.Items {
 				allItems = append(allItems, &FeedItem{Item: item, Source: &s})
 			}
+			statuses[s.Name] = FeedStatus{Source: s, ItemCount: len(feed.Items), Err: nil}
 			logger.Info("Loaded RSS items", "count", len(feed.Items), "source", s.Name, "url", s.URL)
 		}(source)
 	}
@@ -115,8 +125,16 @@ func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, erro
 	logger.Info("Processed RSS feeds", "success", successCount, "total", len(sources))
 
 	if successCount == 0 && len(sources) > 0 {
-		return nil, fmt.Errorf("all %d RSS feeds failed, no news fetched", len(sources))
+		return nil, statuses, fmt.Errorf("all %d RSS feeds failed, no news fetched", len(sources))
 	}
 
-	return allItems, nil
+	return allItems, statuses, nil
+}
+
+// FetchAllFeeds downloads and parses all active feeds concurrently.
+// The context is forwarded to every HTTP request — cancelling it (e.g. on
+// SIGTERM) will stop in-flight feed fetches immediately.
+func FetchAllFeeds(ctx context.Context, sources []FeedSource) ([]*FeedItem, error) {
+	items, _, err := FetchAllFeedsDetailed(ctx, sources)
+	return items, err
 }

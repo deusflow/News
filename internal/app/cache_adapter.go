@@ -44,6 +44,14 @@ type CacheAdapter interface {
 	// Atomic Publish Reservation (prevents concurrent duplicate posts)
 	TryReservePublish(hash, title, url string) (bool, error)
 	CancelPublishReservation(hash string) error
+
+	// Bot State (Feed health monitoring & consecutive empty runs)
+	GetState(key string) (string, error)
+	SetState(key, value string) error
+
+	// AI Translation Cache (prevents duplicate API calls on retries)
+	GetCachedAITranslation(hash string) (string, error)
+	SaveCachedAITranslation(hash, link, title, responseJSON string) error
 }
 
 
@@ -165,6 +173,21 @@ func (f *FileCacheAdapter) CancelPublishReservation(hash string) error {
 	return f.cache.CancelPublishReservation(hash)
 }
 
+func (f *FileCacheAdapter) GetState(key string) (string, error) {
+	return f.cache.GetState(key)
+}
+
+func (f *FileCacheAdapter) SetState(key, value string) error {
+	return f.cache.SetState(key, value)
+}
+
+func (f *FileCacheAdapter) GetCachedAITranslation(hash string) (string, error) {
+	return f.cache.GetCachedAITranslation(hash)
+}
+
+func (f *FileCacheAdapter) SaveCachedAITranslation(hash, link, title, responseJSON string) error {
+	return f.cache.SaveCachedAITranslation(hash, link, title, responseJSON)
+}
 
 // PostgresCacheAdapter —  партнер (Postgres).
 // Он реально выполняет работу, вызывая методы из storage.
@@ -279,5 +302,21 @@ func (p *PostgresCacheAdapter) TryReservePublish(hash, title, url string) (bool,
 
 func (p *PostgresCacheAdapter) CancelPublishReservation(hash string) error {
 	return p.cache.CancelPublishReservation(hash)
+}
+
+func (p *PostgresCacheAdapter) GetState(key string) (string, error) {
+	return p.cache.GetState(key)
+}
+
+func (p *PostgresCacheAdapter) SetState(key, value string) error {
+	return p.cache.SetState(key, value)
+}
+
+func (p *PostgresCacheAdapter) GetCachedAITranslation(hash string) (string, error) {
+	return p.cache.GetCachedAITranslation(hash)
+}
+
+func (p *PostgresCacheAdapter) SaveCachedAITranslation(hash, link, title, responseJSON string) error {
+	return p.cache.SaveCachedAITranslation(hash, link, title, responseJSON)
 }
 

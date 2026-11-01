@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/deusflow/News/internal/app"
 	"github.com/deusflow/News/internal/breaking"
@@ -19,6 +21,30 @@ import (
 )
 
 func main() {
+	// Check for bot execution mode first
+	botMode := os.Getenv("BOT_MODE")
+	for i, arg := range os.Args {
+		if arg == "-mode=breaking" || arg == "--mode=breaking" {
+			botMode = "breaking"
+		}
+		if arg == "-mode=digest" || arg == "--mode=digest" {
+			botMode = "digest"
+		}
+		if arg == "-mode=calendar" || arg == "--mode=calendar" || arg == "-mode=monthly" || arg == "--mode=monthly" {
+			botMode = "calendar"
+		}
+		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
+			botMode = os.Args[i+1]
+		}
+	}
+
+	// Timezone Gating: on scheduled cron runs, verify that current time in Europe/Copenhagen
+	// matches the target Danish hour. This automatically handles Summer/Winter time (CET/CEST)
+	// shifts with zero manual intervention.
+	if !isTargetCopenhagenHour(botMode) {
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Config error", "error", err)
@@ -37,23 +63,6 @@ func main() {
 	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	// Check for bot execution mode
-	botMode := os.Getenv("BOT_MODE")
-	for i, arg := range os.Args {
-	if arg == "-mode=breaking" || arg == "--mode=breaking" {
-			botMode = "breaking"
-		}
-		if arg == "-mode=digest" || arg == "--mode=digest" {
-			botMode = "digest"
-		}
-		if arg == "-mode=calendar" || arg == "--mode=calendar" || arg == "-mode=monthly" || arg == "--mode=monthly" {
-			botMode = "calendar"
-		}
-		if (arg == "-mode" || arg == "--mode") && i+1 < len(os.Args) {
-			botMode = os.Args[i+1]
-		}
-	}
 
 	aiMgr := application.GetAIManager()
 
@@ -106,6 +115,62 @@ func writeGitHubSummary(path string, m *metrics.Metrics) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		logger.Error("Failed to write GitHub summary", "error", err)
 	}
+}
+
+// isTargetCopenhagenHour checks if the current time in Europe/Copenhagen matches the intended
+// schedule hour for cron runs. On GitHub Actions, cron can be configured for all candidate UTC hours
+// (both Summer CEST and Winter CET), and this function acts as an automatic zero-cost gate.
+func isTargetCopenhagenHour(botMode string) bool {
+	isScheduled := os.Getenv("GITHUB_EVENT_NAME") == "schedule" || os.Getenv("CHECK_TIMEZONE_HOURS") == "true"
+	if !isScheduled {
+		return true // Manual triggers, dispatches, and local runs are always allowed
+	}
+
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	if err != nil {
+		logger.Warn("Failed to load Europe/Copenhagen timezone, bypassing gate", "error", err)
+		return true
+	}
+
+	nowDK := time.Now().In(loc)
+	currentHour := nowDK.Hour()
+
+	if botMode == "digest" {
+		// Weekly Sunday digest runs at 20:00 Denmark time
+		if currentHour != 20 {
+			logger.Info("Timezone gate: current Copenhagen hour does not match Sunday digest target hour (20:00)",
+				"current_hour", currentHour,
+				"target_hour", 20,
+				"action", "skipping run")
+			return false
+		}
+		return true
+	}
+
+	if botMode == "calendar" || botMode == "monthly" {
+		return true
+	}
+
+	if botMode == "breaking" {
+		return true
+	}
+
+	// Standard news schedule: 08:00, 10:00, 13:00, 17:00, 21:00 Denmark time
+	targetHours := []int{8, 10, 13, 17, 21}
+	for _, h := range targetHours {
+		if currentHour == h {
+			logger.Info("Timezone gate: Copenhagen hour matched target schedule",
+				"current_hour", currentHour,
+				"target_hour", h)
+			return true
+		}
+	}
+
+	logger.Info("Timezone gate: current Copenhagen hour is not a target news hour, skipping run",
+		"current_hour", currentHour,
+		"target_hours", targetHours,
+		"action", "skipping run")
+	return false
 }
 
 func startMonitoringServer(ctx context.Context, port string, m *metrics.Metrics, a *app.App) {

@@ -34,6 +34,8 @@ type FileCache struct {
 	ttlHours     int
 	items        map[string]SentNewsItem
 	delayedPosts []DelayedPost
+	state        map[string]string
+	aiCache      map[string]string
 	mu           sync.RWMutex
 }
 
@@ -43,6 +45,8 @@ func NewFileCache(filePath string, ttlHours int) *FileCache {
 		filePath: filePath,
 		ttlHours: ttlHours,
 		items:    make(map[string]SentNewsItem),
+		state:    make(map[string]string),
+		aiCache:  make(map[string]string),
 	}
 }
 
@@ -400,6 +404,48 @@ func (fc *FileCache) CancelPublishReservation(hash string) error {
 	if item, exists := fc.items[hash]; exists && item.Category == "" && item.TitleUkrainian == "" {
 		delete(fc.items, hash)
 	}
+	return nil
+}
+
+// GetState returns stored state value from memory.
+func (fc *FileCache) GetState(key string) (string, error) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	if fc.state == nil {
+		return "", nil
+	}
+	return fc.state[key], nil
+}
+
+// SetState updates stored state value in memory.
+func (fc *FileCache) SetState(key, value string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if fc.state == nil {
+		fc.state = make(map[string]string)
+	}
+	fc.state[key] = value
+	return nil
+}
+
+// GetCachedAITranslation returns cached AI translation JSON.
+func (fc *FileCache) GetCachedAITranslation(hash string) (string, error) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	if fc.aiCache == nil {
+		return "", nil
+	}
+	return fc.aiCache[hash], nil
+}
+
+// SaveCachedAITranslation caches AI translation JSON.
+func (fc *FileCache) SaveCachedAITranslation(hash, link, title, responseJSON string) error {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if fc.aiCache == nil {
+		fc.aiCache = make(map[string]string)
+	}
+	fc.aiCache[hash] = responseJSON
 	return nil
 }
 

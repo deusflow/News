@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -77,11 +78,20 @@ type Options struct {
 	// Dedupe allows skipping already-sent items before AI.
 	Dedupe DedupeChecker
 
+	// AICache allows caching AI translations to avoid paying AI twice on retries or delivery errors.
+	AICache AICacheChecker
+
 	// ГЛАВНОЕ ИЗМЕНЕНИЕ: Используем интерфейс, а не конкретные клиенты
 	AI       ai.Provider
 	Config   *config.Config
 	Metrics  *metrics.Metrics
 	Keywords *config.KeywordsConfig
+}
+
+// AICacheChecker provides access to cached AI translations.
+type AICacheChecker interface {
+	GetCachedAITranslation(hash string) (string, error)
+	SaveCachedAITranslation(hash, link, title, responseJSON string) error
 }
 
 // DedupeChecker provides pre-AI duplicate checks without importing app.
@@ -756,19 +766,49 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		logger.Warn("no scraped content, AI works from title only", "index", index+1, "title", title)
 	}
 
-	systemPrompt := GenerateNewsSystemPrompt()
-	userPrompt := GenerateNewsUserContent(title, content)
-
-	resp, aiErr := opts.AI.Generate(ctx, title, content, systemPrompt, userPrompt)
-	if aiErr != nil {
-		logger.Error("all AI providers failed", "title", title, "error", aiErr)
-		return nil, aiErr
+	hash := ""
+	if opts.Dedupe != nil {
+		hash = opts.Dedupe.GenerateNewsHash(title, link)
 	}
 
-	// Валидация AI ответа: проверяем обязательные поля и нормализуем mood
-	if err := resp.Validate(); err != nil {
-		logger.Error("AI response validation failed", "title", title, "error", err)
-		return nil, err
+	var resp *ai.Response
+	var aiErr error
+
+	// Check persistent AI translation cache before calling external AI APIs
+	if hash != "" && opts.AICache != nil {
+		if cachedJSON, err := opts.AICache.GetCachedAITranslation(hash); err == nil && cachedJSON != "" {
+			var cachedResp ai.Response
+			if unmarshalErr := json.Unmarshal([]byte(cachedJSON), &cachedResp); unmarshalErr == nil {
+				if valErr := cachedResp.Validate(); valErr == nil {
+					resp = &cachedResp
+					logger.Info("Using cached AI translation (saved AI API quota!)", "title", title, "hash", hash)
+				}
+			}
+		}
+	}
+
+	if resp == nil {
+		systemPrompt := GenerateNewsSystemPrompt()
+		userPrompt := GenerateNewsUserContent(title, content)
+
+		resp, aiErr = opts.AI.Generate(ctx, title, content, systemPrompt, userPrompt)
+		if aiErr != nil {
+			logger.Error("all AI providers failed", "title", title, "error", aiErr)
+			return nil, aiErr
+		}
+
+		// Валидация AI ответа: проверяем обязательные поля и нормализуем mood
+		if err := resp.Validate(); err != nil {
+			logger.Error("AI response validation failed", "title", title, "error", err)
+			return nil, err
+		}
+
+		// Save valid translation to cache so delivery retries or runner interruptions don't pay AI twice
+		if hash != "" && opts.AICache != nil {
+			if respBytes, err := json.Marshal(resp); err == nil {
+				_ = opts.AICache.SaveCachedAITranslation(hash, link, title, string(respBytes))
+			}
+		}
 	}
 
 	// Guard: отсекаем стабы, пейволлы и попытки модели оправдаться («деталі невідомі»)
@@ -789,6 +829,20 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 			"title", title,
 			"audience_score", resp.AudienceScore,
 			"status", "rejected")
+		return nil, nil
+	}
+
+	// Verification 1: Verify Ukrainian language purity (no Russian characters)
+	fullUkrainian := resp.Ukrainian + " " + resp.TitleUkrainian + " " + resp.TLDR + " " + resp.WhyItMatters + " " + resp.FunFact
+	if langErr := VerifyUkrainian(fullUkrainian); langErr != nil {
+		logger.Warn("Rejecting article: non-Ukrainian text detected", "title", title, "error", langErr)
+		return nil, nil
+	}
+
+	// Verification 2: Verify numbers, dates, and amounts against Danish source text (anti-hallucination guard)
+	danishSource := title + "\n" + content + "\n" + resp.Danish
+	if numErr := VerifyNumbers(danishSource, fullUkrainian); numErr != nil {
+		logger.Warn("Rejecting article: unverified number detected (anti-hallucination guard)", "title", title, "error", numErr)
 		return nil, nil
 	}
 

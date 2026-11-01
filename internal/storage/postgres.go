@@ -290,6 +290,23 @@ func (pc *PostgresCache) initSchema() error {
 			ALTER TABLE delayed_posts ADD COLUMN claimed_at TIMESTAMP;
 		END IF;
 	END $$;
+
+	-- Table for generic bot state (feed health monitoring, consecutive empty runs counters)
+	CREATE TABLE IF NOT EXISTS bot_state (
+		key VARCHAR(100) PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	-- Table for caching AI translations (prevents duplicate API spend on retries/delivery errors)
+	CREATE TABLE IF NOT EXISTS ai_translation_cache (
+		hash VARCHAR(64) PRIMARY KEY,
+		link TEXT NOT NULL,
+		title TEXT NOT NULL,
+		response_json TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_ai_translation_cache_created ON ai_translation_cache(created_at);
 	`
 
 	_, err = pc.db.Exec(additionalSchema)
@@ -892,6 +909,17 @@ func (pc *PostgresCache) Cleanup() error {
 		}
 	}
 
+	queryAICache := `DELETE FROM ai_translation_cache WHERE created_at < $1`
+	resultAICache, err := pc.db.Exec(queryAICache, cutoffTime)
+	if err != nil {
+		logger.Warn("Failed to cleanup ai_translation_cache", "error", err)
+	} else {
+		rowsAICache, _ := resultAICache.RowsAffected()
+		if rowsAICache > 0 {
+			logger.Info("Cleaned old ai_translation_cache records", "rows", rowsAICache)
+		}
+	}
+
 	return nil
 }
 
@@ -1150,5 +1178,51 @@ func (pc *PostgresCache) CancelPublishReservation(hash string) error {
 	_, err := pc.db.Exec(query, hash)
 	return err
 }
+
+// GetState retrieves a persisted string value by key from bot_state.
+func (pc *PostgresCache) GetState(key string) (string, error) {
+	var val string
+	err := pc.db.QueryRow(`SELECT value FROM bot_state WHERE key = $1`, key).Scan(&val)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return val, err
+}
+
+// SetState updates or inserts a string value into bot_state.
+func (pc *PostgresCache) SetState(key, value string) error {
+	query := `
+		INSERT INTO bot_state (key, value, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+	`
+	_, err := pc.db.Exec(query, key, value)
+	return err
+}
+
+// GetCachedAITranslation returns the cached AI response JSON if exists and newer than 48 hours.
+func (pc *PostgresCache) GetCachedAITranslation(hash string) (string, error) {
+	cutoff := time.Now().Add(-48 * time.Hour)
+	var responseJSON string
+	err := pc.db.QueryRow(`SELECT response_json FROM ai_translation_cache WHERE hash = $1 AND created_at > $2`, hash, cutoff).Scan(&responseJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return responseJSON, err
+}
+
+// SaveCachedAITranslation caches the AI response JSON for a news item to avoid re-generating.
+func (pc *PostgresCache) SaveCachedAITranslation(hash, link, title, responseJSON string) error {
+	query := `
+		INSERT INTO ai_translation_cache (hash, link, title, response_json, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (hash) DO UPDATE SET
+			response_json = EXCLUDED.response_json,
+			created_at = NOW();
+	`
+	_, err := pc.db.Exec(query, hash, link, title, responseJSON)
+	return err
+}
+
 
 

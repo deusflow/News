@@ -2,12 +2,12 @@ name: Danish News Bot - Scheduled
 
 on:
   schedule:
-    # Adjust schedule as you like (UTC, Denmark Winter Time CET = UTC+1)
-    - cron: '0 7 * * *'    # 08:00 Denmark — утренние новости
-    - cron: '0 9 * * *'    # 10:00 Denmark — утренний дополнительный
-    - cron: '0 12 * * *'   # 13:00 Denmark — обеденный выпуск
-    - cron: '0 16 * * *'   # 17:00 Denmark — конец рабочего дня
-    - cron: '0 20 * * *'   # 21:00 Denmark — вечерний прайм
+    # Auto-adjusts for Danish Summer (CEST) and Winter (CET) time via internal Europe/Copenhagen gate:
+    - cron: '0 6,7 * * *'    # 08:00 Denmark (06:00 UTC summer, 07:00 UTC winter)
+    - cron: '0 8,9 * * *'    # 10:00 Denmark (08:00 UTC summer, 09:00 UTC winter)
+    - cron: '0 11,12 * * *'  # 13:00 Denmark (11:00 UTC summer, 12:00 UTC winter)
+    - cron: '0 15,16 * * *'  # 17:00 Denmark (15:00 UTC summer, 16:00 UTC winter)
+    - cron: '0 19,20 * * *'  # 21:00 Denmark (19:00 UTC summer, 20:00 UTC winter)
   workflow_dispatch: { }
 
 concurrency:
