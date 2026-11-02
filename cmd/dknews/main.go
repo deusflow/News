@@ -118,12 +118,13 @@ func writeGitHubSummary(path string, m *metrics.Metrics) {
 }
 
 // isTargetCopenhagenHour checks if the current time in Europe/Copenhagen matches the intended
-// schedule hour for cron runs. On GitHub Actions, cron can be configured for all candidate UTC hours
-// (both Summer CEST and Winter CET), and this function acts as an automatic zero-cost gate.
+// schedule hour when strict hour gating (CHECK_TIMEZONE_HOURS=true) is explicitly enabled.
+// By default on GitHub Actions, scheduled cron jobs are经常 delayed by 1–3+ hours by GitHub's
+// runner queue, so we must NOT abort delayed scheduled runs based on wall-clock hour unless
+// CHECK_TIMEZONE_HOURS=true is explicitly set.
 func isTargetCopenhagenHour(botMode string) bool {
-	isScheduled := os.Getenv("GITHUB_EVENT_NAME") == "schedule" || os.Getenv("CHECK_TIMEZONE_HOURS") == "true"
-	if !isScheduled {
-		return true // Manual triggers, dispatches, and local runs are always allowed
+	if os.Getenv("CHECK_TIMEZONE_HOURS") != "true" {
+		return true // Never drop delayed GitHub Actions cron runs or manual triggers
 	}
 
 	loc, err := time.LoadLocation("Europe/Copenhagen")

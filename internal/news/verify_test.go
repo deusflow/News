@@ -16,12 +16,27 @@ func TestVerifyNumbers_ValidMatches(t *testing.T) {
 }
 
 func TestVerifyNumbers_DanishWordToDigit(t *testing.T) {
-	danish := "I alt tre organisationer modtager støtte."
-	ukrainian := "Загалом 3 організації отримають підтримку."
+	danish := "I alt tyve organisationer modtager støtte, og bidraget stiger med femten procent."
+	ukrainian := "Загалом 20 організацій отримають підтримку, а внесок зросте на 15%."
 
 	err := VerifyNumbers(danish, ukrainian)
 	if err != nil {
-		t.Fatalf("expected Danish number word 'tre' to match digit '3', got: %v", err)
+		t.Fatalf("expected Danish number words 'tyve'/'femten' to match digits '20'/'15%%', got: %v", err)
+	}
+}
+
+func TestVerifyNumbers_SingleDigitPhrasingAllowed(t *testing.T) {
+	danish := "Regeringen indfører nye regler i de kommende dage."
+	ukrainian := "Уряд запроваджує 3 нові правила у найближчі дні."
+
+	if err := VerifyNumbers(danish, ukrainian); err != nil {
+		t.Fatalf("expected single-digit stylistic number to be allowed without false-positive rejection, got: %v", err)
+	}
+
+	// Single-digit percentages or decimals must STILL be verified against source
+	ukrainianFakePercent := "Уряд підвищує податок на 5%."
+	if err := VerifyNumbers(danish, ukrainianFakePercent); err == nil {
+		t.Fatalf("expected hallucinated single-digit percentage 5%% to be rejected")
 	}
 }
 

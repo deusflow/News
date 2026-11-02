@@ -19,6 +19,14 @@ func TestIsTargetCopenhagenHour_NonScheduledRunsAlwaysAllowed(t *testing.T) {
 	if !isTargetCopenhagenHour("breaking") {
 		t.Fatalf("expected breaking mode runs to always pass the timezone gate")
 	}
+
+	// Delayed GitHub Actions schedule runs (where GITHUB_EVENT_NAME=schedule) must ALSO pass
+	// when CHECK_TIMEZONE_HOURS is not set, because GitHub Actions cron often delays runs by 1-3 hours.
+	_ = os.Setenv("GITHUB_EVENT_NAME", "schedule")
+	defer os.Unsetenv("GITHUB_EVENT_NAME")
+	if !isTargetCopenhagenHour("single") {
+		t.Fatalf("expected delayed GitHub Actions schedule run to pass when CHECK_TIMEZONE_HOURS is unset")
+	}
 }
 
 func TestIsTargetCopenhagenHour_ScheduledGating(t *testing.T) {

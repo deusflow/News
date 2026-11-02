@@ -787,6 +787,11 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		}
 	}
 
+	fromCache := false
+	if resp != nil {
+		fromCache = true
+	}
+
 	if resp == nil {
 		systemPrompt := GenerateNewsSystemPrompt()
 		userPrompt := GenerateNewsUserContent(title, content)
@@ -801,13 +806,6 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		if err := resp.Validate(); err != nil {
 			logger.Error("AI response validation failed", "title", title, "error", err)
 			return nil, err
-		}
-
-		// Save valid translation to cache so delivery retries or runner interruptions don't pay AI twice
-		if hash != "" && opts.AICache != nil {
-			if respBytes, err := json.Marshal(resp); err == nil {
-				_ = opts.AICache.SaveCachedAITranslation(hash, link, title, string(respBytes))
-			}
 		}
 	}
 
@@ -832,18 +830,28 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		return nil, nil
 	}
 
-	// Verification 1: Verify Ukrainian language purity (no Russian characters)
+	// Verification 1: Verify Ukrainian language purity (no Russian characters) across all Ukrainian fields
 	fullUkrainian := resp.Ukrainian + " " + resp.TitleUkrainian + " " + resp.TLDR + " " + resp.WhyItMatters + " " + resp.FunFact
 	if langErr := VerifyUkrainian(fullUkrainian); langErr != nil {
 		logger.Warn("Rejecting article: non-Ukrainian text detected", "title", title, "error", langErr)
 		return nil, nil
 	}
 
-	// Verification 2: Verify numbers, dates, and amounts against Danish source text (anti-hallucination guard)
-	danishSource := title + "\n" + content + "\n" + resp.Danish
-	if numErr := VerifyNumbers(danishSource, fullUkrainian); numErr != nil {
+	// Verification 2: Verify numbers, dates, and amounts in the article body/title against Danish source text.
+	// Note: FunFact is intentionally excluded because the prompt asks AI for general cultural/historical
+	// facts about Denmark (which frequently contain years or statistics not in the news article).
+	danishSource := title + "\n" + content + "\n" + resp.TitleDanish + "\n" + resp.Danish
+	ukrainianArticleText := resp.TitleUkrainian + "\n" + resp.Ukrainian
+	if numErr := VerifyNumbers(danishSource, ukrainianArticleText); numErr != nil {
 		logger.Warn("Rejecting article: unverified number detected (anti-hallucination guard)", "title", title, "error", numErr)
 		return nil, nil
+	}
+
+	// Save verified translation to cache so delivery retries or runner interruptions don't pay AI twice
+	if !fromCache && hash != "" && opts.AICache != nil {
+		if respBytes, err := json.Marshal(resp); err == nil {
+			_ = opts.AICache.SaveCachedAITranslation(hash, link, title, string(respBytes))
+		}
 	}
 
 	logger.Info("AI response fields",

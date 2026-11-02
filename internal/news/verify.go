@@ -10,13 +10,14 @@ import (
 
 var (
 	// numberRegex extracts substantive numbers (integers, decimals, and percentages)
-	numberRegex = regexp.MustCompile(`\b\d+(?:[.,]\d+)?%?\b`)
+	numberRegex = regexp.MustCompile(`\b\d+(?:[.,]\d+)?%?`)
 
 	// danishNumberWords maps Danish words to numeric values
-	danishNumberWords = map[string]int{
+	danishNumberWords = map[string]float64{
 		"nul":         0,
 		"en":          1,
 		"et":          1,
+		"par":         2,
 		"to":          2,
 		"tre":         3,
 		"fire":        4,
@@ -28,6 +29,7 @@ var (
 		"ti":          10,
 		"elleve":      11,
 		"tolv":        12,
+		"dusin":       12,
 		"tretten":     13,
 		"fjorten":     14,
 		"femten":      15,
@@ -36,9 +38,16 @@ var (
 		"atten":       18,
 		"nitten":      19,
 		"tyve":        20,
+		"snes":        20,
 		"tredive":     30,
 		"fyrre":       40,
 		"halvtreds":   50,
+		"halv":        50,
+		"halvt":       50,
+		"halvdelen":   50,
+		"kvart":       25,
+		"halvanden":   1.5,
+		"halvandet":   1.5,
 		"tres":        60,
 		"halvfjerds":  70,
 		"firs":        80,
@@ -134,33 +143,44 @@ func extractDanishSourceNumberValues(danishText string) map[float64]bool {
 
 	for _, w := range words {
 		if numVal, ok := danishNumberWords[w]; ok {
-			values[float64(numVal)] = true
+			values[numVal] = true
 		}
 	}
 
 	return values
 }
 
-// VerifyNumbers checks whether substantive numbers (>= 3, decimals, percentages, dates)
-// in the Ukrainian translation are grounded in the original Danish source.
-// Returns an error if an unverified number was hallucinated by AI.
+// VerifyNumbers checks whether substantive numbers (decimals, percentages, dates, and integers >= 10,
+// or single-digit numbers when matched against Danish words/digits) in the Ukrainian translation
+// are grounded in the original Danish source.
+// Returns an error if an unverified substantive number was hallucinated by AI.
 func VerifyNumbers(danishSource, ukrainianText string) error {
 	if strings.TrimSpace(ukrainianText) == "" || strings.TrimSpace(danishSource) == "" {
 		return nil
 	}
 
 	sourceValues := extractDanishSourceNumberValues(danishSource)
-	uaNumbers := extractNumbers(ukrainianText)
+	matches := numberRegex.FindAllString(ukrainianText, -1)
 
-	for rawNum, val := range uaNumbers {
-		// Whitelist 1 and 2: heavily used as Ukrainian pronouns, counters, or grammar ("1 день", "1-2 речення")
-		if val == 1.0 || val == 2.0 {
+	for _, rawToken := range matches {
+		hasPercent := strings.HasSuffix(rawToken, "%")
+		hasDecimal := strings.ContainsAny(rawToken, ".,")
+		rawNum, val, ok := normalizeNumericString(rawToken)
+		if !ok {
 			continue
 		}
 
-		// Also check if raw string exists directly in Danish text (e.g. "15%" or "2026")
+		// Whitelist small single-digit integers (0-9) unless they are percentages or decimals.
+		// In Danish-to-Ukrainian news translation, single digits frequently appear from natural phrasing
+		// ("за 1 день", "у 2 етапи", "3 головні зміни", "24/7") whereas dangerous hallucinations
+		// are money amounts, percentages, years, and multi-digit statistics (>= 10).
+		if val < 10.0 && !hasPercent && !hasDecimal {
+			continue
+		}
+
+		// Check if raw string exists directly in Danish text (e.g. "15%" or "2026")
 		cleanRaw := strings.TrimRight(rawNum, "%")
-		if strings.Contains(danishSource, rawNum) || strings.Contains(danishSource, cleanRaw) {
+		if strings.Contains(danishSource, rawToken) || strings.Contains(danishSource, rawNum) || strings.Contains(danishSource, cleanRaw) {
 			continue
 		}
 
@@ -169,7 +189,7 @@ func VerifyNumbers(danishSource, ukrainianText string) error {
 			continue
 		}
 
-		return fmt.Errorf("hallucinated number %q (value %v) not found in Danish source text", rawNum, val)
+		return fmt.Errorf("hallucinated number %q (value %v) not found in Danish source text", rawToken, val)
 	}
 
 	return nil
