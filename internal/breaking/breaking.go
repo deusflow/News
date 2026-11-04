@@ -35,7 +35,7 @@ type DedupeChecker interface {
 
 // Run processes a breaking news item received via repository_dispatch, manual trigger,
 // or auto-discovered via official Danish emergency feeds (DMI MeteoAlarm / major infrastructure alerts).
-func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache DedupeChecker) error {
+func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache DedupeChecker, supabase *storage.SupabaseClient) error {
 	logger.Info("Starting Breaking News mode")
 
 	url := strings.TrimSpace(os.Getenv("BREAKING_URL"))
@@ -59,7 +59,7 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		if alert == nil {
 			logger.Info("No active emergency alerts in Denmark, checking delayed posts queue")
 			if cache != nil {
-				deliverReadyDelayedPosts(ctx, cfg, cache)
+				deliverReadyDelayedPosts(ctx, cfg, cache, supabase)
 			}
 			return nil
 		}
@@ -222,6 +222,11 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	// Message is successfully published to Telegram
 	breakingSuccess = true
 
+	// Save to Supabase website archive
+	if supabase != nil {
+		saveToSupabase(ctx, supabase, n)
+	}
+
 	// Mark as sent in DB cache to guarantee no duplicates: retry up to 3 times, do not rollback reservation
 	if cache != nil {
 		hash := cache.GenerateNewsHash(title, url)
@@ -295,7 +300,7 @@ func buildEmergencyFallbackNews(title, url, sourceName, content string) news.New
 	}
 }
 
-func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache DedupeChecker) {
+func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache DedupeChecker, supabase *storage.SupabaseClient) {
 	ready, err := cache.GetReadyDelayedPosts(ctx)
 	if err != nil {
 		logger.Warn("Failed to check delayed posts queue in breaking runner", "error", err)
@@ -363,7 +368,42 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 		} else {
 			_ = cache.MarkDelayedPostSent(dp.ID)
 			_ = cache.MarkAsSentWithSemanticData(dp.Hash, dp.Title, dp.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding)
+			if supabase != nil {
+				saveToSupabase(ctx, supabase, n)
+			}
 			logger.Info("Delayed post delivered to Telegram successfully via breaking check", "title", dp.Title)
 		}
+	}
+}
+
+func saveToSupabase(ctx context.Context, supabase *storage.SupabaseClient, n news.News) {
+	if supabase == nil {
+		return
+	}
+	archive := storage.NewsArchive{
+		Slug:             storage.GenerateSlugWithDate(n.Title, n.Published),
+		Title:            n.Title,
+		TitleUkrainian:   n.TitleUkrainian,
+		SummaryUkrainian: n.SummaryUkrainian,
+		SummaryDanish:    n.SummaryDanish,
+		TLDR:             n.TLDR,
+		FunFact:          n.FunFact,
+		WhyItMatters:     n.WhyItMatters,
+		ImageURL:         n.ImageURL,
+		SourceURL:        n.Link,
+		SourceName:       n.SourceName,
+		Category:         n.Category,
+		Tags:             n.Tags,
+		Mood:             n.Mood,
+		PublishedAt:      n.Published,
+	}
+
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+
+	if err := supabase.SaveNews(saveCtx, archive); err != nil {
+		logger.Warn("Failed to save breaking news to Supabase", "title", n.Title, "error", err)
+	} else {
+		logger.Info("Saved breaking news to Supabase archive", "title", n.Title)
 	}
 }

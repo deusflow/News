@@ -258,10 +258,9 @@ func RunCalendar(ctx context.Context, cfg *config.Config, aiManager *ai.Manager,
 
 	logger.Info("Monthly calendar generated successfully", "length", len(calendarText))
 
-	// 5. Публикация в Telegram (RichMessage с компактной таблицей Bot API 10.1–10.3 + кнопки copy_text, с авто-фоллбэком)
-	richMsg := BuildCalendarRichMessage(targetMonth, targetYear, nomMonth, calendarText)
+	// 5. Публикация в Telegram (HTML разметка + кнопки copy_text)
 	buttons := BuildCalendarCopyButtons(targetMonth)
-	_, err = telegram.SendRichMessage(ctx, cfg.Telegram.Token, cfg.Telegram.ChatID, richMsg, calendarText, buttons)
+	_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, calendarText, buttons, false, 0)
 	if err != nil {
 		return fmt.Errorf("failed to send monthly calendar to telegram: %w", err)
 	}
@@ -308,75 +307,6 @@ func BuildCalendarCopyButtons(month time.Month) [][]telegram.InlineButton {
 		return [][]telegram.InlineButton{row1, row2}
 	}
 	return [][]telegram.InlineButton{row1}
-}
-
-// BuildCalendarRichMessage builds a Telegram Bot API 10.1–10.3 InputRichMessage
-// featuring a compact table (InputRichBlockTable with is_compact: true) of the month's key dates & payouts.
-func BuildCalendarRichMessage(month time.Month, year int, nomMonth string, calendarHTML string) telegram.InputRichMessage {
-	cells := [][]telegram.RichBlockTableCell{
-		{
-			{Text: "Дата", IsHeader: true, Alignment: "left"},
-			{Text: "Виплата / Дедлайн (DK)", IsHeader: true, Alignment: "left"},
-		},
-		{
-			{Text: "1-й роб. день", Alignment: "left"},
-			{Text: "Boligstøtte (житлова субсидія)", Alignment: "left"},
-		},
-	}
-
-	switch month {
-	case time.January, time.April, time.July, time.October:
-		cells = append(cells, []telegram.RichBlockTableCell{
-			{Text: "20 число", Alignment: "left"},
-			{Text: "Børnepenge (дитячі виплати)", Alignment: "left"},
-		})
-	}
-
-	switch month {
-	case time.March:
-		cells = append(cells, []telegram.RichBlockTableCell{
-			{Text: "Березень", Alignment: "left"},
-			{Text: "Årsopgørelse (річний звіт Skat)", Alignment: "left"},
-		})
-	case time.May:
-		cells = append(cells, []telegram.RichBlockTableCell{
-			{Text: "1 травня", Alignment: "left"},
-			{Text: "Дедлайн Årsopgørelse (Skat)", Alignment: "left"},
-		})
-	case time.November:
-		cells = append(cells, []telegram.RichBlockTableCell{
-			{Text: "Листопад", Alignment: "left"},
-			{Text: "Forskudsopgørelse (податки Skat)", Alignment: "left"},
-		})
-	}
-
-	cells = append(cells, []telegram.RichBlockTableCell{
-		{Text: "Ост. банк. день", Alignment: "left"},
-		{Text: "SU, Dagpenge, Пенсія, Зарплата (Løn)", Alignment: "left"},
-	})
-
-	blocks := []telegram.InputRichBlock{
-		{
-			Type:  "heading",
-			Level: 1,
-			Text:  fmt.Sprintf("📅 КАЛЕНДАР НА %s %d", strings.ToUpper(nomMonth), year),
-		},
-		{
-			Type:       "table",
-			Cells:      cells,
-			IsBordered: true,
-			IsStriped:  true,
-			IsCompact:  true,
-		},
-		{
-			Type: "paragraph",
-			Text: calendarHTML,
-		},
-	}
-
-	return telegram.InputRichMessage{
-		Blocks: blocks,
-	}
 }
 
 func fetchNewsForCalendar(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient) ([]CalendarNewsItem, error) {

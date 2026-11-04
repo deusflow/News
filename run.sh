@@ -44,7 +44,7 @@ if [ -z "$TELEGRAM_CHAT_ID" ]; then
 fi
 
 if [ -z "$GEMINI_MODEL" ]; then
-    export GEMINI_MODEL="gemini-3.5-flash"
+    export GEMINI_MODEL="gemini-3.8-flash"
     echo "ℹ️ GEMINI_MODEL не задан, используем $GEMINI_MODEL"
 fi
 

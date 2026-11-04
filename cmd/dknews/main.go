@@ -67,7 +67,7 @@ func main() {
 	aiMgr := application.GetAIManager()
 
 	if botMode == "breaking" {
-		if err := breaking.Run(ctx, cfg, aiMgr, application.GetCacheAdapter()); err != nil {
+		if err := breaking.Run(ctx, cfg, aiMgr, application.GetCacheAdapter(), application.GetSupabase()); err != nil {
 			logger.Error("Breaking mode failed", "error", err)
 			os.Exit(1)
 		}

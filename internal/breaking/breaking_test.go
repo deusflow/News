@@ -91,7 +91,7 @@ func TestBreaking_Deduplication(t *testing.T) {
 	mgr := ai.NewManager(m, 5)
 
 	// Since cache.IsSourceURLSent(url) is true, Run should return nil immediately without attempting AI
-	err := breaking.Run(context.Background(), cfg, mgr, cache)
+	err := breaking.Run(context.Background(), cfg, mgr, cache, nil)
 	if err != nil {
 		t.Fatalf("Expected nil error on duplicate URL, got: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestBreaking_AtomicReservation_PreventsConcurrentRun(t *testing.T) {
 	m := metrics.New()
 	mgr := ai.NewManager(m, 5)
 
-	err := breaking.Run(context.Background(), cfg, mgr, cache)
+	err := breaking.Run(context.Background(), cfg, mgr, cache, nil)
 	if err != nil {
 		t.Fatalf("Expected nil error on duplicate hash reservation, got: %v", err)
 	}

@@ -1,3 +1,8 @@
 # Hugo build output
 public/
 .hugo_build.lock
+
+# Dynamically generated posts from Supabase in CI
+content/posts/*.md
+!content/posts/_index.md
+

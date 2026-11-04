@@ -3,6 +3,7 @@ package digest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -107,11 +108,8 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 	// Telegram hard limit is 4096 chars — trim whole paragraphs to stay safely under it
 	digestText = truncateForTelegram(digestText)
 
-	// 5. Публикация в Telegram (через RichMessage Bot API 10.1–10.3 с автоматическим фоллбэком на HTML)
-	richMsg := telegram.InputRichMessage{
-		HTML: digestText,
-	}
-	_, err = telegram.SendRichMessage(ctx, cfg.Telegram.Token, cfg.Telegram.ChatID, richMsg, digestText, nil)
+	// 5. Публикация в Telegram
+	_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, digestText)
 	if err != nil {
 		return fmt.Errorf("failed to send digest to telegram: %w", err)
 	}
@@ -181,15 +179,19 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 		}
 	}
 
-	// 2. Попытка получить из PostgreSQL (sent_news)
+	// 2. Попытка получить из PostgreSQL (sent_news + ai_translation_cache fallback)
 	if cfg.Database.UsePostgres && cfg.Database.URL != "" {
 		logger.Info("Attempting to fetch news for digest from PostgreSQL")
 		db, err := sql.Open("postgres", cfg.Database.URL)
 		if err == nil {
 			defer db.Close()
 			query := `
-				SELECT s.title, s.link, ''
+				SELECT 
+					COALESCE(NULLIF(s.title_ukrainian, ''), s.title), 
+					s.link, 
+					COALESCE(c.response_json, '')
 				FROM sent_news s
+				LEFT JOIN ai_translation_cache c ON s.hash = c.hash
 				WHERE s.sent_at >= NOW() - INTERVAL '7 days'
 				ORDER BY s.sent_at DESC
 				LIMIT 30
@@ -198,8 +200,19 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 			if queryErr == nil {
 				defer rows.Close()
 				for rows.Next() {
-					var title, link, content string
-					if scanErr := rows.Scan(&title, &link, &content); scanErr == nil {
+					var title, link, respJSON string
+					if scanErr := rows.Scan(&title, &link, &respJSON); scanErr == nil {
+						content := title
+						if respJSON != "" {
+							var aiResp ai.Response
+							if json.Unmarshal([]byte(respJSON), &aiResp) == nil {
+								if aiResp.TLDR != "" {
+									content = aiResp.TLDR
+								} else if aiResp.Ukrainian != "" {
+									content = aiResp.Ukrainian
+								}
+							}
+						}
 						items = append(items, DigestNewsItem{
 							Title:   title,
 							Content: content,
