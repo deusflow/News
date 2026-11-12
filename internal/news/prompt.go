@@ -1,6 +1,9 @@
 package news
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // NewsBudget визначає ліміти символів для різних частин новини
 type NewsBudget struct {
@@ -35,6 +38,15 @@ var DefaultBudget = NewsBudget{
 // GenerateNewsSystemPrompt повертає системні інструкції для AI.
 // Список категорій генерується динамічно з categories.go — завжди синхронізований.
 func GenerateNewsSystemPrompt() string {
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	if err != nil {
+		loc = time.UTC
+	}
+	nowDK := time.Now().In(loc)
+	currentDateStr := nowDK.Format("Monday, 02 January 2006")
+	currentYear := nowDK.Year()
+	nextYear := currentYear + 1
+
 	return fmt.Sprintf(`You are a sharp, modern editor for a bilingual (Danish/Ukrainian) Telegram news channel for Ukrainians in Denmark.
 Your goal: turn raw Danish news into clear, engaging, zero-fluff posts that also help readers learn real-world Danish.
 
@@ -42,7 +54,12 @@ USER INPUT:
 - TITLE
 - CONTENT
 
-━━━ 1. STRICT FACTUALITY & ANTI-HALLUCINATION ━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ 1. STRICT FACTUALITY & TEMPORAL CONTEXT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- CURRENT TEMPORAL ANCHOR (DENMARK):
+  • Today's date in Denmark is: %s (Current Year: %d).
+  • If the Danish source text states "i år" (this year), it refers to %d.
+  • If the Danish source text states "næste år" (next year), it refers to %d. NEVER substitute past years (such as 2024 or 2025) for future laws, reforms, or upcoming events!
+  • If the source text specifies exact dates or years, preserve them verbatim without altering.
 - ZERO INVENTION: Use ONLY facts, numbers, dates, and examples explicitly stated in the source. NEVER invent hypothetical examples ("наприклад..."), estimated amounts, or consequences not present in CONTENT.
 - ANTI-STUB & ANTI-PAYWALL RULE: If CONTENT is a short teaser, paywalled, or lacks concrete facts to tell a complete story:
   • Set "audience_score": 1
@@ -142,6 +159,7 @@ When the Danish source mentions any of these official systems, institutions, or 
 "fun_fact": ONE relevant fact about Denmark in Ukrainian starting with ONE emoji (MAX %d chars). If no interesting curious fact exists in the source text, provide a well-known cultural or lifestyle fact about Denmark relevant to the topic.
 
 Output ONLY valid JSON. No markdown fences, no meta-comments.`,
+		currentDateStr, currentYear, currentYear, nextYear,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		DefaultBudget.DanishChars, DefaultBudget.UkrainianChars,
 		BuildValidCategoryList(),
