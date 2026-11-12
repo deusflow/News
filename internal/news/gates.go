@@ -1,8 +1,13 @@
 package news
 
 import (
+	"os"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/deusflow/News/internal/ai"
+	"github.com/deusflow/News/internal/config"
 )
 
 const (
@@ -142,4 +147,106 @@ func sortByPublishPriority(items []News) {
 		}
 		return false
 	})
+}
+
+func getMinKeywordScoreForAI() int {
+	const defaultMin = 8
+	if v := os.Getenv("MIN_KEYWORD_SCORE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultMin
+}
+
+func isVIPKeywordMatch(matches []config.KeywordMatch) bool {
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "voldtægt", "seksuelt overgreb", "overgreb", "grooming",
+			"udvisning", "udvises", "udviste", "deportation":
+			return true
+		}
+	}
+	return false
+}
+
+func isBorderlineKeywordScore(score, min int) bool {
+	if min <= 0 {
+		return false
+	}
+	return score >= min-3 && score < min
+}
+
+func hasDenmarkContext(categoryWeights map[string]int, matches []config.KeywordMatch) bool {
+	if len(categoryWeights) > 0 && categoryWeights["local"] > 0 {
+		return true
+	}
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "danmark", "denmark", "danish", "i danmark", "dansk", "danske", "danskere", "folketing", "regeringen", "statsminister", "kommune", "kommunen", "kommunerne", "region", "regioner":
+			return true
+		}
+	}
+	return false
+}
+
+func hasUkraineContext(matches []config.KeywordMatch) bool {
+	for _, m := range matches {
+		switch strings.ToLower(m.Word) {
+		case "ukrainsk", "ukrainer", "ukrainske flygtninge", "ukrainsk statsborger", "sl1", "paragraf 24":
+			return true
+		}
+	}
+	return false
+}
+
+// isStubOrApology проверяет, не является ли ответ AI признанием отсутствия фактуры или стабом
+func isStubOrApology(resp *ai.Response) bool {
+	if resp == nil {
+		return true
+	}
+	ca := strings.ToLower(strings.TrimSpace(resp.ConcreteAnchor))
+	if ca == "insufficient_substance" ||
+		strings.Contains(ca, "insufficient_substance") ||
+		strings.Contains(ca, "не містить конкретики") ||
+		strings.Contains(ca, "деталі невідомі") ||
+		strings.Contains(ca, "подробиці не уточнюються") ||
+		strings.Contains(ca, "ikke oplyst") ||
+		strings.Contains(ca, "ikke tilgængelig") ||
+		strings.Contains(ca, "mangler detaljer") {
+		return true
+	}
+
+	dk := strings.ToLower(resp.Danish)
+	ua := strings.ToLower(resp.Ukrainian)
+
+	apologyMarkers := []string{
+		"ikke tilgængelig",
+		"ikke tilgængelige",
+		"kildemateriale mangler",
+		"i det åbne kildemateriale",
+		"det åbne kildemateriale",
+		"åbne kildemateriale",
+		"ikke oplyst",
+		"detaljer kendes ikke",
+		"fremgår ikke af artiklen",
+		"першоджерело не містить",
+		"джерело не містить",
+		"не містить додаткових",
+		"не містить конкретики",
+		"немає у відкритому доступі",
+		"недоступні в відкритому",
+		"у відкритому доступі немає",
+		"деталі не розголошуються в джерелі",
+		"деталі невідомі",
+		"подробиці не уточнюються",
+		"у статті не повідомляється",
+	}
+
+	for _, marker := range apologyMarkers {
+		if strings.Contains(dk, marker) || strings.Contains(ua, marker) {
+			return true
+		}
+	}
+	return false
 }

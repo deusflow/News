@@ -1,7 +1,12 @@
 package news
 
 import (
+	"fmt"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
 )
 
@@ -217,4 +222,78 @@ func jaccardBigrams(a, b map[string]struct{}) float64 {
 		return 0
 	}
 	return float64(intersection) / float64(union)
+}
+
+func topKeywordMatchesForLog(matches []config.KeywordMatch, limit int) string {
+	if len(matches) == 0 || limit <= 0 {
+		return ""
+	}
+	sorted := make([]config.KeywordMatch, len(matches))
+	copy(sorted, matches)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].Weight > sorted[j].Weight
+	})
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+	parts := make([]string, 0, len(sorted))
+	for _, m := range sorted {
+		mode := "substr"
+		if m.WholeWord {
+			mode = "word"
+		}
+		parts = append(parts, fmt.Sprintf("%s:%s:%d:%s", m.Word, m.Category, m.Weight, mode))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatCategoryWeightsForLog(weights map[string]int) string {
+	if len(weights) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(weights))
+	for k := range weights {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", k, weights[k]))
+	}
+	return strings.Join(parts, ",")
+}
+
+// Веса для mood-based fallback scoring.
+// Используется ТОЛЬКО когда Keywords config недоступен.
+// При наличии Keywords — scoring идёт через CalculateScore() из YAML.
+const (
+	scoreMoodUrgent   = 50 // Срочные новости — максимальный приоритет
+	scoreMoodShocking = 30 // Шокирующие новости — высокий приоритет
+	scoreMoodNegative = 20 // Негативные новости важнее позитивных (влияют на жизнь)
+	scoreMoodPositive = 10 // Позитивные новости — базовый приоритет
+	// neutral = 0 — нейтральные не получают бонуса, но и не фильтруются
+	scoreFreshNews  = 10 // Бонус за свежесть: опубликована менее чем scoreFreshHours назад
+	scoreFreshHours = 4  // Порог "свежей" новости в часах
+)
+
+// calculateScore — fallback scoring по mood и свежести.
+// Применяется только если Keywords config не задан.
+// Картинка намеренно НЕ влияет на score — наличие фото не делает новость важнее.
+func calculateScore(n News) int {
+	score := 0
+	switch n.Mood { // Mood уже нормализован в Validate() → всегда lowercase
+	case "urgent":
+		score += scoreMoodUrgent
+	case "shocking":
+		score += scoreMoodShocking
+	case "negative":
+		score += scoreMoodNegative
+	case "positive":
+		score += scoreMoodPositive
+		// "neutral" → 0, без бонуса
+	}
+	if time.Since(n.Published).Hours() < scoreFreshHours {
+		score += scoreFreshNews
+	}
+	return score
 }
