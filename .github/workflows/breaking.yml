@@ -2,8 +2,8 @@ name: Danish News Bot - Breaking News
 
 on:
   schedule:
-    # Check for acute Danish emergencies every 20 mins between 05:00 and 21:00 UTC (zero AI used if calm)
-    - cron: '*/20 5-21 * * *'
+    # Check for acute Danish emergencies every 20 mins (off-peak offset :07, :27, :47 to avoid runner queue delays)
+    - cron: '7,27,47 5-21 * * *'
   repository_dispatch:
     types: [breaking_news]
   workflow_dispatch:

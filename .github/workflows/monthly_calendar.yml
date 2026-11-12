@@ -2,8 +2,8 @@ name: Danish News Bot - Monthly Calendar
 
 on:
   schedule:
-    # Run on the 28th of every month at 17:00 UTC (18:00/19:00 in Denmark)
-    - cron: '0 17 28 * *'
+    # Run on the 28th of every month at 17:15 UTC (off-peak offset to avoid runner queue delays)
+    - cron: '15 17 28 * *'
   workflow_dispatch:
     inputs:
       target_month:

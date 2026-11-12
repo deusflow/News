@@ -37,8 +37,25 @@ func TestFormatNewsWithImage_IncludesWhyItMatters(t *testing.T) {
 	}
 
 	out := FormatNewsWithImage(n)
-	if !strings.Contains(out, "Чому це важливо") {
+	if !strings.Contains(out, "Що це означає") && !strings.Contains(out, "Чому це важливо") {
 		t.Fatalf("expected why-it-matters block in output, got: %q", out)
+	}
+
+	// Test prefix stripping
+	n2 := News{
+		Title:            "Test title 2",
+		TitleUkrainian:   "Тестовий заголовок 2",
+		SummaryDanish:    "Kort dansk tekst.",
+		SummaryUkrainian: "Короткий український текст.",
+		WhyItMatters:     "Що це означає для вас: нові правила діють з 1 липня.",
+		Category:         "economy",
+	}
+	out2 := FormatNewsWithImage(n2)
+	if strings.Contains(out2, "Що це означає: Що це означає") {
+		t.Fatalf("expected redundant prefix to be stripped, got: %q", out2)
+	}
+	if !strings.Contains(out2, "нові правила діють з 1 липня") {
+		t.Fatalf("expected cleaned why-it-matters text in output, got: %q", out2)
 	}
 }
 

@@ -2,8 +2,8 @@ name: Danish News Bot - Weekly Sunday Digest
 
 on:
   schedule:
-    # 20:00 Denmark time (19:00 UTC winter CET) every Sunday
-    - cron: '0 19 * * 0'
+    # 20:15 Denmark time (19:15 UTC winter CET) every Sunday (off-peak minute offset to avoid queue delays)
+    - cron: '15 19 * * 0'
   workflow_dispatch: { }
 
 concurrency:

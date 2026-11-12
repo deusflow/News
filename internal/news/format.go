@@ -120,6 +120,85 @@ func ExtractVideoURL(n News) string {
 	return ""
 }
 
+// formatWhyItMattersHeader returns the headline for the practical impact block.
+// It alternates between "💡 <b>Що це означає:</b> " and "🧭 <b>Чому це важливо:</b> "
+// depending on category relevance and title seed for visual variety.
+func formatWhyItMattersHeader(n News) string {
+	cat := strings.ToLower(n.Category)
+	switch cat {
+	case "economy", "money", "society", "work", "transport", "lifestyle", "tech", "prices", "taxes":
+		return "💡 <b>Що це означає:</b> "
+	case "politics", "war", "world":
+		if len(n.Title)%2 == 0 {
+			return "🧭 <b>Чому це важливо:</b> "
+		}
+		return "💡 <b>Що це означає:</b> "
+	default:
+		if len(n.Title)%2 == 0 {
+			return "💡 <b>Що це означає:</b> "
+		}
+		return "🧭 <b>Чому це важливо:</b> "
+	}
+}
+
+// cleanWhyItMatters strips redundant leading prefixes if the AI generated them.
+func cleanWhyItMatters(text string) string {
+	text = strings.TrimSpace(text)
+	prefixes := []string{
+		"що це означає для вас:",
+		"що це означає:",
+		"чому це важливо для вас:",
+		"чому це важливо:",
+		"значення для українців:",
+		"практичне значення:",
+	}
+	lower := strings.ToLower(text)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			text = strings.TrimSpace(text[len(p):])
+			break
+		}
+	}
+	text = strings.TrimLeft(text, ":-—– ")
+	return strings.TrimSpace(text)
+}
+
+// buildExpandableBlockquote builds the expandable blockquote with why-it-matters and fun fact.
+func buildExpandableBlockquote(n News, why, fact string) string {
+	why = cleanWhyItMatters(why)
+	fact = strings.TrimSpace(fact)
+	if why == "" && fact == "" {
+		return ""
+	}
+
+	var extra strings.Builder
+	whyHeader := formatWhyItMattersHeader(n)
+
+	if why != "" {
+		extra.WriteString(whyHeader)
+		extra.WriteString(why)
+	}
+	if fact != "" {
+		if extra.Len() > 0 {
+			extra.WriteString("\n\n")
+			if strings.HasPrefix(whyHeader, "💡") {
+				extra.WriteString("🇩🇰 <i>")
+			} else {
+				extra.WriteString("💡 <i>")
+			}
+		} else {
+			extra.WriteString("💡 <i>")
+		}
+		extra.WriteString(fact)
+		extra.WriteString("</i>")
+	}
+
+	if extra.Len() == 0 {
+		return ""
+	}
+	return "<blockquote expandable>" + extra.String() + "</blockquote>"
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // FormatNewsWithImage — длинный пост без фото (лимит 4096 символов).
 // Используется когда фото нет или текст не влезает в caption.
@@ -197,23 +276,9 @@ func FormatNewsWithImage(n News) string {
 	b.WriteString("\n\n")
 
 	// 5 & 7. Почему это важно и Факт (в expandable blockquote)
-	var extra strings.Builder
-	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
-		extra.WriteString("🧭 <b>Чому це важливо:</b> ")
-		extra.WriteString(w)
-	}
-	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		if extra.Len() > 0 {
-			extra.WriteString("\n\n")
-		}
-		extra.WriteString("💡 <i>")
-		extra.WriteString(fact)
-		extra.WriteString("</i>")
-	}
-	if extra.Len() > 0 {
-		b.WriteString("<blockquote expandable>")
-		b.WriteString(extra.String())
-		b.WriteString("</blockquote>\n\n")
+	if bq := buildExpandableBlockquote(n, n.WhyItMatters, n.FunFact); bq != "" {
+		b.WriteString(bq)
+		b.WriteString("\n\n")
 	}
 
 	// 6. Теги
@@ -302,23 +367,9 @@ func FormatLongreadBody(n News) string {
 	b.WriteString("\n\n")
 
 	// 3 & 5. Почему это важно и Факт (в expandable blockquote)
-	var extra strings.Builder
-	if w := strings.TrimSpace(n.WhyItMatters); w != "" {
-		extra.WriteString("🧭 <b>Чому це важливо:</b> ")
-		extra.WriteString(w)
-	}
-	if fact := strings.TrimSpace(n.FunFact); fact != "" {
-		if extra.Len() > 0 {
-			extra.WriteString("\n\n")
-		}
-		extra.WriteString("💡 <i>")
-		extra.WriteString(fact)
-		extra.WriteString("</i>")
-	}
-	if extra.Len() > 0 {
-		b.WriteString("<blockquote expandable>")
-		b.WriteString(extra.String())
-		b.WriteString("</blockquote>\n\n")
+	if bq := buildExpandableBlockquote(n, n.WhyItMatters, n.FunFact); bq != "" {
+		b.WriteString(bq)
+		b.WriteString("\n\n")
 	}
 
 	// 4. Теги
@@ -421,23 +472,9 @@ func FormatCaptionForPhoto(n News, maxLen int) string {
 	fact := strings.TrimSpace(n.FunFact)
 
 	assemble := func(w, f, t string) string {
-		var extra strings.Builder
-		if w != "" {
-			extra.WriteString("🧭 <b>Чому це важливо:</b> ")
-			extra.WriteString(w)
-		}
-		if f != "" {
-			if extra.Len() > 0 {
-				extra.WriteString("\n\n")
-			}
-			extra.WriteString("💡 <i>")
-			extra.WriteString(f)
-			extra.WriteString("</i>")
-		}
-		
 		res := core
-		if extra.Len() > 0 {
-			res += "\n\n<blockquote expandable>" + extra.String() + "</blockquote>"
+		if bq := buildExpandableBlockquote(n, w, f); bq != "" {
+			res += "\n\n" + bq
 		}
 		if t != "" {
 			res += "\n\n" + t

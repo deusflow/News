@@ -19,20 +19,22 @@ type NewsBudget struct {
 // Budget breakdown for photo caption (1024 hard Telegram limit):
 //
 //	header:    ~25 chars   ("⚔️ ВІЙНА\n\n")
-//	TLDR:      ~95 chars   ("💬 <b>...</b>\n\n")
+//	TLDR:      ~80 chars   ("💬 <b>...</b>\n\n")
 //	DK title:  ~65 chars   ("🇩🇰 <b>Title</b>\n")
-//	DK body:   320 chars
+//	DK body:   260 chars
 //	separator:  ~2 chars   ("\n\n")
 //	UA title:  ~75 chars   ("🇺🇦 <b>Title</b>\n")
-//	UA body:   350 chars
+//	UA body:   280 chars
+//	why-block: ~170 chars  ("<blockquote expandable>💡 <b>Що це означає:</b> ...</blockquote>")
+//	tags:      ~35 chars   ("#данія #політика")
 //	─────────────────────
-//	Total:     ~932 chars  ✅ fits in 1024 with ~92 chars spare for tags/blockquote
+//	Total:     ~992 chars  ✅ guaranteed to fit within 1024 Telegram photo limit with expandable blockquote
 var DefaultBudget = NewsBudget{
-	DanishChars:       320,
-	UkrainianChars:    350,
-	TLDRChars:         90,
-	FunFactChars:      150,
-	WhyItMattersChars: 140,
+	DanishChars:       260,
+	UkrainianChars:    280,
+	TLDRChars:         80,
+	FunFactChars:      140,
+	WhyItMattersChars: 130,
 }
 
 // GenerateNewsSystemPrompt повертає системні інструкції для AI.
@@ -149,7 +151,7 @@ When the Danish source mentions any of these official systems, institutions, or 
 "tags": 2–4 Ukrainian tags (no # symbol).
 "tldr": ONE punchy Ukrainian hook starting with ONE emoji (MAX %d chars). For non-tragic news, make it witty/ironic ("Перепичка" style).
 "is_exclusive": true | false.
-"why_it_matters": ONE Ukrainian sentence (MAX %d chars) explaining practical impact on a regular person/user in Denmark.
+"why_it_matters": ONE Ukrainian sentence (MAX %d chars) explaining practical impact on a regular person in Denmark (what changes for wallet, money, work, commute, taxes, or daily life).
 "audience_score": INTEGER 1 to 12. Strict filter for relevance:
   11-12 = Visas, særloven, Ukrainian refugee rights, critical MitID/Skat/state alerts.
   9-10  = Direct impact on wallet/life: taxes, prices, schools (folkeskole, gymnasium), kids/family benefits (børnepenge), major cybersecurity leaks/scams, big IT/tech changes affecting regular users, new laws passed.
