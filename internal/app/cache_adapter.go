@@ -7,53 +7,70 @@ import (
 	"github.com/deusflow/News/internal/storage"
 )
 
-// CacheAdapter — это наш Контракт.
-// Мы добавили сюда методы для DLQ (работы с ошибками), чтобы app.go мог их вызывать.
-type CacheAdapter interface {
+// DedupeStore handles deduplication queries, hashing, and marking articles as sent.
+type DedupeStore interface {
 	GenerateNewsHash(title, link string) string
 	IsAlreadySent(hash string) bool
-	IsSourceURLSent(sourceURL string) bool // replaces Supabase REST duplicate check
+	IsSourceURLSent(sourceURL string) bool
 	IsContentDuplicate(content string) (bool, string)
-	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
+	IsTitleNearDuplicate(title string) (bool, string)
 	CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error)
 	GetRecentStories(lookback time.Duration) ([]storage.SentStoryRecord, error)
 	SaveTelegramMessageID(hash string, msgID int) error
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
-	MarkSupabaseSynced(hash string) error
+	TryReservePublish(hash, title, url string) (bool, error)
+	CancelPublishReservation(hash string) error
 	IsFunFactRecentlyUsed(funFact string) bool
 	MarkFunFactUsed(funFact string) error
+}
 
-	// Supabase sync queue — Neon is source of truth, Supabase is secondary
-	EnqueueSupabaseSync(hash string, payload []byte) error
-	GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error)
-	DeleteSyncQueueItem(id int) error
-	IncrementSyncQueueAttempts(id int, errMsg string) error
+// StateStore persists key-value status for health monitoring and run counters.
+type StateStore interface {
+	GetState(key string) (string, error)
+	SetState(key, value string) error
+}
 
-	// DLQ
+// DLQStore manages the dead letter queue for failed Telegram deliveries.
+type DLQStore interface {
 	SaveFailedNews(title, link, imageURL, messageText, errorMsg string) error
 	GetFailedNews(limit int) ([]storage.FailedItem, error)
 	DeleteFailedNews(id int) error
 	IncrementFailedAttempts(id int, errorMsg string) error
+}
 
-	// Delayed Posts Queue (High-Impact second story)
+// DelayedPostStore manages delayed high-impact publications.
+type DelayedPostStore interface {
 	EnqueueDelayedPost(hash string, title, link, newsJSON string, delay time.Duration) error
 	GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error)
 	MarkDelayedPostSent(id int) error
 	MarkDelayedPostFailed(id int, errMsg string) error
+}
 
-	// Atomic Publish Reservation (prevents concurrent duplicate posts)
-	TryReservePublish(hash, title, url string) (bool, error)
-	CancelPublishReservation(hash string) error
+// SyncQueueStore manages reliable secondary delivery to Supabase.
+type SyncQueueStore interface {
+	EnqueueSupabaseSync(hash string, payload []byte) error
+	GetPendingSupabaseSync(limit int) ([]storage.SyncQueueItem, error)
+	DeleteSyncQueueItem(id int) error
+	IncrementSyncQueueAttempts(id int, errMsg string) error
+	MarkSupabaseSynced(hash string) error
+}
 
-	// Bot State (Feed health monitoring & consecutive empty runs)
-	GetState(key string) (string, error)
-	SetState(key, value string) error
-
-	// AI Translation Cache (prevents duplicate API calls on retries)
+// AITranslationCache caches LLM translation payloads to save token costs and prevent duplicate API calls.
+type AITranslationCache interface {
 	GetCachedAITranslation(hash string) (string, error)
 	SaveCachedAITranslation(hash, link, title, responseJSON string) error
+}
+
+// CacheAdapter is the aggregate contract embedding all storage capabilities.
+type CacheAdapter interface {
+	DedupeStore
+	StateStore
+	DLQStore
+	DelayedPostStore
+	SyncQueueStore
+	AITranslationCache
 }
 
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -69,8 +70,8 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 		ttlHours: ttlHours,
 	}
 
-	// Initialize schema
-	if err := cache.initSchema(); err != nil {
+	// Initialize schema if needed
+	if err := cache.ensureSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %v", err)
 	}
 
@@ -81,6 +82,54 @@ func NewPostgresCache(connectionString string, ttlHours int) (*PostgresCache, er
 // Ping checks database connection
 func (pc *PostgresCache) Ping() error {
 	return pc.db.Ping()
+}
+
+const currentSchemaVersion = 2
+
+// ensureSchema checks whether the database schema is up to date, skipping
+// redundant DDL and index migrations on short cron runs unless schema_version < currentSchemaVersion
+// or FORCE_SCHEMA_INIT=true is set.
+func (pc *PostgresCache) ensureSchema() error {
+	if os.Getenv("FORCE_SCHEMA_INIT") == "true" {
+		logger.Info("FORCE_SCHEMA_INIT is true, running full schema migrations")
+		if err := pc.initSchema(); err != nil {
+			return err
+		}
+		_, _ = pc.db.Exec(`INSERT INTO schema_version (version) VALUES ($1) ON CONFLICT (version) DO NOTHING`, currentSchemaVersion)
+		return nil
+	}
+
+	// Step 1: Ensure schema_version table exists
+	if _, err := pc.db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version INT PRIMARY KEY,
+			applied_at TIMESTAMP NOT NULL DEFAULT NOW()
+		);
+	`); err != nil {
+		logger.Warn("Failed to check schema_version table, falling back to full initSchema", "error", err)
+		return pc.initSchema()
+	}
+
+	// Step 2: Check if currentSchemaVersion is already applied
+	var versionExists bool
+	err := pc.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM schema_version WHERE version = $1)`, currentSchemaVersion).Scan(&versionExists)
+	if err == nil && versionExists {
+		logger.Debug("Database schema is up to date, skipping DDL initialization", "version", currentSchemaVersion)
+		return nil
+	}
+
+	// Step 3: Run full schema init if not applied yet
+	logger.Info("Applying database schema initialization/migration", "target_version", currentSchemaVersion)
+	if err := pc.initSchema(); err != nil {
+		return err
+	}
+
+	// Step 4: Record applied version
+	if _, err := pc.db.Exec(`INSERT INTO schema_version (version) VALUES ($1) ON CONFLICT (version) DO NOTHING`, currentSchemaVersion); err != nil {
+		logger.Warn("Failed to record schema_version", "error", err)
+	}
+
+	return nil
 }
 
 // initSchema creates the necessary tables if they don't exist
