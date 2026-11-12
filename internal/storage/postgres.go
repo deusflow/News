@@ -408,7 +408,6 @@ func (pc *PostgresCache) IsAlreadySent(hash string) bool {
 	return count > 0
 }
 
-
 // IsContentDuplicate checks if content with similar hash already exists
 // Uses SimHash-like approach: generates hash from normalized content words
 // Two articles about the same event will have very similar content regardless of title
@@ -1251,7 +1250,6 @@ func (pc *PostgresCache) TryReservePublish(hash, title, url string) (bool, error
 	return true, nil
 }
 
-
 // CancelPublishReservation releases the unfulfilled reservation if Telegram sending fails.
 func (pc *PostgresCache) CancelPublishReservation(hash string) error {
 	query := `DELETE FROM sent_news WHERE hash = $1 AND content_hash IS NULL;`
@@ -1303,6 +1301,3 @@ func (pc *PostgresCache) SaveCachedAITranslation(hash, link, title, responseJSON
 	_, err := pc.db.Exec(query, hash, link, title, responseJSON)
 	return err
 }
-
-
-

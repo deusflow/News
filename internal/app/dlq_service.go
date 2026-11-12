@@ -71,4 +71,3 @@ func processFailedMessages(adapter CacheAdapter, cfg *config.Config, m *metrics.
 		}
 	}
 }
-

@@ -18,7 +18,6 @@ const (
 	DefaultOpenRouterModel = "meta-llama/llama-3.3-70b-instruct:free"
 )
 
-
 type TelegramConfig struct {
 	Token       string
 	ChatID      string
@@ -204,7 +203,6 @@ func Load() (*Config, error) {
 	cfg.AI.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 	cfg.AI.OpenRouterAPIKey2 = os.Getenv("OPENROUTER_API_KEY_2")
 	cfg.AI.OpenRouterModel = getEnvOrDefault("OPENROUTER_MODEL", DefaultOpenRouterModel)
-
 
 	// Cache settings
 	cfg.Cache.FilePath = getEnvOrDefault("CACHE_FILE_PATH", "sent_news.json")
@@ -434,7 +432,6 @@ func normalizeProviders(providers []string) []string {
 	}
 	return ordered
 }
-
 
 func (c *Config) Validate() error {
 	if c.Telegram.Token == "" {

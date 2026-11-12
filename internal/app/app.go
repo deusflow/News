@@ -395,7 +395,6 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 		}
 	}
 
-
 	if len(aiProviders) == 0 {
 		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
 	}
@@ -639,5 +638,3 @@ func (a *App) ReloadConfig() error {
 	logger.Info("Configuration reloaded successfully")
 	return nil
 }
-
-

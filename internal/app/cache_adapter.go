@@ -73,7 +73,6 @@ type CacheAdapter interface {
 	AITranslationCache
 }
 
-
 // FileCacheAdapter — Ленивый партнер (Файловый кэш).
 // Он подписывает контракт, но для новых методов просто говорит "Ок" и ничего не делает.
 type FileCacheAdapter struct {
@@ -354,4 +353,3 @@ func (p *PostgresCacheAdapter) GetCachedAITranslation(hash string) (string, erro
 func (p *PostgresCacheAdapter) SaveCachedAITranslation(hash, link, title, responseJSON string) error {
 	return p.cache.SaveCachedAITranslation(hash, link, title, responseJSON)
 }
-

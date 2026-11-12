@@ -481,4 +481,3 @@ func EvaluateDevelopingStory(candidate news.News, recentStories []storage.SentSt
 	}
 	return false, 0, reason
 }
-

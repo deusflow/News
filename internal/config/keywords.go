@@ -208,4 +208,3 @@ func lastRune(s string) rune {
 	}
 	return last
 }
-
