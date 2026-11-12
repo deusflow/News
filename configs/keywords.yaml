@@ -596,16 +596,34 @@ keywords:
     weight: 15
   - word: "folkeskole"
     category: "education"
-    weight: 14
-  - word: "uddannelse"
+    weight: 25
+  - word: "folkeskolen"
     category: "education"
-    weight: 10
-  - word: "studerende"
+    weight: 25
+  - word: "skolebørn"
     category: "education"
-    weight: 10
+    weight: 25
+  - word: "skolestart"
+    category: "education"
+    weight: 22
   - word: "gymnasium"
     category: "education"
-    weight: 10
+    weight: 22
+  - word: "gymnasieelever"
+    category: "education"
+    weight: 22
+  - word: "ungdomsuddannelse"
+    category: "education"
+    weight: 22
+  - word: "efterskole"
+    category: "education"
+    weight: 22
+  - word: "uddannelse"
+    category: "education"
+    weight: 15
+  - word: "studerende"
+    category: "education"
+    weight: 15
   - word: "aarhus universitet"
     category: "education"
     weight: 15
@@ -658,28 +676,37 @@ keywords:
 
   - word: "børnepenge"
     category: "family"
-    weight: 15
+    weight: 25
   - word: "børnecheck"
     category: "family"
-    weight: 16
+    weight: 25
   - word: "barsel"
     category: "family"
-    weight: 12
+    weight: 20
   - word: "børnehave"
     category: "family"
-    weight: 18
+    weight: 22
   - word: "vuggestue"
     category: "family"
-    weight: 18
+    weight: 22
   - word: "familie"
     category: "family"
-    weight: 16
+    weight: 20
+  - word: "forældre"
+    category: "family"
+    weight: 20
+  - word: "børnefamilier"
+    category: "family"
+    weight: 22
   - word: "unge"
     category: "family"
-    weight: 10
+    weight: 22
+  - word: "teenagere"
+    category: "family"
+    weight: 22
   - word: "børneydelse"
     category: "family"
-    weight: 16
+    weight: 22
 
 
   # =======================================================
@@ -1188,6 +1215,27 @@ keywords:
   - word: "trump"
     category: "spam"
     weight: -8   # мягкий штраф — иногда релевантно для Дании
+  - word: "kraków"
+    category: "spam"
+    weight: -20
+  - word: "krakow"
+    category: "spam"
+    weight: -20
+  - word: "bulgarien"
+    category: "spam"
+    weight: -15
+  - word: "bulgarsk"
+    category: "spam"
+    weight: -15
+  - word: "salmebog"
+    category: "spam"
+    weight: -25
+  - word: "salmebøger"
+    category: "spam"
+    weight: -25
+  - word: "folkekirken"
+    category: "spam"
+    weight: -12
 
 
   # =======================================================
@@ -1265,3 +1313,18 @@ keywords:
   - word: "gratis adgang"
     category: "lifestyle"
     weight: 15
+  - word: "hygge"
+    category: "lifestyle"
+    weight: 20
+  - word: "dansk kultur"
+    category: "lifestyle"
+    weight: 20
+  - word: "foreningsliv"
+    category: "society"
+    weight: 22
+  - word: "fritid"
+    category: "lifestyle"
+    weight: 18
+  - word: "traditioner"
+    category: "lifestyle"
+    weight: 18

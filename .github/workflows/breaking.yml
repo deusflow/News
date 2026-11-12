@@ -51,7 +51,8 @@ jobs:
       GROQ_API_KEY_2: ${{ secrets.GROQ_API_KEY_2 }}
       GROQ_API_KEY_3: ${{ secrets.GROQ_API_KEY_3 }}
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
-      AI_PROVIDERS: "gemini,groq,groq:openai/gpt-oss-20b"
+      OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
+      AI_PROVIDERS: "gemini,groq,groq:openai/gpt-oss-20b,openrouter"
 
       GO111MODULE: 'on'
 

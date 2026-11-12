@@ -23,6 +23,9 @@ var (
 func formatHeader(n News) string {
 	cat := ValidateCategory(n.Category)
 	header := fmt.Sprintf("%s <b>%s</b>", CategoryEmoji(cat), CategoryLabel(cat))
+	if n.ReplyToMessageID > 0 {
+		header += " • 🔄 <b>ОНОВЛЕННЯ</b>"
+	}
 	if n.IsExclusive {
 		header += "\n💎 <b>Ексклюзив (знайдено лише тут)</b>"
 	}

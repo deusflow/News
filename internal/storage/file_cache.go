@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type SentNewsItem struct {
 	SentAt          time.Time  `json:"sent_at"`
 	ReservedAt      *time.Time `json:"reserved_at,omitempty"`
 	Source          string     `json:"source"`
+	TelegramMessageID int      `json:"telegram_message_id,omitempty"`
 }
 
 
@@ -168,17 +170,72 @@ func (fc *FileCache) MarkAsSentWithSemanticData(hash, title, link, category, sou
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
-	fc.items[hash] = SentNewsItem{
-		Hash:            hash,
-		Title:           title,
-		TitleUkrainian:  titleUA,
-		StoryClusterKey: clusterKey,
-		Embedding:       emb,
-		Link:            link,
-		Category:        category,
-		SentAt:          time.Now(),
-		Source:          source,
+	var existingMsgID int
+	if existing, ok := fc.items[hash]; ok {
+		existingMsgID = existing.TelegramMessageID
 	}
+
+	fc.items[hash] = SentNewsItem{
+		Hash:              hash,
+		Title:             title,
+		TitleUkrainian:    titleUA,
+		StoryClusterKey:   clusterKey,
+		Embedding:         emb,
+		Link:              link,
+		Category:          category,
+		SentAt:            time.Now(),
+		Source:            source,
+		TelegramMessageID: existingMsgID,
+	}
+}
+
+// SaveTelegramMessageID updates the TelegramMessageID for a sent news item in file cache.
+func (fc *FileCache) SaveTelegramMessageID(hash string, msgID int) error {
+	if hash == "" || msgID <= 0 {
+		return nil
+	}
+	fc.mu.Lock()
+	if item, ok := fc.items[hash]; ok {
+		item.TelegramMessageID = msgID
+		fc.items[hash] = item
+		fc.mu.Unlock()
+		return fc.Save()
+	}
+	fc.mu.Unlock()
+	return nil
+}
+
+// GetRecentStories returns sent news items from the last lookback duration for semantic duplicate checking.
+func (fc *FileCache) GetRecentStories(lookback time.Duration) ([]SentStoryRecord, error) {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+
+	if lookback <= 0 {
+		lookback = 7 * 24 * time.Hour
+	}
+	cutoff := time.Now().Add(-lookback)
+
+	var records []SentStoryRecord
+	for _, item := range fc.items {
+		if item.SentAt.After(cutoff) {
+			records = append(records, SentStoryRecord{
+				Hash:              item.Hash,
+				Title:             item.Title,
+				TitleUkrainian:    item.TitleUkrainian,
+				StoryClusterKey:   item.StoryClusterKey,
+				Embedding:         item.Embedding,
+				SentAt:            item.SentAt,
+				Category:          item.Category,
+				TelegramMessageID: item.TelegramMessageID,
+			})
+		}
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].SentAt.After(records[j].SentAt)
+	})
+
+	return records, nil
 }
 
 // CheckSemanticDuplicate checks duplicate in file cache memory using OR logic

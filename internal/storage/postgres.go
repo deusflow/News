@@ -223,6 +223,21 @@ func (pc *PostgresCache) initSchema() error {
 		return fmt.Errorf("failed to run reserved_at migration: %v", err)
 	}
 
+	// Step 4f: Migration - Add telegram_message_id for threading developing stories
+	migrationMsgID := `
+	DO $$ 
+	BEGIN 
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'sent_news' AND column_name = 'telegram_message_id') THEN
+			ALTER TABLE sent_news ADD COLUMN telegram_message_id BIGINT DEFAULT 0;
+		END IF;
+	END $$;
+	CREATE INDEX IF NOT EXISTS idx_sent_news_telegram_msg_id ON sent_news(telegram_message_id);
+	`
+	if _, err = pc.db.Exec(migrationMsgID); err != nil {
+		return fmt.Errorf("failed to run telegram_message_id migration: %v", err)
+	}
+
 	// Step 5: Create supabase_sync_queue — stores full news payload for rows not yet synced.
 	// Kept separate from sent_news to avoid bloating the dedup table with large JSON blobs.
 	syncQueueSchema := `
@@ -625,13 +640,29 @@ func (pc *PostgresCache) MarkAsSentWithSemanticData(hash, title, link, content, 
 	return nil
 }
 
+// SaveTelegramMessageID updates the telegram_message_id column for a sent news item.
+func (pc *PostgresCache) SaveTelegramMessageID(hash string, msgID int) error {
+	if hash == "" || msgID <= 0 {
+		return nil
+	}
+	query := `UPDATE sent_news SET telegram_message_id = $1 WHERE hash = $2`
+	_, err := pc.db.Exec(query, msgID, hash)
+	if err != nil {
+		return fmt.Errorf("failed to save telegram_message_id: %w", err)
+	}
+	return nil
+}
+
 // SentStoryRecord represents a published story with semantic metadata for deduplication.
 type SentStoryRecord struct {
-	Title           string
-	TitleUkrainian  string
-	StoryClusterKey string
-	Embedding       []float32
-	SentAt          time.Time
+	Hash              string
+	Title             string
+	TitleUkrainian    string
+	StoryClusterKey   string
+	Embedding         []float32
+	SentAt            time.Time
+	Category          string
+	TelegramMessageID int
 }
 
 // GetRecentStories returns sent news items from the last lookback duration for semantic duplicate checking.
@@ -642,7 +673,7 @@ func (pc *PostgresCache) GetRecentStories(lookback time.Duration) ([]SentStoryRe
 	cutoffTime := time.Now().Add(-lookback)
 
 	query := `
-		SELECT title, COALESCE(title_ukrainian, ''), COALESCE(story_cluster_key, ''), embedding, sent_at
+		SELECT hash, title, COALESCE(title_ukrainian, ''), COALESCE(story_cluster_key, ''), embedding, sent_at, COALESCE(category, ''), COALESCE(telegram_message_id, 0)
 		FROM sent_news
 		WHERE sent_at > $1
 		ORDER BY sent_at DESC
@@ -658,7 +689,7 @@ func (pc *PostgresCache) GetRecentStories(lookback time.Duration) ([]SentStoryRe
 	for rows.Next() {
 		var rec SentStoryRecord
 		var embeddingRaw []byte
-		if err := rows.Scan(&rec.Title, &rec.TitleUkrainian, &rec.StoryClusterKey, &embeddingRaw, &rec.SentAt); err != nil {
+		if err := rows.Scan(&rec.Hash, &rec.Title, &rec.TitleUkrainian, &rec.StoryClusterKey, &embeddingRaw, &rec.SentAt, &rec.Category, &rec.TelegramMessageID); err != nil {
 			logger.Warn("Failed to scan sent story record", "error", err)
 			continue
 		}

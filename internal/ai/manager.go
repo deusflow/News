@@ -120,7 +120,7 @@ func isExhaustionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter >= 3*time.Minute {
+	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 20*time.Second {
 		return true
 	}
 	lower := strings.ToLower(err.Error())
@@ -246,7 +246,7 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			retryAfter = secs
 		}
 
-		if retryAfter > 180 {
+		if retryAfter > 20 {
 			m.markCooldown(provider.Name(), time.Duration(retryAfter)*time.Second)
 			logger.Warn("AI provider rate limited for long period, marking cooldown",
 				"provider", provider.Name(),
@@ -255,7 +255,7 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			continue
 		}
 
-		if retryAfter > 0 && retryAfter <= 180 {
+		if retryAfter > 0 && retryAfter <= 20 {
 			logger.Warn("AI provider rate limited",
 				"provider", provider.Name(),
 				"wait_sec", retryAfter)
@@ -321,7 +321,7 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 			}
 
 			if rlErr, ok := err.(*ProviderError); ok && rlErr.Kind == ErrorKindRateLimited {
-				if rlErr.RetryAfter > 3*time.Minute {
+				if rlErr.RetryAfter > 20*time.Second {
 					m.markCooldown(provider.Name(), rlErr.RetryAfter)
 					lastErr = err
 					continue

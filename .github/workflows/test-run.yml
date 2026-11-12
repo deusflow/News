@@ -30,7 +30,7 @@ jobs:
 
       # === НАСТРОЙКИ AI (Тестируем новый Fallback) ===
       # Используем ту же логику, что и в основном боте
-      AI_PROVIDERS: "gemini,groq,groq:openai/gpt-oss-20b"
+      AI_PROVIDERS: "gemini,groq,groq:openai/gpt-oss-20b,openrouter"
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
       GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
@@ -39,6 +39,7 @@ jobs:
       GROQ_API_KEY_2: ${{ secrets.GROQ_API_KEY_2 }}
       GROQ_API_KEY_3: ${{ secrets.GROQ_API_KEY_3 }}
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
+      OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
 
       # === БЕЗОПАСНЫЙ РЕЖИМ (SAFE MODE) ===
       # Отключаем PostgreSQL для прогона бота в канал, чтобы не трогать прод

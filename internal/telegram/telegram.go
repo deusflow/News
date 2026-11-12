@@ -134,20 +134,32 @@ func SendPhoto(token string, chatID string, photoURL string, caption string) (in
 // SendPhotoWithButtons sends a photo with buttons.
 // If caption exceeds 1024 runes, it gracefully falls back by sending the photo without caption
 // followed by the full caption text and buttons as a separate message, preventing Telegram HTTP 400 Bad Request.
-func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton) (int, error) {
+func SendPhotoWithButtons(token string, chatID string, photoURL string, caption string, buttons [][]InlineButton, replyToMessageID ...int) (int, error) {
+	targetReply := 0
+	if len(replyToMessageID) > 0 && replyToMessageID[0] != 0 {
+		targetReply = replyToMessageID[0]
+	}
+
 	if utf8.RuneCountInString(caption) > maxTelegramCaptionRunes {
 		logger.Warn("Telegram photo caption exceeds 1024 runes; falling back to photo + separate text message",
 			"caption_len", utf8.RuneCountInString(caption))
-		photoURLReq := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
-		photoMsgID, photoErr := executeRequest(context.Background(), photoURLReq, map[string]interface{}{
+		photoReqBody := map[string]interface{}{
 			"chat_id": chatID,
 			"photo":   photoURL,
-		})
+		}
+		if targetReply != 0 {
+			photoReqBody["reply_parameters"] = map[string]interface{}{
+				"message_id":                  targetReply,
+				"allow_sending_without_reply": true,
+			}
+		}
+		photoURLReq := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
+		photoMsgID, photoErr := executeRequest(context.Background(), photoURLReq, photoReqBody)
 		if photoErr == nil {
 			return SendMessageWithButtons(token, chatID, caption, buttons, false, photoMsgID)
 		}
 		logger.Warn("Failed to send photo in caption length fallback; falling back to text message", "error", photoErr)
-		return SendMessageWithButtons(token, chatID, caption, buttons, true, 0)
+		return SendMessageWithButtons(token, chatID, caption, buttons, true, targetReply)
 	}
 
 	url := fmt.Sprintf("%s%s/sendPhoto", telegramAPIBase, token)
@@ -164,18 +176,31 @@ func SendPhotoWithButtons(token string, chatID string, photoURL string, caption 
 			"inline_keyboard": buttons,
 		}
 	}
+	if targetReply != 0 {
+		body["reply_parameters"] = map[string]interface{}{
+			"message_id":                  targetReply,
+			"allow_sending_without_reply": true,
+		}
+	}
 
 	msgID, err := executeRequest(context.Background(), url, body)
 	if err != nil && strings.Contains(err.Error(), "caption is too long") {
 		logger.Warn("Telegram API rejected caption length; retrying as photo + separate text message", "error", err)
-		photoMsgID, photoErr := executeRequest(context.Background(), url, map[string]interface{}{
+		fallbackPhotoBody := map[string]interface{}{
 			"chat_id": chatID,
 			"photo":   photoURL,
-		})
+		}
+		if targetReply != 0 {
+			fallbackPhotoBody["reply_parameters"] = map[string]interface{}{
+				"message_id":                  targetReply,
+				"allow_sending_without_reply": true,
+			}
+		}
+		photoMsgID, photoErr := executeRequest(context.Background(), url, fallbackPhotoBody)
 		if photoErr == nil {
 			return SendMessageWithButtons(token, chatID, caption, buttons, false, photoMsgID)
 		}
-		return SendMessageWithButtons(token, chatID, caption, buttons, true, 0)
+		return SendMessageWithButtons(token, chatID, caption, buttons, true, targetReply)
 	}
 
 	return msgID, err
@@ -406,14 +431,18 @@ func SendVideoStream(token, chatID string, reader io.Reader, size int64, filenam
 
 // SendVideoEmbed sends a message with large video link preview above text.
 // Works when bot IP is banned by YouTube — Telegram fetches preview itself.
-func SendVideoEmbed(token, chatID, videoURL, text string, buttons [][]InlineButton) (int, error) {
-	return SendMessageWithButtons(token, chatID, text, buttons, true, 0)
+func SendVideoEmbed(token, chatID, videoURL, text string, buttons [][]InlineButton, replyToMessageID ...int) (int, error) {
+	targetReply := 0
+	if len(replyToMessageID) > 0 {
+		targetReply = replyToMessageID[0]
+	}
+	return SendMessageWithButtons(token, chatID, text, buttons, true, targetReply)
 	// Note: extractPreviewURL inside sendMessage will extract videoURL from text.
 	// Ensure videoURL is embedded as <a href="videoURL"> or plain URL in text before calling.
 }
 
 // SendVideoURL sends a video via a direct URL to Telegram.
-func SendVideoURL(token, chatID, videoURL, caption string, buttons [][]InlineButton) error {
+func SendVideoURL(token, chatID, videoURL, caption string, buttons [][]InlineButton, replyToMessageID ...int) (int, error) {
 	apiURL := fmt.Sprintf("%s%s/sendVideo", telegramAPIBase, token)
 	body := map[string]interface{}{
 		"chat_id":                  chatID,
@@ -426,6 +455,11 @@ func SendVideoURL(token, chatID, videoURL, caption string, buttons [][]InlineBut
 	if len(buttons) > 0 {
 		body["reply_markup"] = map[string]interface{}{"inline_keyboard": buttons}
 	}
-	_, err := executeRequest(context.Background(), apiURL, body)
-	return err
+	if len(replyToMessageID) > 0 && replyToMessageID[0] != 0 {
+		body["reply_parameters"] = map[string]interface{}{
+			"message_id":                  replyToMessageID[0],
+			"allow_sending_without_reply": true,
+		}
+	}
+	return executeRequest(context.Background(), apiURL, body)
 }

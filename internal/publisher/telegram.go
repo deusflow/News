@@ -22,6 +22,7 @@ type CacheAdapter interface {
 	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
 	TryReservePublish(hash, title, url string) (bool, error)
 	CancelPublishReservation(hash string) error
+	SaveTelegramMessageID(hash string, msgID int) error
 }
 
 
@@ -96,6 +97,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 
 	var outText string
 	var err error
+	var sentMsgID int
 
 	// 4. Buttons
 	var buttons [][]telegram.InlineButton
@@ -154,7 +156,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 			if telegram.IsDRDirectVideo(directMP4) {
 				size, sizeErr := telegram.GetRemoteContentLength(directMP4)
 				if sizeErr == nil && size <= maxTelegramURLVideoBytes {
-					err = telegram.SendVideoURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, directMP4, videoCaption, buttons)
+					sentMsgID, err = telegram.SendVideoURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, directMP4, videoCaption, buttons, n.ReplyToMessageID)
 					if err == nil {
 						videoSent = true
 						outText = videoCaption
@@ -166,7 +168,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		if !videoSent {
 			videoCaption := news.FormatNewsWithImage(n)
 			textWithLink := videoCaption + "\n\n🎥 " + n.VideoURL
-			_, err = telegram.SendVideoEmbed(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.VideoURL, textWithLink, buttons)
+			sentMsgID, err = telegram.SendVideoEmbed(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.VideoURL, textWithLink, buttons, n.ReplyToMessageID)
 			if err == nil {
 				videoSent = true
 			}
@@ -177,9 +179,10 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	if !videoSent {
 		if n.IsLongread && n.ImageURL != "" && n.VideoURL == "" {
 			teaser := news.FormatLongreadTeaser(n)
-			msgID, errPhoto := telegram.SendPhoto(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, teaser)
+			msgID, errPhoto := telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, teaser, nil, n.ReplyToMessageID)
 
 			if errPhoto == nil {
+				sentMsgID = msgID
 				longText := news.FormatLongreadBody(n)
 				_, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, longText, buttons, false, msgID)
 
@@ -193,21 +196,21 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 				}
 			} else {
 				outText = news.FormatNewsWithImage(n)
-				_, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, false, 0)
+				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, false, n.ReplyToMessageID)
 			}
 		} else if canPhoto {
 			outText = news.FormatCaptionForPhoto(n, p.cfg.Posting.PhotoTextLimit)
 			if len(buttons) > 0 {
-				_, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, buttons)
+				sentMsgID, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, buttons, n.ReplyToMessageID)
 			} else {
-				_, err = telegram.SendPhoto(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText)
+				sentMsgID, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, nil, n.ReplyToMessageID)
 			}
 		} else {
 			outText = news.FormatNewsWithImage(n)
 			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, true, 0)
+				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, true, n.ReplyToMessageID)
 			} else {
-				_, err = telegram.SendMessageAllowPreview(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText)
+				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, nil, true, n.ReplyToMessageID)
 			}
 		}
 	}
@@ -238,6 +241,10 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 		logger.Error("CRITICAL: Failed to mark news as sent in DB cache after 3 retries", "title", n.Title, "hash", hash, "error", saveErr)
 		alertMsg := fmt.Sprintf("⚠️ News was sent to Telegram, but failed to save sent status to DB after 3 retries!\nTitle: %s\nHash: %s\nError: %v\n\nRisk: May cause duplicate post on next run!", n.Title, hash, saveErr)
 		_ = telegram.SendAdminAlert(p.cfg.Telegram.Token, p.cfg.Telegram.AdminChatID, alertMsg)
+	} else if sentMsgID > 0 {
+		if msgIDErr := p.cacheAdapter.SaveTelegramMessageID(hash, sentMsgID); msgIDErr != nil {
+			logger.Warn("Failed to save telegram_message_id", "hash", hash, "msg_id", sentMsgID, "error", msgIDErr)
+		}
 	}
 	if strings.TrimSpace(n.FunFact) != "" {
 		if err := p.cacheAdapter.MarkFunFactUsed(n.FunFact); err != nil {

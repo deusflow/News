@@ -64,6 +64,10 @@ func (m *mockCacheAdapter) CancelPublishReservation(hash string) error {
 	return nil
 }
 
+func (m *mockCacheAdapter) SaveTelegramMessageID(hash string, msgID int) error {
+	return nil
+}
+
 func TestTelegramPublisher_FunFactDedup(t *testing.T) {
 	cfg := &config.Config{
 		Posting: config.PostingConfig{PhotoTextLimit: 1024},

@@ -40,6 +40,10 @@ func (m *mockDedupeChecker) MarkAsSentWithSemanticData(hash, title, link, conten
 	return nil
 }
 
+func (m *mockDedupeChecker) SaveTelegramMessageID(hash string, msgID int) error {
+	return nil
+}
+
 func (m *mockDedupeChecker) GetReadyDelayedPosts(ctx context.Context) ([]storage.DelayedPost, error) {
 	return nil, nil
 }

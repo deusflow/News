@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/deusflow/News/internal/ai"
@@ -232,6 +233,62 @@ func TestRunTriage(t *testing.T) {
 	}
 	if rescued[1] != 2 {
 		t.Errorf("expected second rescued index to be 2, got %d", rescued[1])
+	}
+}
+
+func TestCalculateImpactScore_EducationAndFamilyCrossThreshold(t *testing.T) {
+	weights := map[string]int{
+		"education": 15,
+		"family":    10,
+	}
+	impact := calculateImpactScore(weights)
+	if impact < impactPriorityThreshold {
+		t.Fatalf("expected education+family impact >= %d, got %d", impactPriorityThreshold, impact)
+	}
+
+	coreImpact, softScore, adjustment := calculateEditorialSignals(weights)
+	if coreImpact < 25 {
+		t.Fatalf("expected coreImpact >= 25, got %d", coreImpact)
+	}
+	if softScore != 0 {
+		t.Fatalf("family should not be in softScore, got %d", softScore)
+	}
+	if adjustment < 0 {
+		t.Fatalf("adjustment should not be negative for family/education, got %d", adjustment)
+	}
+}
+
+func TestPassesPublicImpactGate_FamilyCategory(t *testing.T) {
+	if !isCoreImpactCategory(CategoryFamily) {
+		t.Fatalf("expected CategoryFamily to be a core impact category")
+	}
+
+	item := News{
+		Title:        "Nye regler for børnepenge i 2026",
+		Category:     string(CategoryFamily),
+		KeywordScore: 15,
+	}
+	if !PassesPublicImpactGate(item) {
+		t.Fatalf("expected family news with keyword score >= 12 to pass public impact gate")
+	}
+}
+
+func TestFormatHeader_ReplyToUpdateBadge(t *testing.T) {
+	nNormal := News{
+		Category: string(CategoryPolitics),
+	}
+	hNormal := formatHeader(nNormal)
+	if strings.Contains(hNormal, "ОНОВЛЕННЯ") {
+		t.Errorf("normal post should not have update badge, got %q", hNormal)
+	}
+
+	nUpdate := News{
+		Category:         string(CategoryPolitics),
+		ReplyToMessageID: 12345,
+	}
+	hUpdate := formatHeader(nUpdate)
+	if !strings.Contains(hUpdate, "ОНОВЛЕННЯ") {
+		t.Errorf("update post must contain ОНОВЛЕННЯ, got %q", hUpdate)
 	}
 }
 

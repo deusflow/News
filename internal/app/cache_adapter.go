@@ -16,6 +16,8 @@ type CacheAdapter interface {
 	IsContentDuplicate(content string) (bool, string)
 	IsTitleNearDuplicate(title string) (bool, string) // near-duplicate: same story from different source
 	CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error)
+	GetRecentStories(lookback time.Duration) ([]storage.SentStoryRecord, error)
+	SaveTelegramMessageID(hash string, msgID int) error
 	MarkAsSent(hash, title, link, category, source string) error
 	MarkAsSentWithContent(hash, title, link, content, category, source string) error
 	MarkAsSentWithSemanticData(hash, title, link, content, category, source, titleUA, clusterKey string, emb []float32) error
@@ -98,6 +100,14 @@ func (f *FileCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, content
 
 func (f *FileCacheAdapter) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error) {
 	return f.cache.CheckSemanticDuplicate(clusterKey, candidateEmbedding, titleUA, lookback, keyThreshold, cosineThreshold, shadowMode)
+}
+
+func (f *FileCacheAdapter) GetRecentStories(lookback time.Duration) ([]storage.SentStoryRecord, error) {
+	return f.cache.GetRecentStories(lookback)
+}
+
+func (f *FileCacheAdapter) SaveTelegramMessageID(hash string, msgID int) error {
+	return f.cache.SaveTelegramMessageID(hash, msgID)
 }
 
 // --- SYNC QUEUE STUBS (file cache has no Supabase sync queue) ---
@@ -229,6 +239,14 @@ func (p *PostgresCacheAdapter) MarkAsSentWithSemanticData(hash, title, link, con
 
 func (p *PostgresCacheAdapter) CheckSemanticDuplicate(clusterKey string, candidateEmbedding []float32, titleUA string, lookback time.Duration, keyThreshold, cosineThreshold float64, shadowMode bool) (storage.SemanticCheckResult, error) {
 	return p.cache.CheckSemanticDuplicate(clusterKey, candidateEmbedding, titleUA, lookback, keyThreshold, cosineThreshold, shadowMode)
+}
+
+func (p *PostgresCacheAdapter) GetRecentStories(lookback time.Duration) ([]storage.SentStoryRecord, error) {
+	return p.cache.GetRecentStories(lookback)
+}
+
+func (p *PostgresCacheAdapter) SaveTelegramMessageID(hash string, msgID int) error {
+	return p.cache.SaveTelegramMessageID(hash, msgID)
 }
 
 // --- РЕАЛИЗАЦИЯ DLQ ---

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -291,15 +292,32 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			}
 
 		case "openrouter":
-			key := os.Getenv("OPENROUTER_API_KEY")
-			if key != "" {
-				model := os.Getenv("OPENROUTER_MODEL")
+			var openRouterKeys []string
+			if k := strings.TrimSpace(cfg.AI.OpenRouterAPIKey2); k != "" {
+				openRouterKeys = append(openRouterKeys, k)
+			}
+			if k := strings.TrimSpace(cfg.AI.OpenRouterAPIKey); k != "" {
+				openRouterKeys = append(openRouterKeys, k)
+			}
+			if len(openRouterKeys) == 0 {
+				if k := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY_2")); k != "" {
+					openRouterKeys = append(openRouterKeys, k)
+				}
+				if k := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); k != "" {
+					openRouterKeys = append(openRouterKeys, k)
+				}
+			}
+
+			if len(openRouterKeys) > 0 {
+				model := cfg.AI.OpenRouterModel
+				if model == "" {
+					model = os.Getenv("OPENROUTER_MODEL")
+				}
 				if hasModel && customModel != "" {
 					model = customModel
 				}
 				if model == "" {
-					logger.Warn("OpenRouter model is not specified, skipping (set OPENROUTER_MODEL or use openrouter:<model>)")
-					continue
+					model = "meta-llama/llama-3.3-70b-instruct:free"
 				}
 				name := "openrouter"
 				if hasModel && customModel != "" {
@@ -309,11 +327,11 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				if baseURL == "" {
 					baseURL = "https://openrouter.ai/api/v1/chat/completions"
 				}
-				client := groq.NewClientWithOptions(name, key, model, baseURL)
+				client := groq.NewClientWithKeys(name, openRouterKeys, model, baseURL)
 				aiProviders = append(aiProviders, client)
-				logger.Info("AI Provider added", "name", name, "model", model)
+				logger.Info("AI Provider added", "name", name, "model", model, "keys_count", len(openRouterKeys))
 			} else {
-				logger.Warn("OpenRouter API Key is missing, skipping")
+				logger.Warn("OpenRouter API Key (OPENROUTER_API_KEY_2 or OPENROUTER_API_KEY) is missing, skipping")
 			}
 
 		case "openai":
@@ -686,14 +704,56 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	}
 	var valid []validCandidate
 
+	recentStories, err := cacheAdapter.GetRecentStories(24 * time.Hour)
+	if err != nil {
+		logger.Warn("Failed to fetch recent stories for fatigue and developing checks", "error", err)
+	}
+
+	// 1. Category Anti-Fatigue check:
+	// If the last published post was politics, war, or crime, penalize candidates in that same category
+	// by -15 points so the channel naturally rotates topics (family, schools, society, work, lifestyle).
+	var lastCategory news.Category
+	if len(recentStories) > 0 {
+		lastCategory = news.ValidateCategory(recentStories[0].Category)
+		logger.Info("Last published story detected",
+			"title", recentStories[0].Title,
+			"category", lastCategory,
+			"sent_at", recentStories[0].SentAt)
+	}
+
 	for i, n := range candidates {
 		if len(valid) > publishLimit {
 			break // We have enough: publishLimit to send + 1 for diff log
 		}
 
+		// Apply category anti-fatigue penalty if repeating politics/war/crime
+		if ApplyCategoryAntiFatigue(&n, lastCategory) {
+			logger.Info("Applied category anti-fatigue penalty (-15)",
+				"candidate_title", n.Title,
+				"category", n.Category,
+				"adjusted_score", n.Score)
+		}
+
 		hash := cacheAdapter.GenerateNewsHash(n.Title, n.Link)
 		if sessionHashes[hash] || (n.Link != "" && sessionUrls[n.Link]) {
 			logger.Info("⏭️ Skipping session in-memory duplicate", "title", n.Title, "link", n.Link)
+			continue
+		}
+
+		// In-session cluster deduplication guard: never select two articles of the same story cluster in the same run
+		isSameSessionCluster := false
+		for _, v := range valid {
+			if n.StoryClusterKey != "" && v.news.StoryClusterKey != "" {
+				sim := embedding.ClusterKeySimilarity(n.StoryClusterKey, v.news.StoryClusterKey)
+				if sim >= cfg.SemanticDedup.ClusterKeyThreshold {
+					isSameSessionCluster = true
+					break
+				}
+			}
+		}
+		if isSameSessionCluster {
+			logger.Info("⏭️ Skipping candidate with same story cluster as already selected candidate in this run",
+				"title", n.Title, "cluster_key", n.StoryClusterKey)
 			continue
 		}
 		logger.Info("evaluating publish candidate",
@@ -798,15 +858,27 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				}
 
 				if semRes.IsDuplicate {
-					logger.Info("⏭️ Skipping semantic duplicate story",
-						"new_title", n.TitleUkrainian,
-						"cluster_key", n.StoryClusterKey,
-						"matched_title", semRes.MatchedTitle,
-						"trigger", semRes.Trigger,
-						"cluster_similarity", semRes.ClusterSimilarity,
-						"cosine_similarity", semRes.CosineSimilarity)
-					m.IncrementDuplicatesFiltered()
-					continue
+					approved, replyToID, dropReason := EvaluateDevelopingStory(n, recentStories, cfg.SemanticDedup.ClusterKeyThreshold, cfg.SemanticDedup.Threshold, cfg.SemanticDedup.ShadowMode)
+					if approved {
+						n.ReplyToMessageID = replyToID
+						logger.Info("🔄 Developing story update approved (+concrete decision)",
+							"title", n.TitleUkrainian,
+							"cluster_key", n.StoryClusterKey,
+							"reply_to_msg_id", n.ReplyToMessageID,
+							"anchor", n.ConcreteAnchor)
+						// Proceed to add as valid candidate!
+					} else {
+						logger.Info("⏭️ Skipping story",
+							"reason", dropReason,
+							"new_title", n.TitleUkrainian,
+							"cluster_key", n.StoryClusterKey,
+							"matched_title", semRes.MatchedTitle,
+							"trigger", semRes.Trigger,
+							"cluster_similarity", semRes.ClusterSimilarity,
+							"cosine_similarity", semRes.CosineSimilarity)
+						m.IncrementDuplicatesFiltered()
+						continue
+					}
 				}
 			}
 		}
@@ -820,6 +892,17 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 
 	if len(valid) == 0 {
 		logger.Info("No publishable news found in this run")
+		return
+	}
+
+	// Re-sort valid candidates by score after anti-fatigue adjustments
+	sort.SliceStable(valid, func(i, j int) bool {
+		return valid[i].news.Score > valid[j].news.Score
+	})
+
+	// Night quiet hours guard: skip publication to public Telegram channel between 22:30 and 07:30 Copenhagen time.
+	if IsCopenhagenQuietHours(time.Now()) {
+		logger.Info("🌙 Copenhagen quiet hours (22:30 - 07:30) active: skipping publication to avoid disturbing subscribers at night")
 		return
 	}
 
@@ -1191,5 +1274,83 @@ func monitorEmptyRuns(cacheAdapter CacheAdapter, cfg *config.Config, m *metrics.
 			logger.Info("Consecutive empty runs reset after successful publication", "previous_empty_runs", emptyRuns)
 		}
 	}
+}
+
+// ApplyCategoryAntiFatigue penalizes candidate score by 15 if the last published story was in the same
+// heavy category (politics, war, crime). Returns true if penalty was applied.
+func ApplyCategoryAntiFatigue(candidate *news.News, lastCategory news.Category) bool {
+	candidateCat := news.ValidateCategory(candidate.Category)
+	if (lastCategory == news.CategoryPolitics || lastCategory == news.CategoryWar || lastCategory == news.CategoryCrime) && candidateCat == lastCategory {
+		candidate.Score -= 15
+		return true
+	}
+	return false
+}
+
+// EvaluateDevelopingStory assesses whether a candidate story that matches an existing cluster qualifies as
+// an update to an earlier story today.
+// Rules:
+// 1. Max 2 posts per story cluster per day.
+// 2. Second post MUST contain concrete new outcomes/decisions (anchor != empty/insufficient_substance) and AudienceScore >= 6.
+// 3. Second post links to the morning post via ReplyToMessageID.
+func EvaluateDevelopingStory(candidate news.News, recentStories []storage.SentStoryRecord, clusterThreshold, cosineThreshold float64, shadowMode bool) (approved bool, replyToMsgID int, reason string) {
+	clusterCount := 0
+	var firstStory *storage.SentStoryRecord
+	for _, rec := range recentStories {
+		simKey := 0.0
+		if candidate.StoryClusterKey != "" && rec.StoryClusterKey != "" {
+			simKey = embedding.ClusterKeySimilarity(candidate.StoryClusterKey, rec.StoryClusterKey)
+		}
+		simCos := 0.0
+		if len(candidate.Embedding) > 0 && len(rec.Embedding) > 0 {
+			simCos = embedding.CosineSimilarity(candidate.Embedding, rec.Embedding)
+		}
+		if simKey >= clusterThreshold || (simCos >= cosineThreshold && !shadowMode) {
+			clusterCount++
+			if firstStory == nil {
+				recCopy := rec
+				firstStory = &recCopy
+			}
+		}
+	}
+
+	hasSubstance := strings.TrimSpace(candidate.ConcreteAnchor) != "" &&
+		!strings.EqualFold(strings.TrimSpace(candidate.ConcreteAnchor), "insufficient_substance")
+
+	if clusterCount == 1 && hasSubstance && candidate.AudienceScore >= 6 {
+		if firstStory != nil && firstStory.TelegramMessageID > 0 {
+			replyToMsgID = firstStory.TelegramMessageID
+		}
+		return true, replyToMsgID, ""
+	}
+
+	reason = "semantic duplicate"
+	if clusterCount >= 2 {
+		reason = "daily cluster limit reached (>= 2 posts today)"
+	} else if !hasSubstance {
+		reason = "developing story update lacks concrete results/anchor"
+	} else if candidate.AudienceScore < 6 {
+		reason = "developing story update audience score too low (< 6)"
+	}
+	return false, 0, reason
+}
+
+// IsCopenhagenQuietHours checks if the current time in Europe/Copenhagen is during night hours (22:30 - 07:30).
+// Regular news posts should never wake subscribers up in the middle of the night.
+// Can be overridden by setting ALLOW_NIGHT_PUBLISH=true.
+func IsCopenhagenQuietHours(t time.Time) bool {
+	if os.Getenv("ALLOW_NIGHT_PUBLISH") == "true" {
+		return false
+	}
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	if err != nil {
+		return false
+	}
+	nowDK := t.In(loc)
+	hour := nowDK.Hour()
+	minute := nowDK.Minute()
+
+	// Quiet hours: 22:30 to 07:30 Copenhagen time
+	return (hour == 22 && minute >= 30) || (hour > 22) || (hour < 7) || (hour == 7 && minute < 30)
 }
 

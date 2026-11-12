@@ -18,6 +18,8 @@ const (
 	DefaultGeminiModel = "gemini-3.8-flash"
 	// DefaultGroqModel is the standard primary model on GroqCloud
 	DefaultGroqModel = "openai/gpt-oss-120b"
+	// DefaultOpenRouterModel is the default free model on OpenRouter
+	DefaultOpenRouterModel = "meta-llama/llama-3.3-70b-instruct:free"
 )
 
 
@@ -48,10 +50,13 @@ type AIConfig struct {
 	GroqModel         string // model name, e.g. "openai/gpt-oss-120b" (default if empty)
 	MaxGeminiRequests int    // maximum Gemini requests per run (0 = unlimited)
 
-	GroqAPIKey  string
-	GroqAPIKey2 string
-	GroqAPIKey3 string
-	Providers   []string // List of AI providers, e.g. ["gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"]
+	GroqAPIKey        string
+	GroqAPIKey2       string
+	GroqAPIKey3       string
+	OpenRouterAPIKey  string
+	OpenRouterAPIKey2 string
+	OpenRouterModel   string
+	Providers         []string // List of AI providers, e.g. ["gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"]
 }
 
 type RSSConfig struct {
@@ -398,6 +403,9 @@ func Load() (*Config, error) {
 	cfg.AI.GroqAPIKey2 = os.Getenv("GROQ_API_KEY_2")
 	cfg.AI.GroqAPIKey3 = os.Getenv("GROQ_API_KEY_3")
 	cfg.AI.GroqModel = getEnvOrDefault("GROQ_MODEL", DefaultGroqModel)
+	cfg.AI.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
+	cfg.AI.OpenRouterAPIKey2 = os.Getenv("OPENROUTER_API_KEY_2")
+	cfg.AI.OpenRouterModel = getEnvOrDefault("OPENROUTER_MODEL", DefaultOpenRouterModel)
 
 
 	// Cache settings

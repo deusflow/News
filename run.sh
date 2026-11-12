@@ -48,6 +48,9 @@ if [ -z "$GEMINI_MODEL" ]; then
     echo "ℹ️ GEMINI_MODEL не задан, используем $GEMINI_MODEL"
 fi
 
+# Для локального запуска разрешаем работу в любое время суток
+export ALLOW_NIGHT_PUBLISH="${ALLOW_NIGHT_PUBLISH:-true}"
+
 echo "✅ Переменные окружения загружены"
 echo "🎯 Канал: $TELEGRAM_CHAT_ID"
 

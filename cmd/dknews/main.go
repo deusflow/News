@@ -45,6 +45,14 @@ func main() {
 		return
 	}
 
+	// Night Quiet Hours Gating: do not publish regular scheduled news between 22:30 and 07:30 Copenhagen time.
+	// Delayed GitHub Actions runner jobs starting at 01:00 or 02:00 AM will gracefully exit without waking subscribers.
+	if botMode != "breaking" && app.IsCopenhagenQuietHours(time.Now()) {
+		logger.Info("🌙 Quiet hours in Copenhagen (22:30 - 07:30). Skipping Telegram channel publication.",
+			"action", "skipping run")
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Config error", "error", err)
@@ -218,10 +226,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request, m *metrics.Metrics, a
 
 	// Check component health
 	for k, v := range health {
-		if v != "ok" && v != "initialized" && k != "db" { // Allow db to be "ok (file cache)"
-			if k == "db" && v == "ok (file cache)" {
-				continue
-			}
+		if k == "db" && v == "ok (file cache)" {
+			continue // Allow db to be "ok (file cache)"
+		}
+		if v != "ok" && v != "initialized" {
 			status = "degraded"
 		}
 	}
@@ -237,7 +245,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request, m *metrics.Metrics, a
 	json.NewEncoder(w).Encode(response)
 }
 
-func metricsHandler(w http.ResponseWriter, r *http.Request, m *metrics.Metrics) {
+func metricsHandler(w http.ResponseWriter, _ *http.Request, m *metrics.Metrics) {
 	stats := m.GetStats()
 
 	w.Header().Set("Content-Type", "application/json")

@@ -30,6 +30,7 @@ type DedupeChecker interface {
 	MarkDelayedPostFailed(id int, errMsg string) error
 	TryReservePublish(hash, title, url string) (bool, error)
 	CancelPublishReservation(hash string) error
+	SaveTelegramMessageID(hash string, msgID int) error
 }
 
 
@@ -198,20 +199,21 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	// Format using standard formatter (same look as main channel)
 	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
 	var err error
+	var sentMsgID int
 
 	if canPhoto {
 		caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 		if len(buttons) > 0 {
-			_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
+			sentMsgID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
 		} else {
-			_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
+			sentMsgID, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
 		}
 	} else {
 		text := news.FormatNewsWithImage(n)
 		if len(buttons) > 0 {
-			_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
+			sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
 		} else {
-			_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
+			sentMsgID, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
 		}
 	}
 
@@ -232,7 +234,7 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		hash := cache.GenerateNewsHash(title, url)
 		var markErr error
 		for attempt := 1; attempt <= 3; attempt++ {
-			markErr = cache.MarkAsSentWithContent(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName)
+			markErr = cache.MarkAsSentWithSemanticData(hash, n.Title, n.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding)
 			if markErr == nil {
 				break
 			}
@@ -241,6 +243,8 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 		}
 		if markErr != nil {
 			logger.Error("CRITICAL: Failed to mark breaking news as sent in cache after 3 retries", "hash", hash, "error", markErr)
+		} else if sentMsgID > 0 {
+			_ = cache.SaveTelegramMessageID(hash, sentMsgID)
 		}
 	}
 
@@ -346,19 +350,20 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 
 		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
 		var err error
+		var sentMsgID int
 		if canPhoto {
 			caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
 			if len(buttons) > 0 {
-				_, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
+				sentMsgID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
 			} else {
-				_, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
+				sentMsgID, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
 			}
 		} else {
 			text := news.FormatNewsWithImage(n)
 			if len(buttons) > 0 {
-				_, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
+				sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
 			} else {
-				_, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
+				sentMsgID, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
 			}
 		}
 
@@ -368,6 +373,9 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 		} else {
 			_ = cache.MarkDelayedPostSent(dp.ID)
 			_ = cache.MarkAsSentWithSemanticData(dp.Hash, dp.Title, dp.Link, n.Content, n.Category, n.SourceName, n.TitleUkrainian, n.StoryClusterKey, n.Embedding)
+			if sentMsgID > 0 {
+				_ = cache.SaveTelegramMessageID(dp.Hash, sentMsgID)
+			}
 			if supabase != nil {
 				saveToSupabase(ctx, supabase, n)
 			}

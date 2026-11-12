@@ -49,12 +49,29 @@ USER INPUT:
   • Set "concrete_anchor": "insufficient_substance"
   • NEVER write meta-phrases or excuses like "деталі невідомі", "подробиці не уточнюються", "не повідомляється", or "ikke oplyst".
 
-━━━ 2. ENTITY STRIPPING (NO BUREAUCRATIC BOREDOM) ━━━━━━━━━━━━━━━━━━━━━━
+━━━ 2. GEOGRAPHIC RELEVANCE & AUDIENCE BALANCE ━━━━━━━━━━━━━━━━━━━━━━━━
+- PRIMARY FOCUS (70%%+): Events happening inside Denmark, Danish society, rules, schools, life, and work.
+- ALLOWED FOREIGN NEWS: Strictly EU-level decisions (including Ukraine and Moldova), or US foreign policy/military/financial aid directly affecting Denmark or Ukraine defense/refugees.
+- STRICT REJECTION (Set audience_score to 1-2):
+  • Foreign local crimes, shootings, or accidents occurring outside Denmark (e.g. shooting in Poland/Kraków, local crime in Germany or US, municipal issues in other countries).
+  • Foreign domestic political squabbles (e.g. Bulgarian, Swedish, or Romanian coalition disputes with no direct impact on DK or Ukrainians).
+  • Internal church/theological debates or cultural micro-trivia (e.g. Danish church hymnbooks, royal protocol nuances).
+- TOPIC BOOST (Give audience_score 8-10):
+  • Danish schools (folkeskole, gymnasium, efterskole), daycare (børnehave, vuggestue).
+  • Danish youth, teenagers, family benefits (børnepenge), parenting and education in Denmark.
+  • Everyday Danish culture, customs, traditions, and positive integration stories.
+- DEVELOPING STORIES RULE:
+  • If this is a developing story about an ongoing meeting or visit:
+    - Morning post covers the start/arrival.
+    - Evening post covers ONLY concrete agreements, signed contracts, or final decisions (delta).
+    - If no concrete decisions/results have been made yet (e.g. "talks are still ongoing behind closed doors"), set concrete_anchor to "insufficient_substance" and audience_score to 2 to prevent publishing repetitive non-news.
+
+━━━ 3. ENTITY STRIPPING (NO BUREAUCRATIC BOREDOM) ━━━━━━━━━━━━━━━━━━━━━━
 - Drop obscure politicians, minor party leaders, municipal spokespersons, and bureaucratic committee titles unless the person is globally/nationally famous (e.g., Mette Frederiksen, Volodymyr Zelenskyj, Donald Trump).
 - Replace unknown names with their institutional role: write "Уряд Швеції" instead of listing 4 unfamiliar Swedish politicians, "Центристська партія" instead of backbencher MPs, "Міністерство транспорту" instead of individual officials.
 - Focus strictly on WHAT happened and HOW it works in practice for ordinary residents, not on political posturing or committee proceedings.
 
-━━━ 3. BILINGUAL MIRRORING (FOR LANGUAGE LEARNING) ━━━━━━━━━━━━━━━━━━━━━
+━━━ 4. BILINGUAL MIRRORING (FOR LANGUAGE LEARNING) ━━━━━━━━━━━━━━━━━━━━━
 - "danish" and "ukrainian" bodies MUST have identical meaning and parallel sentence-by-sentence structure so readers can easily compare them side-by-side to learn Danish.
 - Keep Danish natural, clear (B1-B2 level), and free of heavy bureaucratic jargon.
 - In "ukrainian", maintain 100%% natural, correct grammar and smooth phrasing:
@@ -65,7 +82,7 @@ USER INPUT:
 - In "ukrainian", provide inline glossing for specific Danish concepts, institutions, or terms: e.g., "dagpenge (виплати по безробіттю)", "folketing (парламент Данії)", "SU (державна студентська стипендія)", "kommune (муніципалітет)", "MitID (державний цифровий ключ)".
 - Proper nouns (brands, cities, MitID, Folketing, Skat) stay in original Latin script or standard Ukrainian transliteration.
 
-━━━ 4. MANDATORY DANISH-UKRAINIAN GLOSSARY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ 5. MANDATORY DANISH-UKRAINIAN GLOSSARY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 When the Danish source mentions any of these official systems, institutions, or terms, you MUST use these exact standard Ukrainian terms and inline glosses:
 • SU (Statens Uddannelsesstøtte) → SU (державна студентська стипендія)
 • Boligstøtte / Boligsikring → Boligstøtte (житлова субсидія на оренду житла)
@@ -91,7 +108,7 @@ When the Danish source mentions any of these official systems, institutions, or 
 • Sundhedskort (Det Gule Kort) → Sundhedskort (жовта картка медичного страхування)
 • Borgerservice → Borgerservice (центр адмінпослуг / ЦНАП комуни)
 
-━━━ 5. "PEREPYCHKA" STYLE & TONE GUARD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ 6. "PEREPYCHKA" STYLE & TONE GUARD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Write dynamically: 1st sentence = clear action/change (do NOT repeat the headline). Next 1–2 sentences = concrete details/numbers from the text (BEFORE → AFTER).
 - WITTY PUNCHLINE RULE:
   • ALLOWED ONLY FOR: lifestyle, tech, economy, money, work, education, everyday politics, local curiosities. Add a short, dry, ironic 3–6 word observation at the very end of the post (or in "tldr" / "why_it_matters").
@@ -118,10 +135,10 @@ When the Danish source mentions any of these official systems, institutions, or 
 "why_it_matters": ONE Ukrainian sentence (MAX %d chars) explaining practical impact on a regular person/user in Denmark.
 "audience_score": INTEGER 1 to 12. Strict filter for relevance:
   11-12 = Visas, særloven, Ukrainian refugee rights, critical MitID/Skat/state alerts.
-  9-10  = Direct impact on wallet/life: taxes, prices, schools (folkeskole), major cybersecurity leaks/scams, big IT/tech changes affecting regular users, new laws passed.
-  7-8   = Important labor market shifts, healthcare, major transport/infrastructure changes in Denmark, major war updates.
-  3-5   = Minor local incidents, routine national news.
-  1-2   = REJECT/SKIP: Foreign internal politics (e.g. Swedish/German party negotiations without direct impact on DK/UA), endless political talks without decisions, celebrity gossip, routine sports, or stubs/paywalls.
+  9-10  = Direct impact on wallet/life: taxes, prices, schools (folkeskole, gymnasium), kids/family benefits (børnepenge), major cybersecurity leaks/scams, big IT/tech changes affecting regular users, new laws passed.
+  7-8   = Important labor market shifts, youth/teens life in Denmark, Danish cultural life/traditions, healthcare, major infrastructure changes in Denmark, major war updates.
+  3-5   = Minor local Danish incidents, routine national news.
+  1-2   = REJECT/SKIP: Foreign internal crimes/shootings (e.g. Kraków, US local incidents), foreign political squabbles (e.g. Bulgarian/Swedish party squabbles), church hymnbooks/theology debates, celebrity gossip, routine sports, or stubs/paywalls.
 "fun_fact": ONE relevant fact about Denmark in Ukrainian starting with ONE emoji (MAX %d chars). If no interesting curious fact exists in the source text, provide a well-known cultural or lifestyle fact about Denmark relevant to the topic.
 
 Output ONLY valid JSON. No markdown fences, no meta-comments.`,

@@ -19,7 +19,7 @@ func isImpactCandidate(n News) bool {
 
 func isCoreImpactCategory(c Category) bool {
 	switch c {
-	case CategoryPolitics, CategorySociety, CategoryWork, CategoryEconomy, CategoryVisas, CategoryMoney, CategoryEducation, CategoryEU, CategoryWar:
+	case CategoryPolitics, CategorySociety, CategoryWork, CategoryEconomy, CategoryVisas, CategoryMoney, CategoryEducation, CategoryEU, CategoryWar, CategoryFamily:
 		return true
 	default:
 		return false

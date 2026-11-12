@@ -196,6 +196,10 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 				req.Header.Set("Authorization", "Bearer "+activeKey)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			if strings.Contains(c.baseURL, "openrouter") {
+				req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
+				req.Header.Set("X-Title", "Danish News Bot")
+			}
 
 			resp, err := c.httpClient.Do(req)
 			if err != nil {
@@ -314,6 +318,10 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 				req.Header.Set("Authorization", "Bearer "+activeKey)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			if strings.Contains(c.baseURL, "openrouter") {
+				req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
+				req.Header.Set("X-Title", "Danish News Bot")
+			}
 
 			resp, err := c.httpClient.Do(req)
 			if err != nil {

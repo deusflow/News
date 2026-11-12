@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/deusflow/News/internal/app"
 )
 
 func TestIsTargetCopenhagenHour_NonScheduledRunsAlwaysAllowed(t *testing.T) {
@@ -57,6 +59,35 @@ func TestIsTargetCopenhagenHour_ScheduledGating(t *testing.T) {
 	digestResult := isTargetCopenhagenHour("digest")
 	if digestResult != isDigestHour {
 		t.Fatalf("expected isTargetCopenhagenHour(digest) to return %v for hour %d, got %v", isDigestHour, currentHour, digestResult)
+	}
+}
+
+func TestIsCopenhagenQuietHours_Main(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	if err != nil {
+		t.Skip("Europe/Copenhagen timezone not available")
+	}
+
+	t.Setenv("ALLOW_NIGHT_PUBLISH", "")
+
+	tNight := time.Date(2026, 11, 12, 23, 15, 0, 0, loc)
+	if !app.IsCopenhagenQuietHours(tNight) {
+		t.Errorf("expected 23:15 to be quiet hours")
+	}
+
+	tLate := time.Date(2026, 11, 12, 1, 49, 0, 0, loc)
+	if !app.IsCopenhagenQuietHours(tLate) {
+		t.Errorf("expected 01:49 to be quiet hours")
+	}
+
+	tDay := time.Date(2026, 11, 12, 10, 0, 0, 0, loc)
+	if app.IsCopenhagenQuietHours(tDay) {
+		t.Errorf("expected 10:00 to NOT be quiet hours")
+	}
+
+	t.Setenv("ALLOW_NIGHT_PUBLISH", "true")
+	if app.IsCopenhagenQuietHours(tLate) {
+		t.Errorf("expected ALLOW_NIGHT_PUBLISH=true to bypass quiet hours")
 	}
 }
 

@@ -36,6 +36,8 @@ func calculateImpactScore(categoryWeights map[string]int) int {
 	impact += categoryWeights["society"]
 	impact += categoryWeights["work"]
 	impact += categoryWeights["eu"]
+	impact += categoryWeights["education"]
+	impact += categoryWeights["family"]
 	impact += categoryWeights["economy"] / 2
 	impact += categoryWeights["visas"] / 2
 	impact += categoryWeights["money"] / 2
@@ -100,6 +102,7 @@ func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, 
 	coreImpact += categoryWeights["visas"]
 	coreImpact += categoryWeights["money"]
 	coreImpact += categoryWeights["education"]
+	coreImpact += categoryWeights["family"]
 	coreImpact += categoryWeights["health"]
 	coreImpact += categoryWeights["housing"]
 	coreImpact += categoryWeights["eu"]
@@ -116,7 +119,6 @@ func calculateEditorialSignals(categoryWeights map[string]int) (coreImpact int, 
 
 	softScore += categoryWeights["lifestyle"]
 	softScore += categoryWeights["sport"]
-	softScore += categoryWeights["family"]
 
 	coreBoost := min(editorialBoostCoreCap, coreImpact/4)
 	softPenalty := 0
