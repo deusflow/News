@@ -149,6 +149,11 @@ func (c *Client) rotateKey() {
 	}
 }
 
+func (c *Client) isOpenRouter() bool {
+	return strings.Contains(strings.ToLower(c.baseURL), "openrouter") ||
+		strings.HasPrefix(strings.ToLower(c.Name()), "openrouter")
+}
+
 func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content), "model", c.model)
 
@@ -173,6 +178,11 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 		for k := 0; k < keyAttempts; k++ {
 			activeKey := c.currentKey()
 
+			var respFmt *responseFormat
+			if !c.isOpenRouter() {
+				respFmt = &responseFormat{Type: "json_object"}
+			}
+
 			reqBody := groqRequest{
 				Model: activeModel,
 				Messages: []message{
@@ -181,7 +191,7 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 				},
 				Temperature:     0.3,
 				Stream:          false,
-				ResponseFormat:  &responseFormat{Type: "json_object"},
+				ResponseFormat:  respFmt,
 				ReasoningEffort: c.reasoningEffort,
 			}
 
@@ -196,7 +206,7 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 				req.Header.Set("Authorization", "Bearer "+activeKey)
 			}
 			req.Header.Set("Content-Type", "application/json")
-			if strings.Contains(c.baseURL, "openrouter") {
+			if c.isOpenRouter() {
 				req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
 				req.Header.Set("X-Title", "Danish News Bot")
 			}
