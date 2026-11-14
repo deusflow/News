@@ -41,6 +41,47 @@ func NewTelegramPublisher(cfg *config.Config, cacheAdapter CacheAdapter, m *metr
 	}
 }
 
+// BuildNewsButtons constructs standard inline buttons (original link, 1-tap Danish copy, optional video).
+func BuildNewsButtons(cfg *config.Config, n news.News, videoURL string) [][]telegram.InlineButton {
+	var buttons [][]telegram.InlineButton
+	if !cfg.Feature.EnableInlineButtons || n.Link == "" {
+		return buttons
+	}
+	firstRow := []telegram.InlineButton{
+		{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
+	}
+	if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
+		firstRow = append(firstRow, telegram.InlineButton{
+			Text:     "📋 Копіювати DK",
+			CopyText: &telegram.CopyTextButton{Text: copySnippet},
+		})
+	}
+	buttons = append(buttons, firstRow)
+	if videoURL != "" && videoURL != n.Link {
+		buttons = append(buttons, []telegram.InlineButton{
+			{Text: "🎬 Дивитись відео", URL: videoURL},
+		})
+	}
+	return buttons
+}
+
+// SendFormattedNews formats and sends a news item as a photo caption or text message,
+// applying a category fallback image if needed.
+func SendFormattedNews(cfg *config.Config, n news.News, buttons [][]telegram.InlineButton) (sentMsgID int, outText string, err error) {
+	if n.ImageURL == "" {
+		c := news.ValidateCategory(n.Category)
+		n.ImageURL = news.GetCategoryImage(c)
+	}
+	if news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit) {
+		outText = news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
+		sentMsgID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, outText, buttons, n.ReplyToMessageID)
+		return sentMsgID, outText, err
+	}
+	outText = news.FormatNewsWithImage(n)
+	sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, n.ReplyToMessageID)
+	return sentMsgID, outText, err
+}
+
 // Publish formats and sends a single news item to Telegram, handling images, videos, and fallbacks.
 // It returns the final text sent to Telegram, and a boolean indicating if it was successfully sent.
 func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash string) (string, bool) {
@@ -100,24 +141,7 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 	var sentMsgID int
 
 	// 4. Buttons
-	var buttons [][]telegram.InlineButton
-	if p.cfg.Feature.EnableInlineButtons && n.Link != "" {
-		firstRow := []telegram.InlineButton{
-			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		}
-		if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
-			firstRow = append(firstRow, telegram.InlineButton{
-				Text:     "📋 Копіювати DK",
-				CopyText: &telegram.CopyTextButton{Text: copySnippet},
-			})
-		}
-		buttons = append(buttons, firstRow)
-		if videoURL != "" && videoURL != n.Link {
-			buttons = append(buttons, []telegram.InlineButton{
-				{Text: "🎬 Дивитись відео", URL: videoURL},
-			})
-		}
-	}
+	buttons := BuildNewsButtons(p.cfg, n, videoURL)
 
 	maxVideoSeconds := p.cfg.Posting.VideoMaxSeconds
 	if maxVideoSeconds <= 0 {
@@ -198,20 +222,8 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 				outText = news.FormatNewsWithImage(n)
 				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, false, n.ReplyToMessageID)
 			}
-		} else if canPhoto {
-			outText = news.FormatCaptionForPhoto(n, p.cfg.Posting.PhotoTextLimit)
-			if len(buttons) > 0 {
-				sentMsgID, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, buttons, n.ReplyToMessageID)
-			} else {
-				sentMsgID, err = telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, outText, nil, n.ReplyToMessageID)
-			}
 		} else {
-			outText = news.FormatNewsWithImage(n)
-			if len(buttons) > 0 {
-				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, true, n.ReplyToMessageID)
-			} else {
-				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, nil, true, n.ReplyToMessageID)
-			}
+			sentMsgID, outText, err = SendFormattedNews(p.cfg, n, buttons)
 		}
 	}
 

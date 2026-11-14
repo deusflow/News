@@ -13,6 +13,7 @@ import (
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
 	"github.com/deusflow/News/internal/news"
+	"github.com/deusflow/News/internal/publisher"
 	"github.com/deusflow/News/internal/scraper"
 	"github.com/deusflow/News/internal/storage"
 	"github.com/deusflow/News/internal/telegram"
@@ -176,47 +177,9 @@ func Run(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, cache D
 	if ac != nil && ac.ImageURL != "" {
 		n.ImageURL = ac.ImageURL
 	}
-	if n.ImageURL == "" {
-		cat := news.ValidateCategory(n.Category)
-		n.ImageURL = news.GetCategoryImage(cat)
-	}
 
-	// Build inline button (link + 1-tap Danish copy button)
-	var buttons [][]telegram.InlineButton
-	if cfg.Feature.EnableInlineButtons && n.Link != "" {
-		row := []telegram.InlineButton{
-			{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-		}
-		if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
-			row = append(row, telegram.InlineButton{
-				Text:     "📋 Копіювати DK",
-				CopyText: &telegram.CopyTextButton{Text: copySnippet},
-			})
-		}
-		buttons = append(buttons, row)
-	}
-
-	// Format using standard formatter (same look as main channel)
-	canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
-	var err error
-	var sentMsgID int
-
-	if canPhoto {
-		caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-		if len(buttons) > 0 {
-			sentMsgID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
-		} else {
-			sentMsgID, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
-		}
-	} else {
-		text := news.FormatNewsWithImage(n)
-		if len(buttons) > 0 {
-			sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
-		} else {
-			sentMsgID, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
-		}
-	}
-
+	buttons := publisher.BuildNewsButtons(cfg, n, "")
+	sentMsgID, _, err := publisher.SendFormattedNews(cfg, n, buttons)
 	if err != nil {
 		return fmt.Errorf("failed to send breaking telegram message: %w", err)
 	}
@@ -329,43 +292,8 @@ func deliverReadyDelayedPosts(ctx context.Context, cfg *config.Config, cache Ded
 			continue
 		}
 
-		var buttons [][]telegram.InlineButton
-		if cfg.Feature.EnableInlineButtons && n.Link != "" {
-			row := []telegram.InlineButton{
-				{Text: "🔗 Читати оригінал / Læs mere", URL: n.Link},
-			}
-			if copySnippet := news.BuildCopyTextSnippet(n); copySnippet != "" {
-				row = append(row, telegram.InlineButton{
-					Text:     "📋 Копіювати DK",
-					CopyText: &telegram.CopyTextButton{Text: copySnippet},
-				})
-			}
-			buttons = append(buttons, row)
-		}
-
-		if n.ImageURL == "" {
-			cat := news.ValidateCategory(n.Category)
-			n.ImageURL = news.GetCategoryImage(cat)
-		}
-
-		canPhoto := news.ShouldUsePhoto(n, cfg.Posting.PhotoTextLimit)
-		var err error
-		var sentMsgID int
-		if canPhoto {
-			caption := news.FormatCaptionForPhoto(n, cfg.Posting.PhotoTextLimit)
-			if len(buttons) > 0 {
-				sentMsgID, err = telegram.SendPhotoWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption, buttons)
-			} else {
-				sentMsgID, err = telegram.SendPhoto(cfg.Telegram.Token, cfg.Telegram.ChatID, n.ImageURL, caption)
-			}
-		} else {
-			text := news.FormatNewsWithImage(n)
-			if len(buttons) > 0 {
-				sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, text, buttons, true, 0)
-			} else {
-				sentMsgID, err = telegram.SendMessageAllowPreview(cfg.Telegram.Token, cfg.Telegram.ChatID, text)
-			}
-		}
+		buttons := publisher.BuildNewsButtons(cfg, n, "")
+		sentMsgID, _, err := publisher.SendFormattedNews(cfg, n, buttons)
 
 		if err != nil {
 			logger.Error("Failed to deliver delayed post to Telegram", "title", dp.Title, "error", err)
