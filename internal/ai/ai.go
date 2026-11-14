@@ -177,26 +177,31 @@ func AsProviderError(err error) (*ProviderError, bool) {
 	return nil, false
 }
 
-// SanitizeJSON strips markdown code fences (```json ... ``` or ``` ... ```),
-// preambles, and epilogues, extracting the outermost JSON object ({ ... }) or array ([ ... ]).
-func SanitizeJSON(raw string) string {
+// StripCodeFence removes surrounding markdown code fences (e.g. ```html ... ``` or ``` ... ```).
+func StripCodeFence(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-
-	// 1. If wrapped in markdown block, extract content inside fences
 	if start := strings.Index(raw, "```"); start >= 0 {
 		afterFence := raw[start+3:]
-		// Skip optional lang identifier (e.g. "json") on the same line
 		if nl := strings.IndexByte(afterFence, '\n'); nl >= 0 {
 			afterFence = afterFence[nl+1:]
 		}
 		if end := strings.Index(afterFence, "```"); end >= 0 {
-			raw = strings.TrimSpace(afterFence[:end])
-		} else {
-			raw = strings.TrimSpace(afterFence)
+			return strings.TrimSpace(afterFence[:end])
 		}
+		return strings.TrimSpace(afterFence)
+	}
+	return raw
+}
+
+// SanitizeJSON strips markdown code fences (```json ... ``` or ``` ... ```),
+// preambles, and epilogues, extracting the outermost JSON object ({ ... }) or array ([ ... ]).
+func SanitizeJSON(raw string) string {
+	raw = StripCodeFence(raw)
+	if raw == "" {
+		return ""
 	}
 
 	// 2. Find outermost JSON delimiters ({...} or [...])

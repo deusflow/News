@@ -232,26 +232,19 @@ func RunCalendar(ctx context.Context, cfg *config.Config, aiManager *ai.Manager,
 - Тільки валідні HTML-теги: <b>, <i>, <a>. Усі теги мають бути коректно закриті.
 - Загальний обсяг: орієнтовно 1200-2200 символів (ідеально для читання в Telegram).
 
-УВАГА: Ти повинен повернути ВАЛІДНИЙ JSON! Весь готовий текст помісти у поле "summary". Інші поля залиш порожніми.`,
+Поверни ТІЛЬКИ готовий текст календаря в HTML-форматі (без JSON-обгортки та без markdown-блоків).`,
 		nomMonth, targetYear, genMonth, strings.ToUpper(genMonth), targetYear)
 
 	userPrompt := fmt.Sprintf("Склади щомісячний календар на %s %d року на основі цих даних:\n\n%s",
 		nomMonth, targetYear, content)
 
-	// 4. Генерация через AI
-	resp, err := aiManager.Generate(ctx, "Monthly Calendar", content, systemPrompt, userPrompt)
+	// 4. Генерация через AI (raw-режим без JSON, чтобы HTML не ломал парсер)
+	rawText, err := aiManager.GenerateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return fmt.Errorf("failed to generate calendar via AI: %w", err)
 	}
 
-	calendarText := strings.TrimSpace(resp.Summary)
-	if !hasTextContent(calendarText) {
-		calendarText = strings.TrimSpace(resp.Ukrainian)
-	}
-	if !hasTextContent(calendarText) {
-		calendarText = strings.TrimSpace(resp.Danish)
-	}
-
+	calendarText := ai.StripCodeFence(rawText)
 	if !hasTextContent(calendarText) {
 		return fmt.Errorf("AI returned empty calendar content")
 	}

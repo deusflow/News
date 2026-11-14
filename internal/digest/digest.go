@@ -77,30 +77,21 @@ func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, s
 5. У кінці поста додай стильне побажання гарного тижня та заклик до дії, наприклад:
    ---
    🌅 <i>Бажаємо вам спокійної неділі та продуктивного нового тижня!</i>
-6. Допускаються Тільки дозволены HTML-теги: <b>, <i>, <a>. Усі теги мають бути правильно закриті. Не використовуй непідтримувані Телеграмом теги.
+6. Допускаються ТІЛЬКИ дозволені HTML-теги: <b>, <i>, <a>. Усі теги мають бути правильно закриті. Не використовуй непідтримувані Телеграмом теги.
 
-УВАГА: Ти повинен повернути ВАЛІДНИЙ JSON! Весь текст дайджесту помісти у поле "summary". 
-Інші поля залиш порожніми.`
+Поверни ТІЛЬКИ готовий текст дайджесту в HTML-форматі (без JSON-обгортки та без markdown-блоків).`
 
 	userPrompt := "Ось список новин за тиждень:\n\n" + content
 
-	// 4. Вызов AI
-	resp, err := aiManager.Generate(ctx, "Sunday Digest", content, systemPrompt, userPrompt)
+	// 4. Вызов AI (raw-режим без JSON, чтобы не ломаться на кавычках в HTML-ссылках)
+	rawText, err := aiManager.GenerateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return fmt.Errorf("failed to generate digest via AI: %w", err)
 	}
 
-	// Ищем текст в полях ответа
-	digestText := strings.TrimSpace(resp.Summary)
+	digestText := ai.StripCodeFence(rawText)
 	if !hasTextContent(digestText) {
-		digestText = strings.TrimSpace(resp.Ukrainian)
-	}
-	if !hasTextContent(digestText) {
-		digestText = strings.TrimSpace(resp.Danish)
-	}
-
-	if !hasTextContent(digestText) {
-		return fmt.Errorf("AI returned empty digest content (both summary and ukrainian fields are empty/invalid)")
+		return fmt.Errorf("AI returned empty digest content")
 	}
 
 	logger.Info("Digest generated successfully", "length", len(digestText))
