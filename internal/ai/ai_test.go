@@ -290,3 +290,47 @@ func TestSanitizeJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_PerProviderDelay(t *testing.T) {
+	t.Setenv("AI_REQUEST_DELAY_SECONDS", "1")
+	m := metrics.New()
+
+	p1 := &mockProvider{
+		name: "gemini",
+		err:  errors.New("429 RESOURCE_EXHAUSTED quota exceeded"),
+	}
+	p2 := &mockProvider{
+		name: "groq",
+		response: &ai.Response{
+			Danish:        "Dansk",
+			Ukrainian:     "Текст",
+			TLDR:          "TLDR",
+			Mood:          "neutral",
+			AudienceScore: 5,
+		},
+	}
+
+	mgr := ai.NewManager(m, 10, p1, p2)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Call 1: gemini fails and falls back to groq immediately (no 1s wait between different providers)
+	start := time.Now()
+	if _, err := mgr.Generate(ctx, "T1", "C1", "sys", "user"); err != nil {
+		t.Fatalf("Call 1 failed: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
+		t.Errorf("Expected immediate fallback across providers, took %v", elapsed)
+	}
+
+	// Call 2: gemini is on cooldown, groq is called a second time -> must wait ~1s
+	start2 := time.Now()
+	if _, err := mgr.Generate(ctx, "T2", "C2", "sys", "user"); err != nil {
+		t.Fatalf("Call 2 failed: %v", err)
+	}
+	if elapsed2 := time.Since(start2); elapsed2 < 800*time.Millisecond {
+		t.Errorf("Expected ~1s per-provider delay for consecutive groq calls, took %v", elapsed2)
+	}
+}

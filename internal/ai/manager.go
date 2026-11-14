@@ -57,11 +57,12 @@ type Manager struct {
 
 	jobQueue       chan aiJob
 	cancelCtx      context.CancelFunc
-	delay          time.Duration
-	maxRequests    int
-	requestCount   int
-	cooldownMu     sync.Mutex
-	exhaustedUntil map[string]time.Time
+	delay              time.Duration
+	maxRequests        int
+	requestCount       int
+	lastCallByProvider map[string]time.Time
+	cooldownMu         sync.Mutex
+	exhaustedUntil     map[string]time.Time
 }
 
 func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Manager {
@@ -76,13 +77,14 @@ func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Man
 	}
 
 	mgr := &Manager{
-		providers:      providers,
-		metrics:        m,
-		jobQueue:       make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
-		cancelCtx:      cancel,
-		delay:          delay,
-		maxRequests:    maxRequests,
-		exhaustedUntil: make(map[string]time.Time),
+		providers:          providers,
+		metrics:            m,
+		jobQueue:           make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
+		cancelCtx:          cancel,
+		delay:              delay,
+		maxRequests:        maxRequests,
+		lastCallByProvider: make(map[string]time.Time),
+		exhaustedUntil:     make(map[string]time.Time),
 	}
 
 	logger.Info("AI Manager started",
@@ -142,11 +144,59 @@ func (m *Manager) Name() string {
 	return "ai-manager"
 }
 
+// providerDelay returns the minimum inter-request delay for a given provider.
+// Gemini Free Tier is capped at 10 RPM (default 7-8s), while Groq/OpenRouter/Cerebras
+// allow 20-30 RPM so they don't need an 8s sleep between requests.
+func (m *Manager) providerDelay(providerName string) time.Duration {
+	if m.delay <= 0 {
+		return 0
+	}
+	lower := strings.ToLower(providerName)
+	if strings.HasPrefix(lower, "groq") ||
+		strings.HasPrefix(lower, "openrouter") ||
+		strings.HasPrefix(lower, "cerebras") {
+		if m.delay > 2*time.Second {
+			return 2 * time.Second
+		}
+	}
+	return m.delay
+}
+
+// waitForProvider enforces the per-provider rate-limit delay before calling providerName.
+func (m *Manager) waitForProvider(ctx context.Context, providerName string) error {
+	delay := m.providerDelay(providerName)
+	if delay <= 0 {
+		return nil
+	}
+	lastCall, ok := m.lastCallByProvider[providerName]
+	if !ok || lastCall.IsZero() {
+		return nil
+	}
+	elapsed := time.Since(lastCall)
+	if elapsed >= delay {
+		return nil
+	}
+
+	wait := delay - elapsed
+	logger.Info("AI queue: enforcing provider delay",
+		"provider", providerName,
+		"wait", wait.Round(time.Millisecond),
+		"elapsed_sec", fmt.Sprintf("%.1f", elapsed.Seconds()))
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // worker обрабатывает задачи строго последовательно (одна за одной).
 // Это принципиально: Gemini Free Tier не терпит параллельных запросов.
 func (m *Manager) worker(ctx context.Context) {
-	var lastCall time.Time
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -159,46 +209,32 @@ func (m *Manager) worker(ctx context.Context) {
 				continue
 			}
 
-			// Соблюдаем паузу между запросами.
-			elapsed := time.Since(lastCall)
-			if !lastCall.IsZero() && elapsed < m.delay {
-				wait := m.delay - elapsed
-				logger.Info("AI queue: enforcing delay",
-					"wait", wait.Round(time.Millisecond),
-					"elapsed_sec", fmt.Sprintf("%.1f", elapsed.Seconds()))
-
-				timer := time.NewTimer(wait)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return
-				case <-job.ctx.Done():
-					timer.Stop()
-					job.result <- aiResult{nil, "", job.ctx.Err()}
-					continue
-				case <-timer.C:
-					// пауза выдержана
-				}
-			}
+			// Связываем контекст задачи с общим контекстом воркера, чтобы не зависнуть при Close().
+			jobCtx, cancelJob := context.WithCancel(job.ctx)
+			stopWatch := context.AfterFunc(ctx, cancelJob)
 
 			start := time.Now()
-			
+
 			var resp *Response
 			var rawText string
 			var err error
-			
+
 			if job.rawMode {
-				rawText, err = m.executeRawWithFallback(job.ctx, job.systemPrompt, job.userPrompt)
+				rawText, err = m.executeRawWithFallback(jobCtx, job.systemPrompt, job.userPrompt)
 			} else {
-				resp, err = m.executeWithFallback(job.ctx, job.title, job.content, job.systemPrompt, job.userPrompt)
+				resp, err = m.executeWithFallback(jobCtx, job.title, job.content, job.systemPrompt, job.userPrompt)
 			}
-			
-			lastCall = time.Now()
+
+			stopWatch()
+			cancelJob()
+
+			if ctx.Err() != nil && job.ctx.Err() == nil {
+				return
+			}
 
 			if err == nil {
 				logger.Info("AI request done",
 					"duration_sec", fmt.Sprintf("%.1f", time.Since(start).Seconds()),
-					"next_allowed_in", m.delay,
 					"raw_mode", job.rawMode)
 			}
 
@@ -223,10 +259,15 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			return nil, fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
 		}
 
+		if err := m.waitForProvider(ctx, provider.Name()); err != nil {
+			return nil, err
+		}
+
 		logger.Info("trying AI provider", "provider", provider.Name())
 
 		m.requestCount++
 		rsp, err := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
+		m.lastCallByProvider[provider.Name()] = time.Now()
 		if err == nil {
 			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount)
 			return rsp, nil
@@ -277,6 +318,7 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 
 			m.requestCount++
 			resp2, err2 := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
+			m.lastCallByProvider[provider.Name()] = time.Now()
 			if err2 == nil {
 				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount)
 				return resp2, nil
@@ -307,10 +349,15 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 			return "", fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
 		}
 
+		if err := m.waitForProvider(ctx, provider.Name()); err != nil {
+			return "", err
+		}
+
 		m.requestCount++
 		logger.Debug("AI Request Raw", "provider", provider.Name())
 
 		rawText, err := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
+		m.lastCallByProvider[provider.Name()] = time.Now()
 		if err != nil {
 			logger.Error("Provider Raw failed", "provider", provider.Name(), "error", err)
 
@@ -332,6 +379,7 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 				case <-time.After(rlErr.RetryAfter):
 					m.requestCount++
 					rawText, retryErr := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
+					m.lastCallByProvider[provider.Name()] = time.Now()
 					if retryErr == nil {
 						return rawText, nil
 					}
