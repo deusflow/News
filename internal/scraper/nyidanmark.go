@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +14,55 @@ import (
 	"github.com/deusflow/News/internal/rss"
 	"github.com/mmcdole/gofeed"
 )
+
+var nyidanmarkURLDateRe = regexp.MustCompile(`/da/Nyheder/(\d{4})/(\d{2})/`)
+
+func danishLocation() *time.Location {
+	loc, err := time.LoadLocation("Europe/Copenhagen")
+	if err != nil {
+		return time.FixedZone("CET", 3600)
+	}
+	return loc
+}
+
+// isRecentNyidanmarkURL отсеивает старые новости по пути /da/Nyheder/YYYY/MM/ ещё до скачивания статьи.
+// Оставляем только текущий и предыдущий месяц (на случай перехода через границу месяца).
+func isRecentNyidanmarkURL(link string, now time.Time) bool {
+	matches := nyidanmarkURLDateRe.FindStringSubmatch(link)
+	if len(matches) != 3 {
+		return true
+	}
+	year, err1 := strconv.Atoi(matches[1])
+	month, err2 := strconv.Atoi(matches[2])
+	if err1 != nil || err2 != nil || month < 1 || month > 12 {
+		return true
+	}
+
+	localNow := now.In(danishLocation())
+	prevMonth := localNow.AddDate(0, -1, 0)
+	minYM := prevMonth.Year()*12 + int(prevMonth.Month())
+	linkYM := year*12 + month
+
+	return linkYM >= minYM
+}
+
+// parseNyidanmarkDate парсит дату формата DD-MM-YYYY без времени.
+// Чтобы ночной/утренний запуск не отбрасывал вчерашние новости из-за 00:00:00 UTC,
+// для сегодняшней даты возвращается now, а для прошлых дат — 12:00 по времени Копенгагена.
+func parseNyidanmarkDate(pubDateStr string, now time.Time) (time.Time, error) {
+	loc := danishLocation()
+	parsed, err := time.ParseInLocation("02-01-2006", strings.TrimSpace(pubDateStr), loc)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	localNow := now.In(loc)
+	if parsed.Year() == localNow.Year() && parsed.Month() == localNow.Month() && parsed.Day() == localNow.Day() {
+		return now, nil
+	}
+
+	return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 12, 0, 0, 0, loc), nil
+}
 
 // NyidanmarkScraper извлекает официальные новости с nyidanmark.dk
 type NyidanmarkScraper struct {
@@ -57,12 +108,17 @@ func (s *NyidanmarkScraper) ScrapeFrontpage(ctx context.Context) ([]string, erro
 		}
 	})
 
-	// Уникализация ссылок
+	// Уникализация и отсев старых месяцев по URL
+	now := time.Now()
 	seen := make(map[string]bool)
 	var uniqueLinks []string
 	for _, link := range links {
 		if !seen[link] {
 			seen[link] = true
+			if !isRecentNyidanmarkURL(link, now) {
+				logger.Debug("Skipping old nyidanmark URL", "url", link)
+				continue
+			}
 			uniqueLinks = append(uniqueLinks, link)
 		}
 	}
@@ -113,10 +169,10 @@ func (s *NyidanmarkScraper) ScrapeArticle(ctx context.Context, url string) (*rss
 	// Парсинг даты (Publiceret 17-06-2026)
 	pubDateStr := strings.TrimSpace(doc.Find("p.bodycopy-xsmall.black").First().Text())
 	pubDateStr = strings.ReplaceAll(pubDateStr, "Publiceret ", "")
-	
+
 	var pubDate time.Time
 	if pubDateStr != "" {
-		parsed, err := time.Parse("02-01-2006", pubDateStr)
+		parsed, err := parseNyidanmarkDate(pubDateStr, time.Now())
 		if err == nil {
 			pubDate = parsed
 		} else {
@@ -130,7 +186,7 @@ func (s *NyidanmarkScraper) ScrapeArticle(ctx context.Context, url string) (*rss
 	feedSource := &rss.FeedSource{
 		Name:     "Nyidanmark",
 		Lang:     "da",
-		Priority: 10,
+		Priority: 100,
 		Weight:   15, // Official immigration site — highest relevance for Ukrainian refugees
 	}
 
