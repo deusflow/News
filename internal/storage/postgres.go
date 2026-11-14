@@ -26,6 +26,11 @@ type PostgresCache struct {
 	ttlHours int
 }
 
+// DB exposes the underlying pooled *sql.DB connection for read-only queries in auxiliary modes.
+func (c *PostgresCache) DB() *sql.DB {
+	return c.db
+}
+
 // FailedItem represents a news item that failed to send
 type FailedItem struct {
 	ID          int

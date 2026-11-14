@@ -164,7 +164,7 @@ func truncateString(s string, max int) string {
 }
 
 // RunCalendar generates and publishes the monthly Danish calendar of dates and payouts.
-func RunCalendar(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, supabase *storage.SupabaseClient) error {
+func RunCalendar(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, supabase *storage.SupabaseClient, db *sql.DB) error {
 	logger.Info("Starting Monthly Calendar generation")
 
 	now := time.Now()
@@ -172,7 +172,7 @@ func RunCalendar(ctx context.Context, cfg *config.Config, aiManager *ai.Manager,
 	logger.Info("Target month for calendar determined", "month", nomMonth, "year", targetYear)
 
 	// 1. Сбор новостей за последние 30-35 дней
-	newsItems, err := fetchNewsForCalendar(ctx, cfg, supabase)
+	newsItems, err := fetchNewsForCalendar(ctx, cfg, supabase, db)
 	if err != nil {
 		logger.Warn("Failed to fetch past news for calendar, will proceed with standard events only", "error", err)
 	}
@@ -302,15 +302,21 @@ func BuildCalendarCopyButtons(month time.Month) [][]telegram.InlineButton {
 	return [][]telegram.InlineButton{row1}
 }
 
-func fetchNewsForCalendar(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient) ([]CalendarNewsItem, error) {
+func fetchNewsForCalendar(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient, sharedDB *sql.DB) ([]CalendarNewsItem, error) {
 	var items []CalendarNewsItem
 
 	// 1. Попытка получить из PostgreSQL (за последние 35 дней)
-	if cfg.Database.UsePostgres && cfg.Database.URL != "" {
+	if cfg.Database.UsePostgres && (sharedDB != nil || cfg.Database.URL != "") {
 		logger.Info("Attempting to fetch news for calendar from PostgreSQL")
-		db, err := sql.Open("postgres", cfg.Database.URL)
-		if err == nil {
-			defer db.Close()
+		db := sharedDB
+		var err error
+		if db == nil {
+			db, err = sql.Open("postgres", cfg.Database.URL)
+			if err == nil {
+				defer db.Close()
+			}
+		}
+		if err == nil && db != nil {
 			query := `
 				SELECT s.title, COALESCE(s.title_ukrainian, ''), s.link, COALESCE(s.category, ''), ''
 				FROM sent_news s

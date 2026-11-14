@@ -34,11 +34,11 @@ func hasTextContent(s string) bool {
 	return strings.TrimSpace(stripped) != ""
 }
 
-func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, supabase *storage.SupabaseClient) error {
+func RunDigest(ctx context.Context, cfg *config.Config, aiManager *ai.Manager, supabase *storage.SupabaseClient, db *sql.DB) error {
 	logger.Info("Starting Sunday Digest generation")
 
 	// 1. Сбор новостей из доступных источников (с бэкапами)
-	newsItems, err := fetchNewsForDigest(ctx, cfg, supabase)
+	newsItems, err := fetchNewsForDigest(ctx, cfg, supabase, db)
 	if err != nil {
 		return fmt.Errorf("failed to fetch news for digest: %w", err)
 	}
@@ -142,7 +142,7 @@ func truncateForTelegram(text string) string {
 	return kept
 }
 
-func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient) ([]DigestNewsItem, error) {
+func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *storage.SupabaseClient, sharedDB *sql.DB) ([]DigestNewsItem, error) {
 	var items []DigestNewsItem
 
 	// 1. Попытка получить из Supabase
@@ -171,11 +171,17 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 	}
 
 	// 2. Попытка получить из PostgreSQL (sent_news + ai_translation_cache fallback)
-	if cfg.Database.UsePostgres && cfg.Database.URL != "" {
+	if cfg.Database.UsePostgres && (sharedDB != nil || cfg.Database.URL != "") {
 		logger.Info("Attempting to fetch news for digest from PostgreSQL")
-		db, err := sql.Open("postgres", cfg.Database.URL)
-		if err == nil {
-			defer db.Close()
+		db := sharedDB
+		var err error
+		if db == nil {
+			db, err = sql.Open("postgres", cfg.Database.URL)
+			if err == nil {
+				defer db.Close()
+			}
+		}
+		if err == nil && db != nil {
 			query := `
 				SELECT 
 					COALESCE(NULLIF(s.title_ukrainian, ''), s.title), 

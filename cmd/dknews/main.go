@@ -61,12 +61,13 @@ func main() {
 
 	m := metrics.New()
 
-	// Initialize application
-	application, err := app.New(cfg, m)
+	// Initialize application tailored to BOT_MODE (avoids heavy DB cleanup / RSS / embedder in auxiliary modes)
+	application, err := app.NewForMode(cfg, m, botMode)
 	if err != nil {
 		logger.Error("App init error", "error", err)
 		os.Exit(1)
 	}
+	defer application.Close()
 
 	// Graceful shutdown context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -77,22 +78,25 @@ func main() {
 	if botMode == "breaking" {
 		if err := breaking.Run(ctx, cfg, aiMgr, application.GetCacheAdapter(), application.GetSupabase()); err != nil {
 			logger.Error("Breaking mode failed", "error", err)
+			application.Close()
 			os.Exit(1)
 		}
 		return
 	}
 
 	if botMode == "digest" {
-		if err := digest.RunDigest(ctx, cfg, aiMgr, application.GetSupabase()); err != nil {
+		if err := digest.RunDigest(ctx, cfg, aiMgr, application.GetSupabase(), application.GetPostgresDB()); err != nil {
 			logger.Error("Digest mode failed", "error", err)
+			application.Close()
 			os.Exit(1)
 		}
 		return
 	}
 
 	if botMode == "calendar" || botMode == "monthly" {
-		if err := calendar.RunCalendar(ctx, cfg, aiMgr, application.GetSupabase()); err != nil {
+		if err := calendar.RunCalendar(ctx, cfg, aiMgr, application.GetSupabase(), application.GetPostgresDB()); err != nil {
 			logger.Error("Calendar mode failed", "error", err)
+			application.Close()
 			os.Exit(1)
 		}
 		return

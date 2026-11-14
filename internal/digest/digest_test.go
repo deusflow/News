@@ -86,7 +86,7 @@ feeds:
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = RunDigest(ctx, cfg, aiMgr, nil)
+	err = RunDigest(ctx, cfg, aiMgr, nil, nil)
 	if err == nil {
 		t.Errorf("expected error when no news sources are available, got nil")
 	} else if !strings.Contains(err.Error(), "all news sources failed") {

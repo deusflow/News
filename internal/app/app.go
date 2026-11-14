@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/deusflow/News/internal/ai"
@@ -123,6 +125,35 @@ type App struct {
 	keywords       *config.KeywordsConfig
 	supabaseClient *storage.SupabaseClient
 	embedder       embedding.Embedder
+	closeOnce      sync.Once
+}
+
+// Close safely releases AI worker goroutines and database/file cache resources (idempotent).
+func (a *App) Close() {
+	a.closeOnce.Do(func() {
+		if a.aiManager != nil {
+			a.aiManager.Close()
+		}
+		switch adapter := a.cacheAdapter.(type) {
+		case *FileCacheAdapter:
+			if err := adapter.cache.Save(); err != nil {
+				logger.Error("Failed to save file cache", "error", err)
+			}
+		case *PostgresCacheAdapter:
+			// Явно закрываем connection pool — критично для Neon free tier
+			if err := adapter.cache.Close(); err != nil {
+				logger.Error("Failed to close postgres connection", "error", err)
+			}
+		}
+	})
+}
+
+// GetPostgresDB returns the pooled *sql.DB if PostgreSQL cache is active, or nil otherwise.
+func (a *App) GetPostgresDB() *sql.DB {
+	if adapter, ok := a.cacheAdapter.(*PostgresCacheAdapter); ok && adapter.cache != nil {
+		return adapter.cache.DB()
+	}
+	return nil
 }
 
 // GetAIManager returns the AI Manager instance.
@@ -141,11 +172,22 @@ func (a *App) GetCacheAdapter() CacheAdapter {
 }
 
 func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
+	return NewForMode(cfg, m, "single")
+}
+
+// NewForMode initializes the application tailored to the requested BOT_MODE.
+// Auxiliary modes ("breaking", "digest", "calendar", "monthly") skip heavy DB cleanup,
+// Supabase archiving, RSS/keyword loading, and embedding initialization.
+func NewForMode(cfg *config.Config, m *metrics.Metrics, mode string) (*App, error) {
+	isFullRun := mode == "" || mode == "single" || mode == "batch"
+
 	logger.Init()
-	logger.Info("Initializing Danish News Bot")
-	logger.Info("Video config",
-		"video_url_max_bytes", cfg.Posting.VideoURLMaxBytes,
-		"video_max_seconds", cfg.Posting.VideoMaxSeconds)
+	logger.Info("Initializing Danish News Bot", "mode", mode)
+	if isFullRun {
+		logger.Info("Video config",
+			"video_url_max_bytes", cfg.Posting.VideoURLMaxBytes,
+			"video_max_seconds", cfg.Posting.VideoMaxSeconds)
+	}
 
 	// 1. Инициализация кэша
 	var cacheAdapter CacheAdapter
@@ -156,11 +198,14 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 			return nil, fmt.Errorf("postgres error: %v", err)
 		}
 
-		// Очистка старых записей (важно для экономии места)
-		if err := pgCache.Cleanup(); err != nil {
-			logger.Warn("Failed to cleanup postgres cache", "error", err)
-		} else {
-			logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.Database.TTL)
+		// Очистка старых записей выполняется только при полном новостном прогоне,
+		// чтобы не гонять 5 DELETE-запросов каждые 20 минут в breaking-режиме.
+		if isFullRun {
+			if err := pgCache.Cleanup(); err != nil {
+				logger.Warn("Failed to cleanup postgres cache", "error", err)
+			} else {
+				logger.Info("Postgres cache cleanup completed", "ttl_hours", cfg.Database.TTL)
+			}
 		}
 
 		cacheAdapter = &PostgresCacheAdapter{cache: pgCache}
@@ -184,20 +229,26 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 	aiManager := ai.NewManager(m, cfg.AI.MaxGeminiRequests, aiProviders...)
 	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
-	// 3. Загрузка RSS фидов и ключевых слов
-	feeds, err := rss.LoadFeeds(cfg.RSS.FeedsConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("feeds error: %v", err)
-	}
+	// 3. Загрузка RSS фидов и ключевых слов (только для полного новостного прогона)
+	var feeds []rss.FeedSource
+	var keywords *config.KeywordsConfig
+	if isFullRun {
+		var err error
+		feeds, err = rss.LoadFeeds(cfg.RSS.FeedsConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("feeds error: %v", err)
+		}
 
-	keywords, err := config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load keywords config: %w", err)
+		keywords, err = config.LoadKeywords(cfg.RSS.KeywordsConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load keywords config: %w", err)
+		}
 	}
 
 	// Initialize Supabase client for website archive
 	var supabaseClient *storage.SupabaseClient
 	if cfg.Supabase.Enable {
+		var err error
 		supabaseClient, err = storage.NewSupabaseClientWithOptions(cfg.Supabase.URL, cfg.Supabase.ServiceKey, storage.SupabaseClientOptions{
 			HTTPTimeout:           time.Duration(cfg.Supabase.HTTPTimeoutSeconds) * time.Second,
 			DuplicateCheckTimeout: time.Duration(cfg.Supabase.DuplicateCheckTimeoutSeconds) * time.Second,
@@ -214,16 +265,18 @@ func New(cfg *config.Config, m *metrics.Metrics) (*App, error) {
 				supabaseClient = nil
 			} else {
 				logger.Info("Supabase client initialized for website archive")
-				// Archive old news (older than 10 days)
-				if archiveErr := supabaseClient.ArchiveOldNews(context.Background()); archiveErr != nil {
-					logger.Warn("Failed to archive old news", "error", archiveErr)
+				if isFullRun {
+					// Archive old news (older than 10 days)
+					if archiveErr := supabaseClient.ArchiveOldNews(context.Background()); archiveErr != nil {
+						logger.Warn("Failed to archive old news", "error", archiveErr)
+					}
 				}
 			}
 		}
 	}
 
 	var embedder embedding.Embedder
-	if cfg.SemanticDedup.Enable {
+	if isFullRun && cfg.SemanticDedup.Enable {
 		keys := []string{cfg.AI.GeminiAPIKey, cfg.AI.GeminiAPIKey2, cfg.AI.GeminiAPIKey3}
 		embClient, err := embedding.NewGeminiEmbedder(keys, cfg.SemanticDedup.EmbeddingModel)
 		if err != nil {
@@ -287,22 +340,7 @@ func (a *App) Run(ctx context.Context) {
 		return
 	}
 
-	defer a.aiManager.Close()
-
-	defer func() {
-		switch adapter := a.cacheAdapter.(type) {
-		case *FileCacheAdapter:
-			if err := adapter.cache.Save(); err != nil {
-				logger.Error("Failed to save file cache", "error", err)
-			}
-		case *PostgresCacheAdapter:
-			// Явно закрываем connection pool — критично для Neon free tier
-			// (ограниченное число одновременных подключений)
-			if err := adapter.cache.Close(); err != nil {
-				logger.Error("Failed to close postgres connection", "error", err)
-			}
-		}
-	}()
+	defer a.Close()
 
 	// 4.1 Обработка очереди неудачных сообщений (DLQ)
 	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
