@@ -217,6 +217,9 @@ func fetchNewsForDigest(ctx context.Context, cfg *config.Config, supabase *stora
 						})
 					}
 				}
+				if rowsErr := rows.Err(); rowsErr != nil {
+					logger.Warn("PostgreSQL rows iteration error for digest", "error", rowsErr)
+				}
 				if len(items) > 0 {
 					logger.Info("Successfully fetched news from PostgreSQL", "count", len(items))
 					return items, nil

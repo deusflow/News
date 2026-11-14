@@ -61,10 +61,6 @@ type News struct {
 	VideoURL string `json:"video_url,omitempty"`
 
 	ReplyToMessageID int `json:"reply_to_message_id,omitempty"`
-
-	// Legacy поля для совместимости
-	ImportanceDanish    string
-	ImportanceUkrainian string
 }
 
 type Options struct {

@@ -1,4 +1,4 @@
-// Package config is kept for future configuration loading (currently unused).
+// Package config loads and validates runtime configuration from environment variables and YAML files.
 package config
 
 import (
@@ -25,16 +25,9 @@ type TelegramConfig struct {
 }
 
 type PostingConfig struct {
-	Policy                  string // hybrid | photo-only | text-only | two-messages (reserved)
-	PhotoCaptionMaxRunes    int    // target/max caption budget for photo mode (~900)
-	PhotoMinPerLangRunes    int    // minimal budget per language in photo caption (≥120)
-	PhotoSentencesPerLang   int    // sentences per language in photo mode (1 or 2)
-	TextSentencesPerLangMin int    // 2 by default
-	TextSentencesPerLangMax int    // 4 by default
-	MinSummaryTotalRunes    int    // minimal informativeness threshold to consider content "full"
-	PhotoTextLimit          int    // limit for photo text (1024)
-	VideoURLMaxBytes        int64  // max size for SendVideoURL (bytes)
-	VideoMaxSeconds         int    // max duration for native video upload (seconds)
+	PhotoTextLimit   int   // limit for photo text (1024)
+	VideoURLMaxBytes int64 // max size for SendVideoURL (bytes)
+	VideoMaxSeconds  int   // max duration for native video upload (seconds)
 }
 
 type AIConfig struct {
@@ -86,9 +79,8 @@ type DatabaseConfig struct {
 
 type FeatureConfig struct {
 	EnableInlineButtons    bool
-	ChannelUsername        string // for building URL buttons (e.g. deusflow_news)
-	EnablePublicImpactGate bool   // if true, publish stage prefers impactful/systemic news
-	EnableDecisionLog      bool   // if true, logs full candidate decision blocks
+	EnablePublicImpactGate bool // if true, publish stage prefers impactful/systemic news
+	EnableDecisionLog      bool // if true, logs full candidate decision blocks
 }
 
 type MonitoringConfig struct {
@@ -150,16 +142,9 @@ func Load() (*Config, error) {
 		},
 		Telegram: TelegramConfig{},
 		Posting: PostingConfig{
-			Policy:                  "hybrid",
-			PhotoCaptionMaxRunes:    900,
-			PhotoMinPerLangRunes:    120,
-			PhotoSentencesPerLang:   2,
-			TextSentencesPerLangMin: 2,
-			TextSentencesPerLangMax: 4,
-			MinSummaryTotalRunes:    180,
-			PhotoTextLimit:          1024,
-			VideoURLMaxBytes:        40 * 1024 * 1024,
-			VideoMaxSeconds:         180,
+			PhotoTextLimit:   1024,
+			VideoURLMaxBytes: 40 * 1024 * 1024,
+			VideoMaxSeconds:  180,
 		},
 		Scraper: ScraperConfig{
 			Concurrency: 2,
@@ -170,7 +155,6 @@ func Load() (*Config, error) {
 		},
 		Feature: FeatureConfig{
 			EnableInlineButtons:    true,
-			ChannelUsername:        "",
 			EnablePublicImpactGate: true,
 			EnableDecisionLog:      true,
 		},
@@ -212,39 +196,6 @@ func Load() (*Config, error) {
 	// Database retention defaults to 840 hours (35 days) so monthly calendar & 7-day dedup/digest work reliably
 	cfg.Database.TTL = getEnvIntOrDefault("DATABASE_TTL_HOURS", 840)
 
-	if policy := os.Getenv("POSTING_POLICY"); policy != "" {
-		cfg.Posting.Policy = policy
-	}
-	if v := os.Getenv("PHOTO_CAPTION_MAX_RUNES"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.Posting.PhotoCaptionMaxRunes = val
-		}
-	}
-	if v := os.Getenv("PHOTO_MIN_PER_LANG_RUNES"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 60 {
-			cfg.Posting.PhotoMinPerLangRunes = val
-		}
-	}
-	if v := os.Getenv("PHOTO_SENTENCES_PER_LANG"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && (val == 1 || val == 2) {
-			cfg.Posting.PhotoSentencesPerLang = val
-		}
-	}
-	if v := os.Getenv("TEXT_SENTENCES_PER_LANG_MIN"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= 1 {
-			cfg.Posting.TextSentencesPerLangMin = val
-		}
-	}
-	if v := os.Getenv("TEXT_SENTENCES_PER_LANG_MAX"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val >= cfg.Posting.TextSentencesPerLangMin {
-			cfg.Posting.TextSentencesPerLangMax = val
-		}
-	}
-	if v := os.Getenv("MIN_SUMMARY_TOTAL_RUNES"); v != "" {
-		if val, err := strconv.Atoi(v); err == nil && val > 0 {
-			cfg.Posting.MinSummaryTotalRunes = val
-		}
-	}
 	cfg.Posting.VideoURLMaxBytes = getEnvInt64OrDefault("VIDEO_URL_MAX_BYTES", cfg.Posting.VideoURLMaxBytes)
 	cfg.Posting.VideoMaxSeconds = getEnvIntOrDefault("VIDEO_MAX_SECONDS", cfg.Posting.VideoMaxSeconds)
 
@@ -282,9 +233,6 @@ func Load() (*Config, error) {
 	// Feature flags
 	if v := os.Getenv("ENABLE_INLINE_BUTTONS"); v != "" {
 		cfg.Feature.EnableInlineButtons = v == "true"
-	}
-	if v := os.Getenv("CHANNEL_USERNAME"); v != "" {
-		cfg.Feature.ChannelUsername = v
 	}
 	if v := os.Getenv("ENABLE_PUBLIC_IMPACT_GATE"); v != "" {
 		cfg.Feature.EnablePublicImpactGate = v == "true"
@@ -440,8 +388,28 @@ func (c *Config) Validate() error {
 	if c.Telegram.ChatID == "" {
 		return fmt.Errorf("TELEGRAM_CHAT_ID is required")
 	}
-	if c.AI.GeminiAPIKey == "" {
-		return fmt.Errorf("GEMINI_API_KEY is required")
+	if !c.hasAnyAIKey() {
+		return fmt.Errorf("at least one AI API key is required (GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, or CEREBRAS_API_KEY)")
 	}
 	return nil
+}
+
+func (c *Config) hasAnyAIKey() bool {
+	keys := []string{
+		c.AI.GeminiAPIKey,
+		c.AI.GeminiAPIKey2,
+		c.AI.GeminiAPIKey3,
+		c.AI.GroqAPIKey,
+		c.AI.GroqAPIKey2,
+		c.AI.GroqAPIKey3,
+		c.AI.OpenRouterAPIKey,
+		c.AI.OpenRouterAPIKey2,
+		os.Getenv("CEREBRAS_API_KEY"),
+	}
+	for _, k := range keys {
+		if strings.TrimSpace(k) != "" {
+			return true
+		}
+	}
+	return false
 }
