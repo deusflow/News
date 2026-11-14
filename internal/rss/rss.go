@@ -55,6 +55,10 @@ func LoadFeeds(path string) ([]FeedSource, error) {
 	return cfg.Feeds, nil
 }
 
+// defaultRSSUserAgent mimics a modern desktop browser so strict WAFs (e.g. WordPress/Cloudflare)
+// don't drop RSS connections that use gofeed's default User-Agent.
+const defaultRSSUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
 // rssHTTPClient is shared across all feed fetches to reuse connections.
 var rssHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
@@ -97,6 +101,7 @@ func FetchAllFeedsDetailed(ctx context.Context, sources []FeedSource) ([]*FeedIt
 
 			parser := gofeed.NewParser()
 			parser.Client = rssHTTPClient
+			parser.UserAgent = defaultRSSUserAgent
 
 			feed, err := parser.ParseURLWithContext(s.URL, ctx)
 			mu.Lock()

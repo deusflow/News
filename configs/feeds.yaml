@@ -43,7 +43,7 @@ feeds:
     active: true
     categories: [ denmark, society, rights ]
 
-  - url: https://cphpost.dk/?feed=rss2
+  - url: https://cphpost.dk/feed/
     name: Copenhagen Post
     lang: en
     priority: 85
