@@ -97,17 +97,8 @@ func extractContentBySource(doc *goquery.Document, url string) string {
 	case strings.Contains(url, "dr.dk"):
 		// For DR (Danmarks Radio)
 		content = extractDRContent(doc)
-	case strings.Contains(url, "ekstrabladet.dk"):
-		// For Ekstrabladet
-		content = extractEkstrabladetContent(doc)
-	case strings.Contains(url, "tv2.dk"):
-		// For TV2
-		content = extractTV2Content(doc)
-	case strings.Contains(url, "bt.dk"):
-		// For BT
-		content = extractBTContent(doc)
 	default:
-		// Generic parser for other sites
+		// Generic parser for TV2, BT, Ekstra Bladet and all other sites (strips footers/nav/ads)
 		content = extractGenericContent(doc)
 	}
 
@@ -216,85 +207,6 @@ func isNavigationOrOtherArticle(text string) bool {
 	}
 
 	return false
-}
-
-// extractEkstrabladetContent gets content from ekstrabladet.dk
-func extractEkstrabladetContent(doc *goquery.Document) string {
-	var paragraphs []string
-
-	// Selectors for Ekstrabladet
-	selectors := []string{
-		".article-body p",
-		".article-content p",
-		".content p",
-		"article p",
-		".body-text p",
-	}
-
-	for _, selector := range selectors {
-		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
-			text := strings.TrimSpace(s.Text())
-			if text != "" && len(text) > 10 {
-				paragraphs = append(paragraphs, text)
-			}
-		})
-		if len(paragraphs) > 0 {
-			break
-		}
-	}
-
-	return strings.Join(paragraphs, "\n\n")
-}
-
-// extractTV2Content gets content from tv2.dk
-func extractTV2Content(doc *goquery.Document) string {
-	var paragraphs []string
-
-	selectors := []string{
-		".article-body p",
-		".content p",
-		"article p",
-		".article-text p",
-	}
-
-	for _, selector := range selectors {
-		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
-			text := strings.TrimSpace(s.Text())
-			if text != "" && len(text) > 10 {
-				paragraphs = append(paragraphs, text)
-			}
-		})
-		if len(paragraphs) > 0 {
-			break
-		}
-	}
-
-	return strings.Join(paragraphs, "\n\n")
-}
-
-// extractBTContent gets content from bt.dk
-func extractBTContent(doc *goquery.Document) string {
-	var paragraphs []string
-
-	selectors := []string{
-		".article-body p",
-		".content p",
-		"article p",
-	}
-
-	for _, selector := range selectors {
-		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
-			text := strings.TrimSpace(s.Text())
-			if text != "" && len(text) > 10 {
-				paragraphs = append(paragraphs, text)
-			}
-		})
-		if len(paragraphs) > 0 {
-			break
-		}
-	}
-
-	return strings.Join(paragraphs, "\n\n")
 }
 
 // extractGenericContent is universal parser for any site
