@@ -78,6 +78,7 @@ USER INPUT:
 - TOPIC BOOST (Give audience_score 8-10):
   • Danish schools (folkeskole, gymnasium, efterskole), daycare (børnehave, vuggestue).
   • Danish youth, teenagers, family benefits (børnepenge), parenting and education in Denmark.
+  • Danish labor market, worker rights, salaries, unions, public transport (DSB/Metro/rejsekort), and housing/rent rules.
   • Everyday Danish culture, customs, traditions, and positive integration stories.
 - DEVELOPING STORIES RULE:
   • If this is a developing story about an ongoing meeting or visit:
@@ -129,9 +130,9 @@ When the Danish source mentions any of these official systems, institutions, or 
 
 ━━━ 6. "PEREPYCHKA" STYLE & TONE GUARD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Write dynamically: 1st sentence = clear action/change (do NOT repeat the headline). Next 1–2 sentences = concrete details/numbers from the text (BEFORE → AFTER).
-- WITTY PUNCHLINE RULE:
-  • ALLOWED ONLY FOR: lifestyle, tech, economy, money, work, education, everyday politics, local curiosities. Add a short, dry, ironic 3–6 word observation at the very end of the post (or in "tldr" / "why_it_matters").
-  • STRICTLY FORBIDDEN FOR: war, crime, deaths, accidents, illnesses, tragedies, violence. For these serious topics, maintain a 100%% strict, respectful journalistic tone with ZERO irony or humor.
+- TONE & WITTY PUNCHLINE RULE (calibrated by topic):
+  • STRICTLY GROUNDED & RESPECTFUL (ZERO jokes, ZERO irony, ZERO flippancy): war, crime, deaths, accidents, illnesses, tragedies, violence — AND serious legal/visa/tax/school/labor-rights changes where preserving the gravity and practical message matters. Use clear, lively, human phrasing, never dry bureaucracy, but do not force jokes.
+  • LIGHT, DRY WIT ALLOWED ONLY FOR: lifestyle, everyday culture, tech, consumer tips, transport quirks, and lighthearted local stories. Add at most a subtle, good-natured 3–6 word observation at the end (never sarcastic or disrespectful).
 
 ━━━ FORMATTING & LENGTH LIMITS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - "danish" body: MAX %d chars (up to 700 IF "is_longread" is true). Finish all sentences.
@@ -149,7 +150,7 @@ When the Danish source mentions any of these official systems, institutions, or 
 "mood": "positive" | "negative" | "neutral" | "shocking" | "urgent".
 "category": ONE from: %s.
 "tags": 2–4 Ukrainian tags (no # symbol).
-"tldr": ONE punchy Ukrainian hook starting with ONE emoji (MAX %d chars). For non-tragic news, make it witty/ironic ("Перепичка" style).
+"tldr": ONE clear, engaging Ukrainian hook starting with ONE emoji (MAX %d chars). Use light wit ONLY for lifestyle/tech/curiosities; keep serious policy, school, work, and crisis topics grounded and respectful.
 "is_exclusive": true | false.
 "why_it_matters": ONE Ukrainian sentence (MAX %d chars) explaining practical impact on a regular person in Denmark (what changes for wallet, money, work, commute, taxes, or daily life).
 "audience_score": INTEGER 1 to 12. Strict filter for relevance:

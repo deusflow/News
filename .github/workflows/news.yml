@@ -55,7 +55,7 @@ jobs:
       OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
       AI_PROVIDERS: "gemini,groq,groq:openai/gpt-oss-20b,openrouter"
       AI_REQUEST_DELAY_SECONDS: '8'
-      MIN_KEYWORD_SCORE: '6'
+      MIN_KEYWORD_SCORE: '4'
 
       # Supabase (for website archive) - AUTO-ENABLED when credentials present
       # Bot saves all news here, website pulls from this database

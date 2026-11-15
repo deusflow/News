@@ -30,12 +30,14 @@ Your task: pick up to 3 headlines that would be MOST important or interesting fo
 
 Criteria for selection:
 - Direct impact on daily life in Denmark (laws, taxes, housing, transport, healthcare)
+- Schools, daycare, teenagers, and education in Denmark (folkeskole, gymnasium, family/børnepenge)
+- Labor market, jobs, worker rights, wages, and practical living/renting in Denmark
 - Major positive national developments (tax relief/skattelettelser, free public services, major student/family benefits, high job growth, large investments in welfare)
 - Major national events with lasting consequences (political/legal crises, large-scale emergencies) — NOT routine isolated crime unless it changes a law or policy
 - Topics relevant to foreigners/immigrants in Denmark
 - Surprising or unusual Danish news that provides cultural insight
 
-Do NOT pick: sports results, celebrity gossip, weather, minor local incidents, routine municipal budgets, foreign internal party debates, or paywalled stubs.
+Do NOT pick: foreign local crimes/shootings/traffic accidents outside Denmark, sports results, celebrity gossip, weather, minor local incidents, routine municipal budgets, foreign internal party debates, or paywalled stubs.
 
 Return ONLY valid JSON: {"selected": [0, 5, 12]}
 If none are worth selecting, return: {"selected": []}
