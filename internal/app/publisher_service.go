@@ -269,9 +269,9 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		return
 	}
 
-	// Re-sort valid candidates by score after anti-fatigue adjustments
+	// Re-sort valid candidates using full editorial publish priority after anti-fatigue adjustments
 	sort.SliceStable(valid, func(i, j int) bool {
-		return valid[i].news.Score > valid[j].news.Score
+		return news.ComparePublishPriority(valid[i].news, valid[j].news)
 	})
 
 	// Night quiet hours guard: skip publication to public Telegram channel between 22:30 and 07:30 Copenhagen time.

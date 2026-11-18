@@ -141,9 +141,9 @@ func LoadKeywords(path string) (*KeywordsConfig, error) {
 		return nil, fmt.Errorf("keywords array is empty in config")
 	}
 
-	wholeWordMaxRunes := getEnvIntOrDefault("KEYWORD_WHOLE_WORD_MAX_RUNES", 4)
+	wholeWordMaxRunes := getEnvIntOrDefault("KEYWORD_WHOLE_WORD_MAX_RUNES", 5)
 	if wholeWordMaxRunes < 1 {
-		wholeWordMaxRunes = 4
+		wholeWordMaxRunes = 5
 	}
 	strictWordBoundaries := strings.EqualFold(os.Getenv("KEYWORDS_STRICT_WORD_MATCH"), "true")
 

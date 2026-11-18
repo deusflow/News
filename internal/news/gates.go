@@ -117,36 +117,41 @@ func PassesAudienceRelevanceGate(n News) bool {
 
 func sortByPublishPriority(items []News) {
 	sort.SliceStable(items, func(i, j int) bool {
-		iGate := PassesPublicImpactGate(items[i])
-		jGate := PassesPublicImpactGate(items[j])
-		if iGate != jGate {
-			return iGate
-		}
-		if items[i].CoreImpactScore != items[j].CoreImpactScore {
-			return items[i].CoreImpactScore > items[j].CoreImpactScore
-		}
-
-		iImpact := isImpactCandidate(items[i])
-		jImpact := isImpactCandidate(items[j])
-		if iImpact != jImpact {
-			return iImpact
-		}
-		if iImpact && items[i].ImpactScore != items[j].ImpactScore {
-			return items[i].ImpactScore > items[j].ImpactScore
-		}
-		if items[i].AudienceScore != items[j].AudienceScore {
-			return items[i].AudienceScore > items[j].AudienceScore
-		}
-		if items[i].Score != items[j].Score {
-			return items[i].Score > items[j].Score
-		}
-		iHasImage := items[i].ImageURL != ""
-		jHasImage := items[j].ImageURL != ""
-		if iHasImage != jHasImage {
-			return iHasImage
-		}
-		return false
+		return ComparePublishPriority(items[i], items[j])
 	})
+}
+
+// ComparePublishPriority returns true if item a should be ranked higher for publication than item b.
+func ComparePublishPriority(a, b News) bool {
+	aGate := PassesPublicImpactGate(a)
+	bGate := PassesPublicImpactGate(b)
+	if aGate != bGate {
+		return aGate
+	}
+	if a.CoreImpactScore != b.CoreImpactScore {
+		return a.CoreImpactScore > b.CoreImpactScore
+	}
+
+	aImpact := isImpactCandidate(a)
+	bImpact := isImpactCandidate(b)
+	if aImpact != bImpact {
+		return aImpact
+	}
+	if aImpact && a.ImpactScore != b.ImpactScore {
+		return a.ImpactScore > b.ImpactScore
+	}
+	if a.AudienceScore != b.AudienceScore {
+		return a.AudienceScore > b.AudienceScore
+	}
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	aHasImage := a.ImageURL != ""
+	bHasImage := b.ImageURL != ""
+	if aHasImage != bHasImage {
+		return aHasImage
+	}
+	return false
 }
 
 func getMinKeywordScoreForAI() int {

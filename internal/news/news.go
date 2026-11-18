@@ -334,10 +334,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 	}
 
+	// To prevent paywalled/stub articles (common on Børsen, Kristeligt Dagblad, Berlingske, Politiken)
+	// from burning half of our AI slots before AI even runs, we scrape an oversampled pool
+	// (up to maxAICandidates + 6) via cheap HTTP requests and only send the top `maxAICandidates`
+	// non-paywalled articles to the AI.
+	maxScrapeCandidates := maxAICandidates + 6
 	topCandidates := append(primary, reserve...)
-	if len(topCandidates) < maxAICandidates {
+	if len(topCandidates) < maxScrapeCandidates {
 		for _, s := range scored {
-			if len(topCandidates) >= maxAICandidates {
+			if len(topCandidates) >= maxScrapeCandidates {
 				break
 			}
 			if s.kwScore < minKeywordScoreForAI {
@@ -350,6 +355,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("keyword pre-filter done",
 		"total_candidates", len(candidates),
 		"passed_filter", len(topCandidates),
+		"ai_budget", maxAICandidates,
 		"rejected", len(candidates)-len(topCandidates),
 		"primary_slots", primarySlots,
 		"reserve_slots", reserveSlots,
@@ -359,13 +365,14 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 	// ── Шаг 3б: AI Triage — дешёвая rescue отвергнутых заголовков ─────────
 	// Один batch-запрос (~200 input tokens) оценивает ВСЕ заголовки,
-	// не прошедшие keyword filter, и спасает до 3 потенциально важных.
-	if opts.AI != nil && len(topCandidates) < maxAICandidates {
+	// не прошедшие keyword filter, и спасает до 2 потенциально важных (даже если
+	// keyword-пул заполнен, чтобы важные новости с нестандартной формулировкой не терялись).
+	if opts.AI != nil {
 		rejected := collectRejectedHeadlines(candidates, picked)
 		if len(rejected) > 0 {
-			triageSlots := maxAICandidates - len(topCandidates)
-			if triageSlots > 3 {
-				triageSlots = 3
+			triageSlots := 2
+			if rem := maxAICandidates - len(topCandidates); rem > triageSlots {
+				triageSlots = min(3, rem)
 			}
 			rescued := runTriage(ctx, rejected, opts.AI)
 			if len(rescued) > 0 {
@@ -376,27 +383,39 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 						rejectedItems = append(rejectedItems, item)
 					}
 				}
-				added := 0
+				var triagePicked []preScored
 				for _, rIdx := range rescued {
-					if added >= triageSlots {
+					if len(triagePicked) >= triageSlots {
 						break
 					}
 					if rIdx < len(rejectedItems) {
 						item := rejectedItems[rIdx]
-						// Find the preScored entry for this item
 						for _, s := range scored {
 							if s.item.Link == item.Link {
-								if appendCandidate(&topCandidates, s) {
-									added++
+								if appendCandidate(&triagePicked, s) {
+									break
 								}
-								break
 							}
 						}
 					}
 				}
-				logger.Info("AI triage added candidates",
-					"rescued", added,
-					"total_after_triage", len(topCandidates))
+				if len(triagePicked) > 0 {
+					// Insert rescued triage items right after the primary slots so they are guaranteed
+					// to be scraped and evaluated by AI within the maxAICandidates budget.
+					insertPos := len(primary)
+					if insertPos > len(topCandidates) {
+						insertPos = len(topCandidates)
+					}
+					merged := make([]preScored, 0, len(topCandidates)+len(triagePicked))
+					merged = append(merged, topCandidates[:insertPos]...)
+					merged = append(merged, triagePicked...)
+					merged = append(merged, topCandidates[insertPos:]...)
+					topCandidates = merged
+
+					logger.Info("AI triage added candidates",
+						"rescued", len(triagePicked),
+						"total_after_triage", len(topCandidates))
+				}
 			}
 		}
 	}
@@ -505,13 +524,19 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	//
 	// AI вызывается ТОЛЬКО для topCandidates (max 5), не для всех 32.
 	// Это экономит 80%+ AI-лимита.
-	logger.Info("phase 2: sequential AI processing", "items", len(scraped))
+	logger.Info("phase 2: sequential AI processing", "scraped_items", len(scraped), "max_ai_candidates", maxAICandidates)
 
 	var result []News
 	aiAttempts := 0
 	aiErrors := 0
 
 	for idx, s := range scraped {
+		if aiAttempts >= maxAICandidates {
+			logger.Info("reached max AI candidates budget after skipping stubs/paywalls",
+				"processed_ai_items", aiAttempts,
+				"remaining_scraped_skipped", len(scraped)-idx)
+			break
+		}
 		if ctx.Err() != nil {
 			logger.Warn("context cancelled, stopping early", "completed", len(result)+aiErrors)
 			break
@@ -616,10 +641,13 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			n.EditorialAdjustment = editorialAdjustment
 			n.Score += kwScore + impactScore + editorialAdjustment
 
-			// If keywords found a category, prefer it after strict normalization.
-			if kwCat != "" && kwCat != "spam" {
-				if coerced, ok := CoerceCategory(kwCat); ok {
-					n.Category = string(coerced)
+			// Primary category comes from AI (which reads the full context and distinguishes e.g. crime from economy).
+			// Only fall back to keyword category if AI returned an unknown/default fallback category.
+			if n.Category == "" || n.Category == string(CategoryDefault) {
+				if kwCat != "" && kwCat != "spam" {
+					if coerced, ok := CoerceCategory(kwCat); ok {
+						n.Category = string(coerced)
+					}
 				}
 			}
 

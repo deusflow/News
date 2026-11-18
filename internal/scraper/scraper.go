@@ -395,8 +395,9 @@ func cleanContent(content string) string {
 			continue
 		}
 
-		// Make sentences into paragraphs
-		if strings.HasSuffix(line, ".") || strings.HasSuffix(line, "!") || strings.HasSuffix(line, "?") {
+		// Make sentences into paragraphs (handling trailing Danish/standard quotes and colons)
+		trimmedEnd := strings.TrimRight(line, "»«\"'”’)")
+		if strings.HasSuffix(trimmedEnd, ".") || strings.HasSuffix(trimmedEnd, "!") || strings.HasSuffix(trimmedEnd, "?") || strings.HasSuffix(trimmedEnd, ":") {
 			if currentParagraph.Len() > 0 {
 				currentParagraph.WriteString(" ")
 			}
