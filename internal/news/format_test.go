@@ -170,6 +170,23 @@ func TestSanitizeAIField_EscapesHTMLSpecialChars(t *testing.T) {
 	}
 }
 
+func TestBuildExpandableBlockquote_NoDuplicateFlagEmoji(t *testing.T) {
+	n := News{
+		Title:        "Test title",
+		Category:     "economy",
+		WhyItMatters: "Подібні шахрайства можуть торкнутися фінансів мешканців.",
+		FunFact:      "🇩🇰 У Данії діє спеціальний підрозділ поліції з фінансових злочинів.",
+	}
+
+	out := FormatNewsWithImage(n)
+	if strings.Contains(out, "🇩🇰 🇩🇰") || strings.Contains(out, "🇩🇰 <i>🇩🇰") {
+		t.Fatalf("expected no duplicate Danish flag emoji in fun fact block, got: %q", out)
+	}
+	if !strings.Contains(out, "🇩🇰 <i>У Данії діє спеціальний підрозділ") {
+		t.Fatalf("expected single Danish flag before italicized fun fact, got: %q", out)
+	}
+}
+
 func TestBuildCopyTextSnippet(t *testing.T) {
 	n := News{
 		TitleDanish:   "Nye regler for Forskudsopgørelse og Boligstøtte",

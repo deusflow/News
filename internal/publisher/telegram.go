@@ -66,7 +66,9 @@ func BuildNewsButtons(cfg *config.Config, n news.News, videoURL string) [][]tele
 }
 
 // SendFormattedNews formats and sends a news item as a photo caption or text message,
-// applying a category fallback image if needed.
+// applying a category fallback image if needed. When the text exceeds Telegram's 1024-char
+// photo caption limit, it sends a 4096-char message with the article's image rendered
+// as a large media preview above the text so the image is never lost.
 func SendFormattedNews(cfg *config.Config, n news.News, buttons [][]telegram.InlineButton) (sentMsgID int, outText string, err error) {
 	if n.ImageURL == "" {
 		c := news.ValidateCategory(n.Category)
@@ -78,7 +80,7 @@ func SendFormattedNews(cfg *config.Config, n news.News, buttons [][]telegram.Inl
 		return sentMsgID, outText, err
 	}
 	outText = news.FormatNewsWithImage(n)
-	sentMsgID, err = telegram.SendMessageWithButtons(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, buttons, true, n.ReplyToMessageID)
+	sentMsgID, err = telegram.SendMessageWithPreviewURL(cfg.Telegram.Token, cfg.Telegram.ChatID, outText, n.ImageURL, buttons, n.ReplyToMessageID)
 	return sentMsgID, outText, err
 }
 

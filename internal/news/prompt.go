@@ -16,25 +16,23 @@ type NewsBudget struct {
 
 // DefaultBudget — character limits for each part of a news item.
 //
-// Budget breakdown for photo caption (1024 hard Telegram limit):
+// Budget breakdown for photo caption (1024 hard Telegram limit) or rich link-preview message:
 //
 //	header:    ~25 chars   ("⚔️ ВІЙНА\n\n")
-//	TLDR:      ~80 chars   ("💬 <b>...</b>\n\n")
-//	DK title:  ~65 chars   ("🇩🇰 <b>Title</b>\n")
-//	DK body:   260 chars
+//	TLDR:      ~85 chars   ("💬 <b>...</b>\n\n")
+//	DK title:  ~75 chars   ("🇩🇰 <b>Title</b>\n")
+//	DK body:   340 chars
 //	separator:  ~2 chars   ("\n\n")
-//	UA title:  ~75 chars   ("🇺🇦 <b>Title</b>\n")
-//	UA body:   280 chars
-//	why-block: ~170 chars  ("<blockquote expandable>💡 <b>Що це означає:</b> ...</blockquote>")
+//	UA title:  ~80 chars   ("🇺🇦 <b>Title</b>\n")
+//	UA body:   360 chars
+//	why-block: ~175 chars  ("<blockquote expandable>💡 <b>Що це означає:</b> ...</blockquote>")
 //	tags:      ~35 chars   ("#данія #політика")
-//	─────────────────────
-//	Total:     ~992 chars  ✅ guaranteed to fit within 1024 Telegram photo limit with expandable blockquote
 var DefaultBudget = NewsBudget{
-	DanishChars:       260,
-	UkrainianChars:    280,
-	TLDRChars:         80,
+	DanishChars:       340,
+	UkrainianChars:    360,
+	TLDRChars:         85,
 	FunFactChars:      140,
-	WhyItMattersChars: 130,
+	WhyItMattersChars: 140,
 }
 
 // GenerateNewsSystemPrompt повертає системні інструкції для AI.
@@ -86,18 +84,28 @@ USER INPUT:
     - Evening post covers ONLY concrete agreements, signed contracts, or final decisions (delta).
     - If no concrete decisions/results have been made yet (e.g. "talks are still ongoing behind closed doors"), set concrete_anchor to "insufficient_substance" and audience_score to 2 to prevent publishing repetitive non-news.
 
-━━━ 3. ENTITY STRIPPING (NO BUREAUCRATIC BOREDOM) ━━━━━━━━━━━━━━━━━━━━━━
+━━━ 3. ENTITY STRIPPING & CONCRETE EXAMPLES (NO VAGUE SLOGANS) ━━━━━━━━━
 - Drop obscure politicians, minor party leaders, municipal spokespersons, and bureaucratic committee titles unless the person is globally/nationally famous (e.g., Mette Frederiksen, Volodymyr Zelenskyj, Donald Trump).
 - Replace unknown names with their institutional role: write "Уряд Швеції" instead of listing 4 unfamiliar Swedish politicians, "Центристська партія" instead of backbencher MPs, "Міністерство транспорту" instead of individual officials.
-- Focus strictly on WHAT happened and HOW it works in practice for ordinary residents, not on political posturing or committee proceedings.
+- CONCRETE CAUSE & EXAMPLES RULE (CRITICAL FOR CLARITY):
+  • NEVER write abstract, vague slogans without explaining the real-world cause (e.g., do NOT just write "коли батьки думають лише про свою дитину, підривається класна спільнота" — the reader won't understand WHAT parents actually did!).
+  • ALWAYS include the concrete real-life actions, examples, or causes from the article text (e.g., parents taking kids on ski vacations during school weeks, allowing kids to arrive late, or demanding special individual agreements/særaftaler).
+  • Answer clearly: WHO did WHAT, HOW it works in practice (with concrete examples from the text), and WHAT the numbers/results are.
 
-━━━ 4. BILINGUAL MIRRORING (FOR LANGUAGE LEARNING) ━━━━━━━━━━━━━━━━━━━━━
+━━━ 4. BILINGUAL MIRRORING & TRANSLATION TRAPS ━━━━━━━━━━━━━━━━━━━━━━━━━
 - "danish" and "ukrainian" bodies MUST have identical meaning and parallel sentence-by-sentence structure so readers can easily compare them side-by-side to learn Danish.
 - Keep Danish natural, clear (B1-B2 level), and free of heavy bureaucratic jargon.
 - In "ukrainian", maintain 100%% natural, correct grammar and smooth phrasing:
-  • Strictly agree grammatical genders and cases (e.g. "урядова вимога", not "урядовий вимога"; "б'є по молоді", not literal "вдаряє молодь").
+  • Strictly agree grammatical genders and cases (e.g. "урядова вимога", not "урядовий вимога"; "б'є по молоді", not literal "вдаряє молодь"; "затримано восьмох чоловіків", not "операція затримала").
+  • DANISH NUMBER & PRONOUN TRAP: In Danish, "Ni" / "ni" at the start of a sentence means the number NINE (9, "дев'ять"), NEVER "Ніхто" (nobody = "ingen")! "I" (capitalized) means "ви" (you plural), not "в". Double-check Danish numerals (en, to, tre, fire, fem, seks, syv, otte, ni, ti) so they are translated accurately.
+  • DANISH GEOGRAPHY: Always use standard Ukrainian geographical names for Danish regions:
+    - Jylland → Ютландія (у Ютландії) — NEVER "Джилянд"!
+    - Sjælland → Зеландія (у Зеландії)
+    - Fyn → Фюн (на острові Фюн)
+    - København → Копенгаген
+    - Aarhus → Орхус, Odense → Оденсе, Aalborg → Ольборг
   • Translate institutional and legal terms by practical meaning, not word-for-word calques: e.g. "dagpenge на ставці для випускників" rather than "за ставкою випускника після закінчення навчання".
-  • Avoid literal idiom calques: translate the situational meaning naturally (e.g. "studier kræver transporttider" means "навчання забирає багато часу на дорогу", not "курси вимагають поїздки").
+  • Avoid literal idiom calques: translate the situational meaning naturally (e.g. "studier kræver transporttider" means "навчання забирає багато часу на дорогу", not "курси вимагають поїздки"; "løfte blikket fra eget barn" means "дивитися ширше за потреби лише власної дитини").
   • Keep sentence subjects clear (do not drop subjects in Ukrainian).
 - In "ukrainian", provide inline glossing for specific Danish concepts, institutions, or terms: e.g., "dagpenge (виплати по безробіттю)", "folketing (парламент Данії)", "SU (державна студентська стипендія)", "kommune (муніципалітет)", "MitID (державний цифровий ключ)".
 - Proper nouns (brands, cities, MitID, Folketing, Skat) stay in original Latin script or standard Ukrainian transliteration.
@@ -159,7 +167,7 @@ When the Danish source mentions any of these official systems, institutions, or 
   7-8   = Important labor market shifts, youth/teens life in Denmark, Danish cultural life/traditions, healthcare, major infrastructure changes in Denmark, major war updates.
   3-5   = Minor local Danish incidents, routine national news.
   1-2   = REJECT/SKIP: Foreign internal crimes/shootings (e.g. Kraków, US local incidents), foreign political squabbles (e.g. Bulgarian/Swedish party squabbles), church hymnbooks/theology debates, celebrity gossip, routine sports, or stubs/paywalls.
-"fun_fact": ONE relevant fact about Denmark in Ukrainian starting with ONE emoji (MAX %d chars). If no interesting curious fact exists in the source text, provide a well-known cultural or lifestyle fact about Denmark relevant to the topic.
+"fun_fact": ONE genuinely interesting, verified cultural, historical, or legal fact about Denmark in Ukrainian (MAX %d chars, do NOT start with a flag emoji as the formatter adds it automatically, and NEVER divide numbers from the article to invent fake national averages).
 
 Output ONLY valid JSON. No markdown fences, no meta-comments.`,
 		currentDateStr, currentYear, currentYear, nextYear,

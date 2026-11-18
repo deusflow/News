@@ -77,13 +77,10 @@ func NewClientWithKeys(name string, apiKeys []string, model, baseURL string) *Cl
 	}
 
 	fallbackModel := ""
-	if strings.Contains(model, "gpt-oss-120b") {
-		fallbackModel = strings.Replace(model, "gpt-oss-120b", "gpt-oss-20b", 1)
-	}
 
 	reasoningEffort := os.Getenv("GROQ_REASONING_EFFORT")
 	if reasoningEffort == "" && (strings.Contains(model, "gpt-oss") || strings.Contains(model, "reasoning")) {
-		reasoningEffort = "low"
+		reasoningEffort = "medium"
 	}
 	return &Client{
 		name:            name,

@@ -54,15 +54,21 @@ func escapeHTML(text string) string {
 
 // SendMessageAllowPreview sends a message allowing web preview
 func SendMessageAllowPreview(token string, chatID string, text string) (int, error) {
-	return sendMessage(context.Background(), token, chatID, text, nil, true, 0)
+	return sendMessage(context.Background(), token, chatID, text, nil, true, "", 0)
 }
 
 // SendMessageWithButtons sends a message with inline buttons
 func SendMessageWithButtons(token string, chatID string, text string, buttons [][]InlineButton, allowPreview bool, replyToMessageID int) (int, error) {
-	return sendMessage(context.Background(), token, chatID, text, buttons, allowPreview, replyToMessageID)
+	return sendMessage(context.Background(), token, chatID, text, buttons, allowPreview, "", replyToMessageID)
 }
 
-func sendMessage(ctx context.Context, token string, chatID string, text string, buttons [][]InlineButton, allowPreview bool, replyToMessageID int) (int, error) {
+// SendMessageWithPreviewURL sends a message with inline buttons and an explicit large media preview URL
+// shown above the message text (useful when a post has an image but exceeds the 1024-char photo caption limit).
+func SendMessageWithPreviewURL(token string, chatID string, text string, previewImageURL string, buttons [][]InlineButton, replyToMessageID int) (int, error) {
+	return sendMessage(context.Background(), token, chatID, text, buttons, true, previewImageURL, replyToMessageID)
+}
+
+func sendMessage(ctx context.Context, token string, chatID string, text string, buttons [][]InlineButton, allowPreview bool, explicitPreviewURL string, replyToMessageID int) (int, error) {
 	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, token)
 
 	body := map[string]interface{}{
@@ -72,7 +78,11 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 	}
 
 	if allowPreview {
-		if previewURL := extractPreviewURL(text); previewURL != "" {
+		previewURL := strings.TrimSpace(explicitPreviewURL)
+		if previewURL == "" {
+			previewURL = extractPreviewURL(text)
+		}
+		if previewURL != "" {
 			body["link_preview_options"] = map[string]interface{}{
 				"is_disabled":        false,
 				"url":                previewURL,

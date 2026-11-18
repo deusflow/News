@@ -163,10 +163,28 @@ func cleanWhyItMatters(text string) string {
 	return strings.TrimSpace(text)
 }
 
+// cleanFunFactPrefix strips leading flag or lightbulb emojis if the AI included them,
+// preventing double emojis like "🇩🇰 🇩🇰" or "💡 💡" when buildExpandableBlockquote adds its own icon.
+func cleanFunFactPrefix(fact string) string {
+	fact = strings.TrimSpace(fact)
+	leadingIcons := []string{"🇩🇰", "🇺🇦", "💡", "🧭", "📌", "ℹ️"}
+	changed := true
+	for changed {
+		changed = false
+		for _, icon := range leadingIcons {
+			if strings.HasPrefix(fact, icon) {
+				fact = strings.TrimSpace(strings.TrimPrefix(fact, icon))
+				changed = true
+			}
+		}
+	}
+	return fact
+}
+
 // buildExpandableBlockquote builds the expandable blockquote with why-it-matters and fun fact.
 func buildExpandableBlockquote(n News, why, fact string) string {
 	why = cleanWhyItMatters(why)
-	fact = strings.TrimSpace(fact)
+	fact = cleanFunFactPrefix(fact)
 	if why == "" && fact == "" {
 		return ""
 	}

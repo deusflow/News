@@ -104,11 +104,11 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		return nil, nil
 	}
 
-	// Verification 2: Verify numbers, dates, and amounts in the article body/title against Danish source text.
+	// Verification 2: Verify numbers, dates, and amounts in the article body/title/tldr against Danish source text.
 	// Note: FunFact is intentionally excluded because the prompt asks AI for general cultural/historical
 	// facts about Denmark (which frequently contain years or statistics not in the news article).
 	danishSource := title + "\n" + content + "\n" + resp.TitleDanish + "\n" + resp.Danish
-	ukrainianArticleText := resp.TitleUkrainian + "\n" + resp.Ukrainian
+	ukrainianArticleText := resp.TitleUkrainian + "\n" + resp.Ukrainian + "\n" + resp.TLDR
 	if numErr := VerifyNumbers(danishSource, ukrainianArticleText); numErr != nil {
 		logger.Warn("Rejecting article: unverified number detected (anti-hallucination guard)", "title", title, "error", numErr)
 		return nil, nil
