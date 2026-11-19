@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -355,6 +356,20 @@ func (a *App) Run(ctx context.Context) {
 
 	// 4.3 Публикация отложенных важных новостей (Delayed Posts Queue)
 	processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.supabaseClient)
+
+	// 4.4 Anti-burst guard for delayed GitHub Actions `schedule` fallback runs:
+	// if Cloudflare Worker (`repository_dispatch`) already published within 90m, skip without spending AI quota.
+	if triggerEvent := os.Getenv("TRIGGER_EVENT"); strings.EqualFold(strings.TrimSpace(triggerEvent), "schedule") {
+		if recentStories, err := a.cacheAdapter.GetRecentStories(24 * time.Hour); err == nil {
+			if skip, elapsed := ShouldSkipDelayedScheduleRun(triggerEvent, recentStories, time.Now()); skip {
+				logger.Info("Skipping delayed GitHub schedule run: recent post already published",
+					"last_post_age", elapsed.Round(time.Minute),
+					"window", scheduleAntiBurstWindow)
+				a.metrics.SetLastRun()
+				return
+			}
+		}
+	}
 
 	// 5. Скачивание новостей RSS
 	items, feedStatuses, err := a.fetcher.FetchDetailed(ctx)

@@ -73,7 +73,7 @@ func slug(title string, maxLen int) string {
 			b.WriteRune(r)
 		case unicode.IsDigit(r):
 			b.WriteRune(r)
-		case r == ' ' || r == '-':
+		case unicode.IsSpace(r) || r == '-':
 			b.WriteRune('-')
 		}
 	}

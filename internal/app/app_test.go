@@ -332,3 +332,56 @@ func TestDevelopingStory_Lifecycle(t *testing.T) {
 		t.Fatalf("expected daily limit reason, got %s", reasonThird)
 	}
 }
+
+func TestShouldSkipDelayedScheduleRun(t *testing.T) {
+	now := time.Date(2026, 11, 19, 17, 35, 0, 0, time.UTC)
+
+	tests := []struct {
+		name         string
+		triggerEvent string
+		stories      []storage.SentStoryRecord
+		wantSkip     bool
+	}{
+		{
+			name:         "skips delayed schedule run when post sent 15m ago",
+			triggerEvent: "schedule",
+			stories: []storage.SentStoryRecord{
+				{Title: "Recent", SentAt: now.Add(-15 * time.Minute)},
+			},
+			wantSkip: true,
+		},
+		{
+			name:         "allows delayed schedule fallback when last post was 2h ago",
+			triggerEvent: "schedule",
+			stories: []storage.SentStoryRecord{
+				{Title: "Old", SentAt: now.Add(-2 * time.Hour)},
+			},
+			wantSkip: false,
+		},
+		{
+			name:         "never skips repository_dispatch even if post sent 15m ago",
+			triggerEvent: "repository_dispatch",
+			stories: []storage.SentStoryRecord{
+				{Title: "Recent", SentAt: now.Add(-15 * time.Minute)},
+			},
+			wantSkip: false,
+		},
+		{
+			name:         "never skips manual workflow_dispatch",
+			triggerEvent: "workflow_dispatch",
+			stories: []storage.SentStoryRecord{
+				{Title: "Recent", SentAt: now.Add(-15 * time.Minute)},
+			},
+			wantSkip: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotSkip, _ := ShouldSkipDelayedScheduleRun(tt.triggerEvent, tt.stories, now)
+			if gotSkip != tt.wantSkip {
+				t.Errorf("ShouldSkipDelayedScheduleRun(%q) = %v, want %v", tt.triggerEvent, gotSkip, tt.wantSkip)
+			}
+		})
+	}
+}

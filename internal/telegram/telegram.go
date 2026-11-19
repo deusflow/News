@@ -112,7 +112,17 @@ func sendMessage(ctx context.Context, token string, chatID string, text string, 
 		}
 	}
 
-	return executeRequest(ctx, url, body)
+	msgID, err := executeRequest(ctx, url, body)
+	if err != nil && explicitPreviewURL != "" {
+		lowerErr := strings.ToLower(err.Error())
+		if strings.Contains(lowerErr, "webpage") || strings.Contains(lowerErr, "preview") || strings.Contains(lowerErr, "failed to get http url") {
+			logger.Warn("Telegram link preview failed for image URL, retrying message without preview",
+				"preview_url", explicitPreviewURL, "error", err)
+			body["link_preview_options"] = map[string]interface{}{"is_disabled": true}
+			return executeRequest(ctx, url, body)
+		}
+	}
+	return msgID, err
 }
 
 func extractPreviewURL(text string) string {

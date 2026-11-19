@@ -15,7 +15,7 @@ import (
 
 // perAttemptTimeout caps each single Gemini API call so a hung 503/connection
 // never stalls the entire GitHub Actions job.
-const perAttemptTimeout = 25 * time.Second
+const perAttemptTimeout = 15 * time.Second
 
 // Client wraps the Gemini unified genai SDK clients with API key rotation and model fallback.
 type Client struct {
@@ -86,10 +86,14 @@ func isTransient503OrOverload(err error) bool {
 	}
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "503") ||
+		strings.Contains(lower, "504") ||
 		strings.Contains(lower, "unavailable") ||
 		strings.Contains(lower, "overloaded") ||
 		strings.Contains(lower, "high demand") ||
-		strings.Contains(lower, "deadline exceeded")
+		strings.Contains(lower, "deadline exceeded") ||
+		strings.Contains(lower, "deadline_exceeded") ||
+		strings.Contains(lower, "deadline expired") ||
+		strings.Contains(lower, "context deadline")
 }
 
 func isQuotaOrRateLimit(err error) bool {

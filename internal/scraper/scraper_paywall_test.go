@@ -48,6 +48,13 @@ func TestIsPaywalledOrStub(t *testing.T) {
 			reasonSubstr: "plus-artikel",
 		},
 		{
+			name:         "Explicit Information paywall phrase: resten af artiklen",
+			content:      "Partierne er uenige om et nyt forslag om tvangsfjernelse af børn i udsatte familier. Resten af artiklen er forbeholdt abonnenter på Information. Vil du læse videre i dag, kan du oprette en profil.",
+			url:          "https://www.information.dk/indland/2026/11/partier-oproerte",
+			wantPaywall:  true,
+			reasonSubstr: "resten af artiklen",
+		},
+		{
 			name:         "Stub content too short (< 200 runes)",
 			content:      "Kort nyhed med alt for lidt indhold til at udgøre en reel artikel.",
 			url:          "https://www.dr.dk/nyheder/kort",

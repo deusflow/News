@@ -336,9 +336,9 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 
 	// To prevent paywalled/stub articles (common on Børsen, Kristeligt Dagblad, Berlingske, Politiken)
 	// from burning half of our AI slots before AI even runs, we scrape an oversampled pool
-	// (up to maxAICandidates + 6) via cheap HTTP requests and only send the top `maxAICandidates`
+	// (up to maxAICandidates + 14) via cheap HTTP requests and only send the top `maxAICandidates`
 	// non-paywalled articles to the AI.
-	maxScrapeCandidates := maxAICandidates + 6
+	maxScrapeCandidates := maxAICandidates + 14
 	topCandidates := append(primary, reserve...)
 	if len(topCandidates) < maxScrapeCandidates {
 		for _, s := range scored {
@@ -527,6 +527,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	logger.Info("phase 2: sequential AI processing", "scraped_items", len(scraped), "max_ai_candidates", maxAICandidates)
 
 	var result []News
+	var processedTitles []string
 	aiAttempts := 0
 	aiErrors := 0
 
@@ -562,6 +563,15 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			continue
 		}
 
+		if dup, matchedTitle := isSameRunDuplicateTitle(s.item.Title, processedTitles); dup {
+			logger.Info("Skipping same-run duplicate headline before AI",
+				"index", s.index+1,
+				"title", s.item.Title,
+				"matched_title", matchedTitle,
+				"source", s.item.Source.Name)
+			continue
+		}
+
 		aiAttempts++
 		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
 		if err != nil {
@@ -573,6 +583,7 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			continue
 		}
 		if n != nil {
+			processedTitles = append(processedTitles, s.item.Title)
 			if opts.Metrics != nil {
 				opts.Metrics.IncrementSuccessfulTranslations()
 			}
@@ -686,4 +697,19 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 	sortByPublishPriority(result)
 
 	return result, nil
+}
+
+func isSameRunDuplicateTitle(title string, processedTitles []string) (bool, string) {
+	normNew := strings.ToLower(strings.Join(strings.Fields(title), " "))
+	if normNew == "" {
+		return false, ""
+	}
+	newBigrams := titleBigrams(normNew)
+	for _, prev := range processedTitles {
+		normPrev := strings.ToLower(strings.Join(strings.Fields(prev), " "))
+		if normNew == normPrev || jaccardBigrams(newBigrams, titleBigrams(normPrev)) >= 0.55 {
+			return true, prev
+		}
+	}
+	return false, ""
 }

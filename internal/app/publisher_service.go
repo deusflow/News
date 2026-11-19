@@ -34,6 +34,26 @@ func getPublishLimit() int {
 	return 1
 }
 
+const scheduleAntiBurstWindow = 90 * time.Minute
+
+// ShouldSkipDelayedScheduleRun prevents a delayed GitHub Actions `schedule` cron
+// from double-posting right after an on-time Cloudflare Worker (`repository_dispatch`) run.
+func ShouldSkipDelayedScheduleRun(triggerEvent string, recentStories []storage.SentStoryRecord, now time.Time) (bool, time.Duration) {
+	if !strings.EqualFold(strings.TrimSpace(triggerEvent), "schedule") {
+		return false, 0
+	}
+	for _, st := range recentStories {
+		if st.SentAt.IsZero() {
+			continue
+		}
+		elapsed := now.Sub(st.SentAt)
+		if elapsed >= 0 && elapsed < scheduleAntiBurstWindow {
+			return true, elapsed
+		}
+	}
+	return false, 0
+}
+
 // validCandidate represents a candidate vetted for publication
 type validCandidate struct {
 	news news.News
@@ -81,6 +101,13 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	recentStories, err := cacheAdapter.GetRecentStories(24 * time.Hour)
 	if err != nil {
 		logger.Warn("Failed to fetch recent stories for fatigue and developing checks", "error", err)
+	}
+
+	if skip, elapsed := ShouldSkipDelayedScheduleRun(os.Getenv("TRIGGER_EVENT"), recentStories, time.Now()); skip {
+		logger.Info("Skipping delayed schedule publication: recent post already published within anti-burst window",
+			"last_post_age", elapsed.Round(time.Minute),
+			"window", scheduleAntiBurstWindow)
+		return
 	}
 
 	// 1. Category Anti-Fatigue check:

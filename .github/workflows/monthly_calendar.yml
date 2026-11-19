@@ -51,7 +51,7 @@ jobs:
       GROQ_API_KEY_3: ${{ secrets.GROQ_API_KEY_3 }}
       GROQ_MODEL: ${{ vars.GROQ_MODEL || 'openai/gpt-oss-120b' }}
       OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
-      AI_PROVIDERS: "gemini,gemini:gemini-3.5-flash-lite,groq,groq:qwen/qwen3.8-27b,openrouter"
+      AI_PROVIDERS: "gemini,groq,groq:qwen/qwen3.8-27b,openrouter:nvidia/nemotron-3-ultra-550b-a55b:free,openrouter"
 
       GO111MODULE: 'on'
 

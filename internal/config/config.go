@@ -14,8 +14,8 @@ const (
 	DefaultGeminiModel = "gemini-3.8-flash"
 	// DefaultGroqModel is the standard primary model on GroqCloud
 	DefaultGroqModel = "openai/gpt-oss-120b"
-	// DefaultOpenRouterModel is the default free model on OpenRouter
-	DefaultOpenRouterModel = "meta-llama/llama-3.3-70b-instruct:free"
+	// DefaultOpenRouterModel is the default free auto-router on OpenRouter
+	DefaultOpenRouterModel = "openrouter/free"
 )
 
 type TelegramConfig struct {

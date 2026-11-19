@@ -12,8 +12,8 @@ import (
 	"github.com/deusflow/News/internal/logger"
 )
 
-// initAIProviders parses configured provider names (e.g. "gemini", "groq:llama-3.3-70b-versatile",
-// "openrouter:meta-llama/llama-3.3-70b-instruct:free") and instantiates the client fallback chain.
+// initAIProviders parses configured provider names (e.g. "gemini", "groq:openai/gpt-oss-120b",
+// "openrouter:openrouter/free") and instantiates the client fallback chain.
 func initAIProviders(cfg *config.Config) []ai.Provider {
 	var aiProviders []ai.Provider
 
@@ -133,7 +133,7 @@ func initAIProviders(cfg *config.Config) []ai.Provider {
 					model = customModel
 				}
 				if model == "" {
-					model = "meta-llama/llama-3.3-70b-instruct:free"
+					model = config.DefaultOpenRouterModel
 				}
 				name := "openrouter"
 				if hasModel && customModel != "" {

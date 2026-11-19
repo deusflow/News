@@ -36,6 +36,11 @@ func TestNormalizeProviders(t *testing.T) {
 			input:    []string{"gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b", "groq:openai/gpt-oss-120b"},
 			expected: []string{"gemini", "groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b"},
 		},
+		{
+			name:     "openrouter model with :free suffix preserves full model slug",
+			input:    []string{"gemini", "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free", "openrouter"},
+			expected: []string{"gemini", "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free", "openrouter"},
+		},
 
 	}
 

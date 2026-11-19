@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deusflow/News/internal/config"
 	"github.com/deusflow/News/internal/logger"
@@ -203,7 +204,8 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 
 	// 6. Photo/Text pipeline
 	if !videoSent {
-		if n.IsLongread && n.ImageURL != "" && n.VideoURL == "" {
+		unifiedText := news.FormatNewsWithImage(n)
+		if n.IsLongread && n.ImageURL != "" && n.VideoURL == "" && utf8.RuneCountInString(unifiedText) > 3800 {
 			teaser := news.FormatLongreadTeaser(n)
 			msgID, errPhoto := telegram.SendPhotoWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, n.ImageURL, teaser, nil, n.ReplyToMessageID)
 
@@ -221,8 +223,8 @@ func (p *TelegramPublisher) Publish(ctx context.Context, n news.News, hash strin
 					outText = longText
 				}
 			} else {
-				outText = news.FormatNewsWithImage(n)
-				sentMsgID, err = telegram.SendMessageWithButtons(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, buttons, false, n.ReplyToMessageID)
+				outText = unifiedText
+				sentMsgID, err = telegram.SendMessageWithPreviewURL(p.cfg.Telegram.Token, p.cfg.Telegram.ChatID, outText, n.ImageURL, buttons, n.ReplyToMessageID)
 			}
 		} else {
 			sentMsgID, outText, err = SendFormattedNews(p.cfg, n, buttons)

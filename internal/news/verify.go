@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -196,11 +197,12 @@ func VerifyNumbers(danishSource, ukrainianText string) error {
 }
 
 // VerifyUkrainian confirms that the text is written in valid Ukrainian and not Russian
-// (rejects Russian letters: ы, э, ъ).
+// (rejects Russian letters: ы, э, ъ, ё).
 func VerifyUkrainian(text string) error {
-	const russianLetters = "ыэъЫЭЪ"
+	const russianLetters = "ыэъёЫЭЪЁ"
 	if idx := strings.IndexAny(text, russianLetters); idx != -1 {
-		return fmt.Errorf("text contains Russian character %q: %s", text[idx:idx+2], text)
+		r, _ := utf8.DecodeRuneInString(text[idx:])
+		return fmt.Errorf("text contains Russian character %q: %s", string(r), text)
 	}
 	return nil
 }

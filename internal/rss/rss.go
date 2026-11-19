@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +120,9 @@ func FetchAllFeedsDetailed(ctx context.Context, sources []FeedSource) ([]*FeedIt
 
 			successCount++
 			for _, item := range feed.Items {
+				if item != nil && item.Title != "" {
+					item.Title = strings.Join(strings.Fields(item.Title), " ")
+				}
 				allItems = append(allItems, &FeedItem{Item: item, Source: &s})
 			}
 			statuses[s.Name] = FeedStatus{Source: s, ItemCount: len(feed.Items), Err: nil}

@@ -58,6 +58,7 @@ func TestVerifyUkrainian_RussianLettersRejected(t *testing.T) {
 		"Правительство приняло решение об этом",
 		"Новый закон вступил в силу",
 		"Это важное событие для всех",
+		"Всё прошло успешно и надёжно",
 	}
 
 	for _, sample := range russianSamples {
@@ -69,6 +70,35 @@ func TestVerifyUkrainian_RussianLettersRejected(t *testing.T) {
 	validUkrainian := "Уряд ухвалив нове рішення щодо соціальної допомоги та виплат у Данії."
 	if err := VerifyUkrainian(validUkrainian); err != nil {
 		t.Errorf("expected valid Ukrainian to pass, got: %v", err)
+	}
+}
+
+func TestGenerateNewsUserContent_TruncatesLongContent(t *testing.T) {
+	longBody := strings.Repeat("Dansk tekst om nyheder og regler. ", 250) // ~8500 chars
+	out := GenerateNewsUserContent("Kort titel", longBody)
+	if len([]rune(out)) > maxAIContentRunes+100 {
+		t.Errorf("expected truncated prompt under ~%d runes, got %d", maxAIContentRunes+100, len([]rune(out)))
+	}
+	if !strings.HasSuffix(out, "...") {
+		t.Errorf("expected truncated content to end with ellipsis")
+	}
+}
+
+func TestIsSameRunDuplicateTitle(t *testing.T) {
+	processed := []string{
+		"Person fundet livløs i Hornslet efter eksplosion i container",
+	}
+	dup, matched := isSameRunDuplicateTitle("Person fundet livløs i Hornslet efter eksplosion i container", processed)
+	if !dup || matched == "" {
+		t.Errorf("expected exact duplicate headline to be detected")
+	}
+	dupSimilar, _ := isSameRunDuplicateTitle("Person fundet livløs efter eksplosion i container i Hornslet", processed)
+	if !dupSimilar {
+		t.Errorf("expected near-identical headline to be detected by bigram similarity")
+	}
+	diff, _ := isSameRunDuplicateTitle("Ecco fyrer 76 i Danmark", processed)
+	if diff {
+		t.Errorf("expected unrelated headline not to be marked duplicate")
 	}
 }
 

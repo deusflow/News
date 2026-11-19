@@ -130,10 +130,17 @@ func ParseRetryAfterSeconds(text string) (int, bool) {
 	}
 	lower := strings.ToLower(text)
 
-	re := regexp.MustCompile(`(?i)retry(?:\s*(?:in|after))?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*s`)
-	if m := re.FindStringSubmatch(lower); len(m) >= 2 {
-		if f, err := strconv.ParseFloat(m[1], 64); err == nil {
-			return int(f + 0.5), true
+	re := regexp.MustCompile(`(?i)(?:retry|try\s+again)(?:\s*(?:in|after))?\s*[:=]?\s*(?:(\d+)\s*m\s*)?(\d+(?:\.\d+)?)\s*s\b`)
+	if m := re.FindStringSubmatch(lower); len(m) >= 3 {
+		total := 0.0
+		if m[1] != "" {
+			if mins, err := strconv.Atoi(m[1]); err == nil {
+				total += float64(mins * 60)
+			}
+		}
+		if f, err := strconv.ParseFloat(m[2], 64); err == nil {
+			total += f
+			return int(total + 0.5), true
 		}
 	}
 
@@ -177,8 +184,11 @@ func AsProviderError(err error) (*ProviderError, bool) {
 	return nil, false
 }
 
-// StripCodeFence removes surrounding markdown code fences (e.g. ```html ... ``` or ``` ... ```).
+var thinkBlockRegex = regexp.MustCompile(`(?is)<think>.*?</think>`)
+
+// StripCodeFence removes reasoning <think> blocks and surrounding markdown code fences (e.g. ```html ... ``` or ``` ... ```).
 func StripCodeFence(raw string) string {
+	raw = thinkBlockRegex.ReplaceAllString(raw, "")
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""

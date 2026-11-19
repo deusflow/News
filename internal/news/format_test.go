@@ -146,6 +146,23 @@ func TestShouldUsePhoto_SwitchesToTextWhenCoreExceedsLimit(t *testing.T) {
 	if !ShouldUsePhoto(shortNews, 1024) {
 		t.Fatalf("expected ShouldUsePhoto to return true when core text fits within 1024 runes")
 	}
+
+	detailedNews := News{
+		Title:            "Særlov skulle hjælpe ukrainske Viktoriia, men nu spænder den ben",
+		TitleDanish:      "Særlov kan forhindre ukraineres vej til permanent ophold",
+		TitleUkrainian:   "Спеціальний закон для українців у Данії може стати перешкодою для постійного проживання",
+		SummaryDanish:    "Ukrainere med ophold efter særloven tæller ikke årene med til de krævede otte år for permanent opholdstilladelse. Viktoriia Tisvenko har boet her i næsten fem år, arbejder hos LEGO, har lært dansk og købt hus og opfordrer til at ændre reglerne. Når krigen slutter, skal ukrainere begynde forfra. Ministeren afviser at ændre loven og henviser til almindelige regler. 76 procent ønsker at blive i Danmark.",
+		SummaryUkrainian: "Українці, які перебувають у Данії за спеціальним законом, не зараховують роки проживання до необхідних 8 років для отримання постійного дозволу. Вікторія Тісвенко, яка майже 5 років живе, працює в LEGO, вивчила данську та придбала будинок, закликає змінити правила. Після завершення війни українцям доведеться починати відлік заново. Міністр відмовляється змінити закон, пропонуючи переходити на звичайні правила імміграції. За опитуванням, 76% українців хочуть залишитися в Данії навіть після завершення війни.",
+		ImageURL:         "https://example.com/photo.jpg",
+		Category:         "visas",
+	}
+	if ShouldUsePhoto(detailedNews, 1024) {
+		t.Fatalf("expected ShouldUsePhoto=false for 450-500 char bilingual post so it routes to SendMessageWithPreviewURL without truncation")
+	}
+	formattedDetailed := FormatNewsWithImage(detailedNews)
+	if !strings.Contains(formattedDetailed, "працює в LEGO") || !strings.Contains(formattedDetailed, "76%") {
+		t.Fatalf("expected FormatNewsWithImage to preserve full 500-char Ukrainian summary intact, got: %q", formattedDetailed)
+	}
 }
 
 func TestSanitizeAIField_EscapesHTMLSpecialChars(t *testing.T) {

@@ -34,6 +34,15 @@ var paywallIndicators = []string{
 	"bestil abonnement",
 	"køb digital adgang",
 	"adgang til artiklen",
+	"resten af artiklen",
+	"vil du læse videre",
+	"læs hele artiklen",
+	"for abonnenter",
+	"kræver et abonnement",
+	"prøv information",
+	"allerede abonnent",
+	"opret en bruger",
+	"opret profil",
 }
 
 // knownPaywallDomains are publishers where many articles have hard/dynamic paywalls.

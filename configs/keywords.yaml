@@ -928,12 +928,6 @@ keywords:
   - word: "udviste"
     category: "visas"
     weight: 20
-  - word: "forsvindelse"
-    category: "visas"
-    weight: 25
-  - word: "forsvinder"
-    category: "visas"
-    weight: 20
 
 
   # =======================================================

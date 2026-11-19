@@ -111,12 +111,13 @@ func (c *Client) Close() {
 }
 
 type groqRequest struct {
-	Model           string          `json:"model"`
-	Messages        []message       `json:"messages"`
-	Temperature     float64         `json:"temperature"`
-	Stream          bool            `json:"stream"`
-	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []message       `json:"messages"`
+	Temperature         float64         `json:"temperature"`
+	Stream              bool            `json:"stream"`
+	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
+	ResponseFormat      *responseFormat `json:"response_format,omitempty"`
+	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 }
 
 type message struct {
@@ -151,6 +152,89 @@ func (c *Client) isOpenRouter() bool {
 		strings.HasPrefix(strings.ToLower(c.Name()), "openrouter")
 }
 
+func isTransientStatusOrBody(status int, body string) bool {
+	if status == http.StatusServiceUnavailable {
+		return true
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "503") || strings.Contains(lower, "unavailable") || strings.Contains(lower, "overloaded")
+}
+
+func isJSONValidateFailed(status int, body string) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "json_validate_failed") || strings.Contains(lower, "failed to generate json")
+}
+
+func (c *Client) sendChatRequest(ctx context.Context, title, activeKey string, reqBody groqRequest) (string, int, string, error) {
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("failed to marshal groq request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		logger.Error("❌ Groq Request Creation Error", "title", title, "error", err)
+		return "", 0, "", err
+	}
+
+	if activeKey != "" {
+		req.Header.Set("Authorization", "Bearer "+activeKey)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.isOpenRouter() {
+		req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
+		req.Header.Set("X-Title", "Danish News Bot")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		logger.Error("❌ Groq HTTP Error", "title", title, "error", err)
+		return "", 0, "", fmt.Errorf("groq request failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		bodyStr := string(body)
+		logger.Error("❌ Groq API Error", "status", resp.StatusCode, "body", bodyStr, "model", reqBody.Model)
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := 0
+			if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
+				if v, convErr := strconv.Atoi(h); convErr == nil {
+					retryAfter = v
+				}
+			}
+			if retryAfter <= 0 {
+				if parsed, ok := ai.ParseRetryAfterSeconds(bodyStr); ok {
+					retryAfter = parsed
+				}
+			}
+			return "", resp.StatusCode, bodyStr, ai.NewRateLimitedError(c.Name(), fmt.Errorf("groq api error %d: %s", resp.StatusCode, bodyStr), time.Duration(retryAfter)*time.Second)
+		}
+
+		return "", resp.StatusCode, bodyStr, fmt.Errorf("groq api error %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	var groqResp groqResponse
+	decodeErr := json.NewDecoder(resp.Body).Decode(&groqResp)
+	_ = resp.Body.Close()
+	if decodeErr != nil {
+		logger.Error("❌ Groq Decode Error", "title", title, "error", decodeErr)
+		return "", http.StatusOK, "", fmt.Errorf("groq decode error: %w", decodeErr)
+	}
+
+	if len(groqResp.Choices) == 0 {
+		logger.Error("❌ Groq No Choices", "title", title)
+		return "", http.StatusOK, "", fmt.Errorf("groq returned no choices")
+	}
+
+	return groqResp.Choices[0].Message.Content, http.StatusOK, "", nil
+}
+
 func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Groq Generate", "title", title, "content_length", len(content), "model", c.model)
 
@@ -176,91 +260,47 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			activeKey := c.currentKey()
 
 			var respFmt *responseFormat
+			maxTokens := 0
 			if !c.isOpenRouter() {
 				respFmt = &responseFormat{Type: "json_object"}
+				maxTokens = 2048
 			}
 
 			reqBody := groqRequest{
-				Model: activeModel,
-				Messages: []message{
-					{Role: "system", Content: systemPrompt},
-					{Role: "user", Content: finalPrompt},
-				},
-				Temperature:     0.3,
-				Stream:          false,
-				ResponseFormat:  respFmt,
-				ReasoningEffort: c.reasoningEffort,
+				Model:               activeModel,
+				Messages:            []message{{Role: "system", Content: systemPrompt}, {Role: "user", Content: finalPrompt}},
+				Temperature:         0.3,
+				Stream:              false,
+				MaxCompletionTokens: maxTokens,
+				ResponseFormat:      respFmt,
+				ReasoningEffort:     c.reasoningEffort,
 			}
 
-			jsonBody, _ := json.Marshal(reqBody)
-			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(jsonBody))
+			rawText, status, bodyStr, err := c.sendChatRequest(ctx, title, activeKey, reqBody)
+			if err != nil && reqBody.ResponseFormat != nil && isJSONValidateFailed(status, bodyStr) {
+				logger.Warn("Groq json_validate_failed, retrying without response_format", "model", activeModel)
+				reqBody.ResponseFormat = nil
+				rawText, status, bodyStr, err = c.sendChatRequest(ctx, title, activeKey, reqBody)
+			}
+
 			if err != nil {
-				logger.Error("❌ Groq Request Creation Error", "title", title, "error", err)
+				if status == http.StatusTooManyRequests {
+					c.rotateKey()
+					lastErr = err
+					continue
+				}
+				if status == 0 {
+					lastErr = err
+					continue
+				}
+				if isTransientStatusOrBody(status, bodyStr) {
+					c.rotateKey()
+					lastErr = fmt.Errorf("groq transient error %d: %s", status, bodyStr)
+					continue
+				}
 				return nil, err
 			}
 
-			if activeKey != "" {
-				req.Header.Set("Authorization", "Bearer "+activeKey)
-			}
-			req.Header.Set("Content-Type", "application/json")
-			if c.isOpenRouter() {
-				req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
-				req.Header.Set("X-Title", "Danish News Bot")
-			}
-
-			resp, err := c.httpClient.Do(req)
-			if err != nil {
-				logger.Error("❌ Groq HTTP Error", "title", title, "error", err)
-				lastErr = fmt.Errorf("groq request failed: %w", err)
-				continue
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				_ = resp.Body.Close()
-				logger.Error("❌ Groq API Error", "status", resp.StatusCode, "body", string(body), "model", activeModel)
-
-				if resp.StatusCode == http.StatusTooManyRequests {
-					retryAfter := 0
-					if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
-						if v, convErr := strconv.Atoi(h); convErr == nil {
-							retryAfter = v
-						}
-					}
-					if retryAfter <= 0 {
-						if parsed, ok := ai.ParseRetryAfterSeconds(string(body)); ok {
-							retryAfter = parsed
-						}
-					}
-					c.rotateKey()
-					lastErr = ai.NewRateLimitedError(c.Name(), fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body)), time.Duration(retryAfter)*time.Second)
-					continue
-				}
-
-				lower := strings.ToLower(string(body))
-				if strings.Contains(lower, "503") || strings.Contains(lower, "unavailable") || strings.Contains(lower, "overloaded") {
-					c.rotateKey()
-					lastErr = fmt.Errorf("groq transient error %d: %s", resp.StatusCode, string(body))
-					continue
-				}
-
-				return nil, fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body))
-			}
-
-			var groqResp groqResponse
-			decodeErr := json.NewDecoder(resp.Body).Decode(&groqResp)
-			_ = resp.Body.Close()
-			if decodeErr != nil {
-				logger.Error("❌ Groq Decode Error", "title", title, "error", decodeErr)
-				return nil, fmt.Errorf("groq decode error: %w", decodeErr)
-			}
-
-			if len(groqResp.Choices) == 0 {
-				logger.Error("❌ Groq No Choices", "title", title)
-				return nil, fmt.Errorf("groq returned no choices")
-			}
-
-			rawText := groqResp.Choices[0].Message.Content
 			jsonText := ai.SanitizeJSON(rawText)
 
 			var data ai.Response
@@ -298,6 +338,15 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 		keyAttempts = 1
 	}
 
+	rawEffort := c.reasoningEffort
+	if rawEffort != "" {
+		rawEffort = "low"
+	}
+	maxTokens := 0
+	if !c.isOpenRouter() {
+		maxTokens = 512
+	}
+
 	var lastErr error
 
 	for _, activeModel := range modelsToTry {
@@ -305,79 +354,33 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 			activeKey := c.currentKey()
 
 			reqBody := groqRequest{
-				Model:           activeModel,
-				Messages:        messages,
-				Temperature:     0.3,
-				ReasoningEffort: c.reasoningEffort,
+				Model:               activeModel,
+				Messages:            messages,
+				Temperature:         0.3,
+				MaxCompletionTokens: maxTokens,
+				ReasoningEffort:     rawEffort,
 			}
 
-			jsonData, err := json.Marshal(reqBody)
+			rawText, status, bodyStr, err := c.sendChatRequest(ctx, "triage", activeKey, reqBody)
 			if err != nil {
-				return "", fmt.Errorf("failed to marshal groq request: %w", err)
-			}
-
-			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL, bytes.NewBuffer(jsonData))
-			if err != nil {
-				return "", fmt.Errorf("failed to create groq request: %w", err)
-			}
-
-			if activeKey != "" {
-				req.Header.Set("Authorization", "Bearer "+activeKey)
-			}
-			req.Header.Set("Content-Type", "application/json")
-			if strings.Contains(c.baseURL, "openrouter") {
-				req.Header.Set("HTTP-Referer", "https://github.com/deusflow/News")
-				req.Header.Set("X-Title", "Danish News Bot")
-			}
-
-			resp, err := c.httpClient.Do(req)
-			if err != nil {
-				lastErr = fmt.Errorf("groq http request failed: %w", err)
-				continue
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				_ = resp.Body.Close()
-				if resp.StatusCode == http.StatusTooManyRequests {
-					retryAfter := 0
-					if h := strings.TrimSpace(resp.Header.Get("Retry-After")); h != "" {
-						if v, convErr := strconv.Atoi(h); convErr == nil {
-							retryAfter = v
-						}
-					}
-					if retryAfter <= 0 {
-						if parsed, ok := ai.ParseRetryAfterSeconds(string(body)); ok {
-							retryAfter = parsed
-						}
-					}
+				if status == http.StatusTooManyRequests {
 					c.rotateKey()
-					lastErr = ai.NewRateLimitedError(c.Name(), fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body)), time.Duration(retryAfter)*time.Second)
+					lastErr = err
 					continue
 				}
-
-				lower := strings.ToLower(string(body))
-				if strings.Contains(lower, "503") || strings.Contains(lower, "unavailable") || strings.Contains(lower, "overloaded") {
-					c.rotateKey()
-					lastErr = fmt.Errorf("groq transient error %d: %s", resp.StatusCode, string(body))
+				if status == 0 {
+					lastErr = err
 					continue
 				}
-
-				return "", fmt.Errorf("groq api error %d: %s", resp.StatusCode, string(body))
+				if isTransientStatusOrBody(status, bodyStr) {
+					c.rotateKey()
+					lastErr = fmt.Errorf("groq transient error %d: %s", status, bodyStr)
+					continue
+				}
+				return "", err
 			}
 
-			var groqResp groqResponse
-			decodeErr := json.NewDecoder(resp.Body).Decode(&groqResp)
-			_ = resp.Body.Close()
-			if decodeErr != nil {
-				return "", fmt.Errorf("groq decode error: %w", decodeErr)
-			}
-
-			if len(groqResp.Choices) == 0 {
-				return "", fmt.Errorf("groq returned no choices")
-			}
-
-			return groqResp.Choices[0].Message.Content, nil
+			return rawText, nil
 		}
 	}
 

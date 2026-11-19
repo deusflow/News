@@ -55,14 +55,15 @@ type Manager struct {
 	providers []Provider
 	metrics   *metrics.Metrics
 
-	jobQueue       chan aiJob
-	cancelCtx      context.CancelFunc
-	delay              time.Duration
-	maxRequests        int
-	requestCount       int
-	lastCallByProvider map[string]time.Time
-	cooldownMu         sync.Mutex
-	exhaustedUntil     map[string]time.Time
+	jobQueue             chan aiJob
+	cancelCtx            context.CancelFunc
+	delay                time.Duration
+	maxRequests          int
+	requestCount         int
+	providerRequestCount map[string]int
+	lastCallByProvider   map[string]time.Time
+	cooldownMu           sync.Mutex
+	exhaustedUntil       map[string]time.Time
 }
 
 func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Manager {
@@ -77,20 +78,21 @@ func NewManager(m *metrics.Metrics, maxRequests int, providers ...Provider) *Man
 	}
 
 	mgr := &Manager{
-		providers:          providers,
-		metrics:            m,
-		jobQueue:           make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
-		cancelCtx:          cancel,
-		delay:              delay,
-		maxRequests:        maxRequests,
-		lastCallByProvider: make(map[string]time.Time),
-		exhaustedUntil:     make(map[string]time.Time),
+		providers:            providers,
+		metrics:              m,
+		jobQueue:             make(chan aiJob, 50), // буфер на 50 задач — достаточно для любого разумного батча
+		cancelCtx:            cancel,
+		delay:                delay,
+		maxRequests:          maxRequests,
+		providerRequestCount: make(map[string]int),
+		lastCallByProvider:   make(map[string]time.Time),
+		exhaustedUntil:       make(map[string]time.Time),
 	}
 
 	logger.Info("AI Manager started",
 		"mode", "single-worker",
 		"inter_request_delay", delay,
-		"max_requests_per_run", maxRequests)
+		"max_requests_per_provider", maxRequests)
 	go mgr.worker(ctx)
 
 	return mgr
@@ -118,19 +120,53 @@ func (m *Manager) markCooldown(provider string, duration time.Duration) {
 	logger.Warn("AI provider marked on cooldown", "provider", provider, "cooldown", duration)
 }
 
+func extractRetryAfterSeconds(err error) int {
+	if err == nil {
+		return 0
+	}
+	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 0 {
+		return int((perr.RetryAfter + 500*time.Millisecond) / time.Second)
+	}
+	if secs, ok := ParseRetryAfterSeconds(err.Error()); ok {
+		return secs
+	}
+	return 0
+}
+
 func isExhaustionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 20*time.Second {
-		return true
-	}
 	lower := strings.ToLower(err.Error())
-	return strings.Contains(lower, "exhausted") ||
+	if strings.Contains(lower, "exhausted") ||
 		strings.Contains(lower, "quota") ||
 		strings.Contains(lower, "daily limit") ||
 		strings.Contains(lower, "resource_exhausted") ||
-		strings.Contains(lower, "rate_limit_exceeded")
+		strings.Contains(lower, "tokens per day") ||
+		strings.Contains(lower, "requests per day") ||
+		strings.Contains(lower, "per-day") ||
+		strings.Contains(lower, "tpd") ||
+		strings.Contains(lower, "rpd") {
+		return true
+	}
+	if strings.Contains(lower, "rate_limit_exceeded") {
+		// Short TPM windows include a Retry-After duration; wait/cooldown cleanly instead of 5m ban.
+		return extractRetryAfterSeconds(err) <= 0
+	}
+	if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter >= 5*time.Minute {
+		return true
+	}
+	return false
+}
+
+func (m *Manager) providerLimitReached(providerName string) bool {
+	return m.maxRequests > 0 && m.providerRequestCount[providerName] >= m.maxRequests
+}
+
+func (m *Manager) recordProviderCall(providerName string) {
+	m.requestCount++
+	m.providerRequestCount[providerName]++
+	m.lastCallByProvider[providerName] = time.Now()
 }
 
 func (m *Manager) Close() {
@@ -255,8 +291,10 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			continue
 		}
 
-		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
-			return nil, fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
+		if m.providerLimitReached(provider.Name()) {
+			logger.Warn("AI provider request limit reached, skipping", "provider", provider.Name(), "limit", m.maxRequests)
+			lastErr = fmt.Errorf("AI provider %s hard limit reached: %d requests per run", provider.Name(), m.maxRequests)
+			continue
 		}
 
 		if err := m.waitForProvider(ctx, provider.Name()); err != nil {
@@ -265,11 +303,11 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 
 		logger.Info("trying AI provider", "provider", provider.Name())
 
-		m.requestCount++
+		m.recordProviderCall(provider.Name())
 		rsp, err := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 		m.lastCallByProvider[provider.Name()] = time.Now()
 		if err == nil {
-			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount)
+			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount, "provider_request_count", m.providerRequestCount[provider.Name()])
 			return rsp, nil
 		}
 
@@ -280,18 +318,14 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			continue
 		}
 
-		retryAfter := 0
-		if perr, ok := AsProviderError(err); ok && perr.Kind == ErrorKindRateLimited && perr.RetryAfter > 0 {
-			retryAfter = int(perr.RetryAfter.Seconds())
-		} else if secs, ok := ParseRetryAfterSeconds(err.Error()); ok {
-			retryAfter = secs
-		}
-
+		retryAfter := extractRetryAfterSeconds(err)
 		if retryAfter > 20 {
-			m.markCooldown(provider.Name(), time.Duration(retryAfter)*time.Second)
+			cooldown := time.Duration(retryAfter+2) * time.Second
+			m.markCooldown(provider.Name(), cooldown)
 			logger.Warn("AI provider rate limited for long period, marking cooldown",
 				"provider", provider.Name(),
-				"wait_sec", retryAfter)
+				"wait_sec", retryAfter,
+				"cooldown", cooldown)
 			lastErr = err
 			continue
 		}
@@ -312,15 +346,17 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 				return nil, ctx.Err()
 			}
 
-			if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
-				return nil, fmt.Errorf("AI hard limit reached during retry: %d requests per run", m.maxRequests)
+			if m.providerLimitReached(provider.Name()) {
+				logger.Warn("AI provider request limit reached before retry, falling back", "provider", provider.Name(), "limit", m.maxRequests)
+				lastErr = fmt.Errorf("AI provider %s hard limit reached during retry: %d requests per run", provider.Name(), m.maxRequests)
+				continue
 			}
 
-			m.requestCount++
+			m.recordProviderCall(provider.Name())
 			resp2, err2 := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 			m.lastCallByProvider[provider.Name()] = time.Now()
 			if err2 == nil {
-				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount)
+				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount, "provider_request_count", m.providerRequestCount[provider.Name()])
 				return resp2, nil
 			}
 			m.markCooldown(provider.Name(), 5*time.Minute)
@@ -345,15 +381,17 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 			continue
 		}
 
-		if m.maxRequests > 0 && m.requestCount >= m.maxRequests {
-			return "", fmt.Errorf("AI hard limit reached: %d requests per run", m.maxRequests)
+		if m.providerLimitReached(provider.Name()) {
+			logger.Warn("AI provider request limit reached, skipping raw", "provider", provider.Name(), "limit", m.maxRequests)
+			lastErr = fmt.Errorf("AI provider %s hard limit reached: %d requests per run", provider.Name(), m.maxRequests)
+			continue
 		}
 
 		if err := m.waitForProvider(ctx, provider.Name()); err != nil {
 			return "", err
 		}
 
-		m.requestCount++
+		m.recordProviderCall(provider.Name())
 		logger.Debug("AI Request Raw", "provider", provider.Name())
 
 		rawText, err := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
@@ -367,28 +405,38 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 				continue
 			}
 
-			if rlErr, ok := err.(*ProviderError); ok && rlErr.Kind == ErrorKindRateLimited {
-				if rlErr.RetryAfter > 20*time.Second {
-					m.markCooldown(provider.Name(), rlErr.RetryAfter)
-					lastErr = err
+			retryAfter := extractRetryAfterSeconds(err)
+			if retryAfter > 20 {
+				cooldown := time.Duration(retryAfter+2) * time.Second
+				m.markCooldown(provider.Name(), cooldown)
+				lastErr = err
+				continue
+			}
+
+			if retryAfter > 0 && retryAfter <= 20 {
+				logger.Warn("Rate limited Raw", "provider", provider.Name(), "wait_sec", retryAfter)
+				timer := time.NewTimer(time.Duration(retryAfter+2) * time.Second)
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					return "", ctx.Err()
+				}
+
+				if m.providerLimitReached(provider.Name()) {
+					lastErr = fmt.Errorf("AI provider %s hard limit reached during raw retry: %d requests per run", provider.Name(), m.maxRequests)
 					continue
 				}
 
-				logger.Warn("Rate limited Raw", "provider", provider.Name(), "wait_sec", rlErr.RetryAfter.Seconds())
-				select {
-				case <-time.After(rlErr.RetryAfter):
-					m.requestCount++
-					rawText, retryErr := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
-					m.lastCallByProvider[provider.Name()] = time.Now()
-					if retryErr == nil {
-						return rawText, nil
-					}
-					m.markCooldown(provider.Name(), 5*time.Minute)
-					lastErr = retryErr
-					continue
-				case <-ctx.Done():
-					return "", ctx.Err()
+				m.recordProviderCall(provider.Name())
+				rawText2, retryErr := provider.GenerateRaw(ctx, systemPrompt, userPrompt)
+				m.lastCallByProvider[provider.Name()] = time.Now()
+				if retryErr == nil {
+					return rawText2, nil
 				}
+				m.markCooldown(provider.Name(), 5*time.Minute)
+				lastErr = retryErr
+				continue
 			}
 
 			lastErr = err
