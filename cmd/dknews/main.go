@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -21,9 +22,14 @@ import (
 )
 
 func main() {
-	// Check for bot execution mode first
+	loadDotEnvIfPresent(".env")
+
+	// Check for bot execution mode and dry-run flag first
 	botMode := os.Getenv("BOT_MODE")
 	for i, arg := range os.Args {
+		if arg == "-dry-run" || arg == "--dry-run" {
+			_ = os.Setenv("DRY_RUN", "true")
+		}
 		if arg == "-mode=breaking" || arg == "--mode=breaking" {
 			botMode = "breaking"
 		}
@@ -47,7 +53,7 @@ func main() {
 
 	// Night Quiet Hours Gating: do not publish regular scheduled news between 22:30 and 07:30 Copenhagen time.
 	// Delayed GitHub Actions runner jobs starting at 01:00 or 02:00 AM will gracefully exit without waking subscribers.
-	if botMode != "breaking" && app.IsCopenhagenQuietHours(time.Now()) {
+	if botMode != "breaking" && os.Getenv("DRY_RUN") != "true" && app.IsCopenhagenQuietHours(time.Now()) {
 		logger.Info("🌙 Quiet hours in Copenhagen (22:30 - 07:30). Skipping Telegram channel publication.",
 			"action", "skipping run")
 		return
@@ -267,4 +273,30 @@ func reloadHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	w.Write([]byte("Configuration reloaded successfully"))
+}
+
+// loadDotEnvIfPresent populates unset environment variables from a local .env file when present.
+func loadDotEnvIfPresent(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		val := strings.TrimSpace(v)
+		val = strings.Trim(val, `"'`)
+		_ = os.Setenv(key, val)
+	}
 }

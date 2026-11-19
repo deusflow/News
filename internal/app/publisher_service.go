@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deusflow/News/internal/ai/embedding"
 	"github.com/deusflow/News/internal/config"
@@ -341,7 +343,7 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 	// Initialize publisher
 	tgPublisher := publisher.NewTelegramPublisher(cfg, cacheAdapter, m)
 
-	// Publish each item
+	// Publish each item (or preview without sending in dry-run mode)
 	for idx := 0; idx < toPublish; idx++ {
 		vc := valid[idx]
 
@@ -350,6 +352,38 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 				"published_rank", vc.rank,
 				"skipped_count", vc.rank-1,
 				"published_title", vc.news.Title)
+		}
+
+		if cfg.Feature.DryRun {
+			previewItem := vc.news
+			if previewItem.ImageURL == "" {
+				previewItem.ImageURL = news.GetCategoryImage(news.ValidateCategory(previewItem.Category))
+			}
+			videoURL := news.ExtractVideoURL(previewItem)
+			usePhoto := videoURL == "" && news.ShouldUsePhoto(previewItem, cfg.Posting.PhotoTextLimit)
+			mode := "preview_url"
+			outText := news.FormatNewsWithImage(previewItem)
+			if usePhoto {
+				mode = "photo_caption"
+				outText = news.FormatCaptionForPhoto(previewItem, cfg.Posting.PhotoTextLimit)
+			} else if videoURL != "" {
+				mode = "video"
+			}
+			buttons := publisher.BuildNewsButtons(cfg, previewItem, videoURL)
+			logger.Info("🧪 [DRY-RUN] Winner selected (publication skipped)",
+				"publish_index", idx+1,
+				"of", toPublish,
+				"title", previewItem.Title,
+				"source", previewItem.SourceName,
+				"score", previewItem.Score,
+				"category", previewItem.Category,
+				"rank", vc.rank,
+				"render_mode", mode,
+				"image_url", previewItem.ImageURL,
+				"text_runes", utf8.RuneCountInString(outText))
+			fmt.Printf("\n=== DRY-RUN POST PREVIEW #%d ===\nTitle: %s (%s)\nLink: %s\nImageURL: %s\nMode: %s | Runes: %d | Buttons: %d rows\n\n%s\n=== END DRY-RUN POST PREVIEW #%d ===\n\n",
+				idx+1, previewItem.Title, previewItem.SourceName, previewItem.Link, previewItem.ImageURL, mode, utf8.RuneCountInString(outText), len(buttons), outText, idx+1)
+			continue
 		}
 
 		logger.Info("Publishing news",
@@ -371,6 +405,10 @@ func sendBestNews(ctx context.Context, newsList []news.News, cfg *config.Config,
 		if idx < toPublish-1 {
 			time.Sleep(5 * time.Second)
 		}
+	}
+
+	if cfg.Feature.DryRun {
+		return
 	}
 
 	// Adaptive High-Impact Queue: If there's a 2nd candidate with ImpactScore >= 85

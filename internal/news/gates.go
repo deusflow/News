@@ -188,9 +188,56 @@ func hasDenmarkContext(categoryWeights map[string]int, matches []config.KeywordM
 	}
 	for _, m := range matches {
 		switch strings.ToLower(m.Word) {
-		case "danmark", "denmark", "danish", "i danmark", "dansk", "danske", "danskere", "folketing", "regeringen", "statsminister", "kommune", "kommunen", "kommunerne", "region", "regioner":
+		case "danmark", "danmarks", "denmark", "danish", "i danmark",
+			"dansk", "danske", "danskere",
+			"folketing", "folketinget", "christiansborg",
+			"regering", "regeringen", "statsminister",
+			"skatteministeriet", "justitsministeriet", "beskæftigelsesministeriet",
+			"kommune", "kommunen", "kommunerne", "region", "regioner",
+			"københavn", "nørrebro", "aarhus", "odense", "aalborg",
+			"rigspolitiet", "københavns politi":
 			return true
 		}
+	}
+	return false
+}
+
+// hasDomesticDanishSourceContext grants Denmark context only for exclusively domestic/regional
+// Danish feeds or explicit domestic URL sections (never blindly for all lang="da" articles,
+// so foreign /udland/ wire stories like Haiti are not falsely tagged as Denmark news).
+func hasDomesticDanishSourceContext(sourceName string, categories []string, articleURL string) bool {
+	lowerURL := strings.ToLower(strings.TrimSpace(articleURL))
+	foreignSections := []string{
+		"/udland/", "/verden/", "/international/", "/global/",
+		"/europa/", "/usa/", "/asien/", "/afrika/", "/mellemoesten/",
+	}
+	for _, seg := range foreignSections {
+		if strings.Contains(lowerURL, seg) {
+			return false
+		}
+	}
+	if strings.HasSuffix(lowerURL, "/udland") || strings.HasSuffix(lowerURL, "/verden") {
+		return false
+	}
+
+	domesticSections := []string{
+		"/indland/", "/nyheder/indland", "/penge/", "/din-oekonomi/", "/arbejdsliv/",
+	}
+	for _, seg := range domesticSections {
+		if strings.Contains(lowerURL, seg) {
+			return true
+		}
+	}
+
+	for _, cat := range categories {
+		if strings.EqualFold(strings.TrimSpace(cat), "local") {
+			return true
+		}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sourceName)) {
+	case "dr indland", "dr penge", "nyidanmark", "fagbladet 3f", "borger.dk", "skat", "tv midtvest", "tv2 østjylland":
+		return true
 	}
 	return false
 }

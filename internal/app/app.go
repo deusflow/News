@@ -78,6 +78,10 @@ func NewNewsFilterProcessor(cfg *config.Config, aiMgr *ai.Manager, m *metrics.Me
 }
 
 func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem) ([]news.News, error) {
+	var aiProvider ai.Provider
+	if p.aiMgr != nil {
+		aiProvider = p.aiMgr
+	}
 	return news.FilterAndTranslateWithOptions(ctx, items, news.Options{
 		MaxAge:            p.cfg.RSS.NewsMaxAge,
 		PerSource:         5, // Allow up to 5 best articles per RSS source
@@ -85,7 +89,7 @@ func (p *NewsFilterProcessor) Process(ctx context.Context, items []*rss.FeedItem
 		ScrapeConcurrency: p.cfg.Scraper.Concurrency,
 		Keywords:          p.keywords,
 		Config:            p.cfg,
-		AI:                p.aiMgr,
+		AI:                aiProvider,
 		Metrics:           p.metrics,
 		Dedupe:            p.cacheAdapter,
 		AICache:           p.cacheAdapter,
@@ -137,6 +141,9 @@ func (a *App) Close() {
 		}
 		switch adapter := a.cacheAdapter.(type) {
 		case *FileCacheAdapter:
+			if a.cfg != nil && a.cfg.Feature.DryRun {
+				return
+			}
 			if err := adapter.cache.Save(); err != nil {
 				logger.Error("Failed to save file cache", "error", err)
 			}
@@ -223,12 +230,16 @@ func NewForMode(cfg *config.Config, m *metrics.Metrics, mode string) (*App, erro
 
 	// 2. Инициализация AI
 	aiProviders := initAIProviders(cfg)
+	var aiManager *ai.Manager
 	if len(aiProviders) == 0 {
-		return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
+		if !cfg.Feature.DryRun {
+			return nil, fmt.Errorf("no AI providers initialized (check config and keys)")
+		}
+		logger.Warn("🧪 Dry-run mode without AI keys: skipping AI translation/triage and running RSS, scraping, paywall & scoring pipeline only")
+	} else {
+		aiManager = ai.NewManager(m, cfg.AI.MaxGeminiRequests, aiProviders...)
+		logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 	}
-
-	aiManager := ai.NewManager(m, cfg.AI.MaxGeminiRequests, aiProviders...)
-	logger.Info("AI Manager initialized", "providers_count", len(aiProviders))
 
 	// 3. Загрузка RSS фидов и ключевых слов (только для полного новостного прогона)
 	var feeds []rss.FeedSource
@@ -266,7 +277,7 @@ func NewForMode(cfg *config.Config, m *metrics.Metrics, mode string) (*App, erro
 				supabaseClient = nil
 			} else {
 				logger.Info("Supabase client initialized for website archive")
-				if isFullRun {
+				if isFullRun && !cfg.Feature.DryRun {
 					// Archive old news (older than 10 days)
 					if archiveErr := supabaseClient.ArchiveOldNews(context.Background()); archiveErr != nil {
 						logger.Warn("Failed to archive old news", "error", archiveErr)
@@ -343,41 +354,49 @@ func (a *App) Run(ctx context.Context) {
 
 	defer a.Close()
 
-	// 4.1 Обработка очереди неудачных сообщений (DLQ)
-	// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
-	processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
+	if !a.cfg.Feature.DryRun {
+		// 4.1 Обработка очереди неудачных сообщений (DLQ)
+		// ИСПРАВЛЕНО: передаем интерфейс, а не конкретный тип
+		processFailedMessages(a.cacheAdapter, a.cfg, a.metrics)
 
-	// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
-	// Neon — source of truth. Если Supabase был недоступен в прошлый раз,
-	// записи лежат в supabase_sync_queue и досинхронизируются здесь.
-	if a.supabaseClient != nil {
-		syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
-	}
+		// 4.2 Синхронизация незаписанных новостей в Supabase (sync queue)
+		// Neon — source of truth. Если Supabase был недоступен в прошлый раз,
+		// записи лежат в supabase_sync_queue и досинхронизируются здесь.
+		if a.supabaseClient != nil {
+			syncPendingToSupabase(ctx, a.cacheAdapter, a.supabaseClient)
+		}
 
-	// 4.3 Публикация отложенных важных новостей (Delayed Posts Queue)
-	processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.supabaseClient)
+		// 4.3 Публикация отложенных важных новостей (Delayed Posts Queue)
+		processReadyDelayedPosts(ctx, a.cfg, a.cacheAdapter, a.metrics, a.supabaseClient)
 
-	// 4.4 Anti-burst guard for delayed GitHub Actions `schedule` fallback runs:
-	// if Cloudflare Worker (`repository_dispatch`) already published within 90m, skip without spending AI quota.
-	if triggerEvent := os.Getenv("TRIGGER_EVENT"); strings.EqualFold(strings.TrimSpace(triggerEvent), "schedule") {
-		if recentStories, err := a.cacheAdapter.GetRecentStories(24 * time.Hour); err == nil {
-			if skip, elapsed := ShouldSkipDelayedScheduleRun(triggerEvent, recentStories, time.Now()); skip {
-				logger.Info("Skipping delayed GitHub schedule run: recent post already published",
-					"last_post_age", elapsed.Round(time.Minute),
-					"window", scheduleAntiBurstWindow)
-				a.metrics.SetLastRun()
-				return
+		// 4.4 Anti-burst guard for delayed GitHub Actions `schedule` fallback runs:
+		// if Cloudflare Worker (`repository_dispatch`) already published within 90m, skip without spending AI quota.
+		if triggerEvent := os.Getenv("TRIGGER_EVENT"); strings.EqualFold(strings.TrimSpace(triggerEvent), "schedule") {
+			if recentStories, err := a.cacheAdapter.GetRecentStories(24 * time.Hour); err == nil {
+				if skip, elapsed := ShouldSkipDelayedScheduleRun(triggerEvent, recentStories, time.Now()); skip {
+					logger.Info("Skipping delayed GitHub schedule run: recent post already published",
+						"last_post_age", elapsed.Round(time.Minute),
+						"window", scheduleAntiBurstWindow)
+					a.metrics.SetLastRun()
+					return
+				}
 			}
 		}
+	} else {
+		logger.Info("🧪 Dry-run mode active: skipping DLQ, Supabase sync, delayed queue, Telegram publish, and DB writes")
 	}
 
 	// 5. Скачивание новостей RSS
 	items, feedStatuses, err := a.fetcher.FetchDetailed(ctx)
-	monitorFeedHealth(a.cacheAdapter, a.cfg, feedStatuses)
+	if !a.cfg.Feature.DryRun {
+		monitorFeedHealth(a.cacheAdapter, a.cfg, feedStatuses)
+	}
 	if err != nil {
 		a.metrics.SetError(err.Error())
 		logger.Error("Fetch error", "err", err)
-		_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to fetch RSS feeds:\n%v", err))
+		if !a.cfg.Feature.DryRun {
+			_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to fetch RSS feeds:\n%v", err))
+		}
 		return
 	}
 
@@ -410,17 +429,21 @@ func (a *App) Run(ctx context.Context) {
 	if err != nil {
 		a.metrics.SetError(err.Error())
 		logger.Error("Filter error", "err", err)
-		_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to filter/process news (AI API issue?):\n%v", err))
+		if !a.cfg.Feature.DryRun {
+			_ = telegram.SendAdminAlert(a.cfg.Telegram.Token, a.cfg.Telegram.AdminChatID, fmt.Sprintf("❌ Failed to filter/process news (AI API issue?):\n%v", err))
+		}
 		return
 	}
 
 	// 7. Публикация: ровно одна лучшая новость.
 	// filtered уже отсортирован по score (best first) в news.FilterAndTranslateWithOptions.
 	// Send берёт первую не-дубликат и публикует. Остальные игнорируются.
-	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", getPublishLimit())
+	logger.Info("Publish policy", "mode", "single", "publish_limit_per_run", getPublishLimit(), "dry_run", a.cfg.Feature.DryRun)
 	sentBefore := getSentMessagesCount(a.metrics)
 	a.sender.Send(ctx, filtered)
-	monitorEmptyRuns(a.cacheAdapter, a.cfg, a.metrics, sentBefore)
+	if !a.cfg.Feature.DryRun {
+		monitorEmptyRuns(a.cacheAdapter, a.cfg, a.metrics, sentBefore)
+	}
 	a.metrics.SetLastRun()
 }
 

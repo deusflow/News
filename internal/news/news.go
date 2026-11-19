@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -573,7 +574,13 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 
 		aiAttempts++
-		n, err := processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
+		var n *News
+		var err error
+		if opts.AI == nil {
+			n = buildDryRunNewsWithoutAI(s.item, s.content, s.scrapeImageURL)
+		} else {
+			n, err = processItemWithContent(ctx, s.item, s.index, s.content, s.scrapeImageURL, opts)
+		}
 		if err != nil {
 			logger.Error("AI failed for item", "index", s.index+1, "title", s.item.Title, "error", err)
 			if opts.Metrics != nil {
@@ -584,11 +591,11 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 		}
 		if n != nil {
 			processedTitles = append(processedTitles, s.item.Title)
-			if opts.Metrics != nil {
+			if opts.AI != nil && opts.Metrics != nil {
 				opts.Metrics.IncrementSuccessfulTranslations()
 			}
 
-			if n.AudienceScore < 3 {
+			if opts.AI != nil && n.AudienceScore < 3 {
 				logger.Info("audience_score below threshold, skipping",
 					"title", n.Title,
 					"source", n.SourceName,
@@ -629,10 +636,10 @@ func FilterAndTranslateWithOptions(ctx context.Context, items []*rss.FeedItem, o
 			n.HasDenmarkContext = hasDenmarkContext(kwCategoryWeights, kwMatches)
 			n.HasUkraineContext = hasUkraineContext(kwMatches)
 
-			// Auto-DK context: Danish-language sources are by definition about Denmark.
-			// Danish media don't write "i Danmark" in every article about local events
-			// (e.g. "Skuddrab i Nørrebro"), so keyword-based detection misses them.
-			if s.item.Source.Lang == "da" {
+			// Auto-DK context: ONLY for domestic/regional Danish feeds or explicit domestic sections
+			// (/indland/, etc.), so international /udland/ stories on Danish media are not misclassified.
+			if !n.HasDenmarkContext && s.item != nil && s.item.Source != nil &&
+				hasDomesticDanishSourceContext(s.item.Source.Name, s.item.Source.Categories, s.item.Link) {
 				n.HasDenmarkContext = true
 			}
 
@@ -712,4 +719,38 @@ func isSameRunDuplicateTitle(title string, processedTitles []string) (bool, stri
 		}
 	}
 	return false, ""
+}
+
+func buildDryRunNewsWithoutAI(item *rss.FeedItem, content, scrapeImageURL string) *News {
+	if item == nil {
+		return nil
+	}
+	published := time.Now()
+	if item.PublishedParsed != nil {
+		published = *item.PublishedParsed
+	} else if item.UpdatedParsed != nil {
+		published = *item.UpdatedParsed
+	}
+	imgURL := scrapeImageURL
+	if imgURL == "" && item.Image != nil {
+		imgURL = item.Image.URL
+	}
+	n := &News{
+		Title:            item.Title,
+		Link:             item.Link,
+		Published:        published,
+		Category:         string(CategoryDefault),
+		SourceName:       item.Source.Name,
+		SourceLang:       item.Source.Lang,
+		Content:          content,
+		TitleDanish:      item.Title,
+		TitleUkrainian:   item.Title,
+		SummaryDanish:    "(dry-run without AI key: only RSS/scraper/keyword scoring ran)",
+		SummaryUkrainian: "(dry-run без AI-ключа: виконано збір RSS, скрапінг, фільтр paywall та скоринг)",
+		TLDR:             "🧪 DRY-RUN (без AI-ключа)",
+		Mood:             "neutral",
+		ImageURL:         imgURL,
+	}
+	n.Score = calculateScore(*n)
+	return n
 }

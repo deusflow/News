@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,7 @@ type FeatureConfig struct {
 	EnableInlineButtons    bool
 	EnablePublicImpactGate bool // if true, publish stage prefers impactful/systemic news
 	EnableDecisionLog      bool // if true, logs full candidate decision blocks
+	DryRun                 bool // if true, runs full pipeline without Telegram publication or DB writes
 }
 
 type MonitoringConfig struct {
@@ -240,6 +242,10 @@ func Load() (*Config, error) {
 	if v := os.Getenv("ENABLE_DECISION_LOG"); v != "" {
 		cfg.Feature.EnableDecisionLog = v == "true"
 	}
+	cfg.Feature.DryRun = getEnvBoolOrDefault("DRY_RUN", false)
+	if cfg.Feature.DryRun && os.Getenv("CACHE_FILE_PATH") == "" {
+		cfg.Cache.FilePath = filepath.Join(os.TempDir(), "dknews_dryrun_cache.json")
+	}
 
 	// AI Providers (default and env override)
 	cfg.AI.Providers = []string{"gemini", "groq"}
@@ -382,6 +388,9 @@ func normalizeProviders(providers []string) []string {
 }
 
 func (c *Config) Validate() error {
+	if c.Feature.DryRun {
+		return nil
+	}
 	if c.Telegram.Token == "" {
 		return fmt.Errorf("TELEGRAM_TOKEN is required")
 	}

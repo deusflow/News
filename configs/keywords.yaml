@@ -663,7 +663,7 @@ keywords:
     category: "tech"
     weight: 10
   - word: "apple"
-    category: "local"
+    category: "tech"
     weight: 10
   - word: "start-up"
     category: "tech"
@@ -735,6 +735,39 @@ keywords:
     category: "local"
     weight: 10
   - word: "østjylland"
+    category: "local"
+    weight: 8
+  - word: "københavn"
+    category: "local"
+    weight: 8
+  - word: "nørrebro"
+    category: "local"
+    weight: 6
+  - word: "odense"
+    category: "local"
+    weight: 8
+  - word: "aalborg"
+    category: "local"
+    weight: 8
+  - word: "esbjerg"
+    category: "local"
+    weight: 6
+  - word: "roskilde"
+    category: "local"
+    weight: 6
+  - word: "sjælland"
+    category: "local"
+    weight: 8
+  - word: "fyn"
+    category: "local"
+    weight: 8
+  - word: "jylland"
+    category: "local"
+    weight: 8
+  - word: "nordjylland"
+    category: "local"
+    weight: 8
+  - word: "syddanmark"
     category: "local"
     weight: 8
   - word: "udkantsdanmark"

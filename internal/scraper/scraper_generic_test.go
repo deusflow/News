@@ -67,3 +67,72 @@ func TestIsNavigationOrOtherArticle_FiltersExplicitUpdateLabel(t *testing.T) {
 		t.Fatalf("expected explicit update label to be treated as navigation/meta")
 	}
 }
+
+func TestExtractGenericContent_DoesNotLeakOtherArticlesInInfiniteScroll(t *testing.T) {
+	html := `<!doctype html>
+<html><body>
+<main>
+  <article>
+    <h1>Pas på: Rovfugl opholder sig på motorvej</h1>
+    <p>= 1280)" x-cloak class="flex flex-row gap-2">{</p>
+    <p>Bilister på rute 15 ved Herning advares torsdag aften om en større rovfugl ved kørebanen, oplyser Vejdirektoratet.</p>
+    <p>Trafikken glider fortsat roligt forbi stedet, og politiet opfordrer til at sænke farten en smule forbi nødsporet.</p>
+  </article>
+  <article>
+    <h2>Viborg Kommune vedtager ny plan om sygehus og vold</h2>
+    <p>Del artiklen med andre læsere i Viborg Kommune om læge, unge, minister og økonomi i Danmark.</p>
+  </article>
+</main>
+</body></html>`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("doc parse: %v", err)
+	}
+
+	got := extractGenericContent(doc)
+	if strings.Contains(got, "Viborg Kommune") || strings.Contains(got, "minister") {
+		t.Fatalf("expected infinite-scroll second <article> not to leak into first article, got: %q", got)
+	}
+	if strings.Contains(got, "x-cloak") {
+		t.Fatalf("expected AlpineJS fragment to be filtered out, got: %q", got)
+	}
+	if !strings.Contains(got, "Vejdirektoratet") {
+		t.Fatalf("expected first article body to be preserved, got: %q", got)
+	}
+}
+
+func TestDetectDOMPaywallGate_DetectsInformationPaywallAndSkipsAudioBoilerplate(t *testing.T) {
+	html := `<!doctype html>
+<html><body>
+<article>
+  <h1>Partier oprørte over kontroversielt lovforslag</h1>
+  <p>Din browser understøtter ikke afspilning af lyd.</p>
+  <p>Det er i øjeblikket ikke muligt at afspille denne lydfil.</p>
+  <p>Et flertal i Folketinget diskuterer et nyt lovforslag om børnefamilier efter måneders politisk pres fra oppositionen.</p>
+  <div class="button pw-subscribe-button">Bestil her</div>
+  <form class="openid-connect-login-form"></form>
+</article>
+<article>
+  <p>Anbefalet anden artikel i sidebaren med over tusind tegn om helt andre emner der ellers ville narre længdetjekket.</p>
+</article>
+</body></html>`
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("doc parse: %v", err)
+	}
+
+	domPaywalled, _ := detectDOMPaywallGate(doc)
+	if !domPaywalled {
+		t.Fatalf("expected DOM paywall gate to be detected before stripping")
+	}
+
+	got := extractGenericContent(doc)
+	if strings.Contains(got, "browser understøtter ikke") || strings.Contains(got, "ikke muligt at afspille") {
+		t.Fatalf("expected audio-player boilerplate to be filtered out, got: %q", got)
+	}
+	if strings.Contains(got, "Anbefalet anden artikel") {
+		t.Fatalf("expected sidebar article not to leak into content, got: %q", got)
+	}
+}

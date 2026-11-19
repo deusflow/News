@@ -292,4 +292,25 @@ func TestFormatHeader_ReplyToUpdateBadge(t *testing.T) {
 	}
 }
 
+func TestHasDomesticDanishSourceContext(t *testing.T) {
+	if hasDomesticDanishSourceContext("Kristeligt Dagblad", []string{"denmark", "society"}, "https://www.kristeligt-dagblad.dk/udland/politi-draeber-34-formodede-bandemedlemmer-i-haiti") {
+		t.Fatal("foreign /udland/ story must not be auto-tagged with Denmark context")
+	}
+	if hasDomesticDanishSourceContext("DR Nyheder", []string{"denmark", "news"}, "https://www.dr.dk/nyheder/udland/trump-truer-med-ny-told") {
+		t.Fatal("general DR Nyheder /udland/ story must not be auto-tagged with Denmark context")
+	}
+	if hasDomesticDanishSourceContext("Kristeligt Dagblad", []string{"denmark", "society"}, "https://www.kristeligt-dagblad.dk/danmark/ny-reform") {
+		t.Fatal("general source without /indland/ path should rely on text Denmark keywords instead of source-level auto-assign")
+	}
+	if !hasDomesticDanishSourceContext("DR Nyheder", []string{"denmark", "news"}, "https://www.dr.dk/nyheder/indland/ny-skoleplan") {
+		t.Fatal("explicit /indland/ URL must receive domestic Denmark context")
+	}
+	if !hasDomesticDanishSourceContext("DR Indland", []string{"denmark", "news"}, "https://www.dr.dk/nyheder/some-local-case") {
+		t.Fatal("exclusively domestic feed DR Indland must receive Denmark context")
+	}
+	if !hasDomesticDanishSourceContext("TV Midtvest", []string{"local", "news"}, "https://www.tvmidtvest.dk/herning/brand") {
+		t.Fatal("regional feed must receive Denmark context")
+	}
+}
+
 

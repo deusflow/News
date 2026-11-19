@@ -67,17 +67,30 @@ func ExtractFullArticle(ctx context.Context, articleURL string) (*ArticleContent
 		return nil, fmt.Errorf("error parsing HTML: %v", err)
 	}
 
-	content := extractContentBySource(doc, articleURL)
+	// Extract image and paywall DOM markers BEFORE extractContentBySource strips elements from doc.
+	imgURL := extractImageFromDoc(doc, articleURL)
+	domPaywalled, domPaywallReason := detectDOMPaywallGate(doc)
 	title := extractTitle(doc)
+	content := extractContentBySource(doc, articleURL)
 
 	if content == "" {
+		if domPaywalled {
+			return &ArticleContent{
+				Title:         title,
+				URL:           articleURL,
+				ImageURL:      imgURL,
+				IsPaywalled:   true,
+				PaywallReason: domPaywallReason,
+			}, nil
+		}
 		return nil, fmt.Errorf("can't get content")
 	}
 
-	// Extract og:image from the SAME document — no second HTTP request needed.
-	imgURL := extractImageFromDoc(doc, articleURL)
-
 	isPaywalled, paywallReason := IsPaywalledOrStub(content, articleURL)
+	if !isPaywalled && domPaywalled {
+		isPaywalled = true
+		paywallReason = domPaywallReason
+	}
 
 	return &ArticleContent{
 		Title:         title,
@@ -176,16 +189,51 @@ func extractDRContent(doc *goquery.Document) string {
 // Topic/subject filtering belongs exclusively in keywords/scoring (config/keywords.yaml).
 // Putting topic filters here silently drops content from articles that happen to
 // mention those names — even when the article is primarily about Denmark.
+// detectDOMPaywallGate checks for explicit paywall/login gate elements inside the primary article DOM.
+// Must run before extractGenericContent removes banner/form nodes from the document.
+func detectDOMPaywallGate(doc *goquery.Document) (bool, string) {
+	if doc == nil {
+		return false, ""
+	}
+	scope := doc.Find("article").First()
+	if scope.Length() == 0 {
+		scope = doc.Selection
+	}
+	gateSelectors := []string{
+		".pw-subscribe-button",
+		".paywall-gate",
+		"[data-paywall='true']",
+		"[data-paywall='hard']",
+		"form.openid-connect-login-form",
+	}
+	for _, sel := range gateSelectors {
+		if scope.Find(sel).Length() > 0 {
+			return true, fmt.Sprintf("dom paywall gate %s", sel)
+		}
+	}
+	return false, ""
+}
+
 func isNavigationOrOtherArticle(text string) bool {
 	lowerText := strings.ToLower(text)
+
+	// Raw HTML/AlpineJS template fragments occasionally leak into <p> tags on misformatted pages.
+	if strings.Contains(lowerText, "x-cloak") || strings.Contains(lowerText, `class="`) {
+		return true
+	}
 
 	navIndicators := []string{
 		"læs også", "se også", "følg", "cookie", "gdpr",
 		"abonnement", "privatlivspolitik", "nyhedsbrev",
-		"log ind", "opret", "del artikel", "print",
+		"log ind", "opret", "del artikel", "del artiklen", "print",
 		"reklame", "annonce", "sponsor",
 		"sidst opdateret", "senest opdateret",
 		"redigeret", "publiceret", "dr nyheder",
+		"din browser understøtter ikke",
+		"ikke muligt at afspille",
+		"vil du lytte med",
+		"allerede abonnent",
+		"prøv information gratis",
 		"vi tager ansvar for indholdet",
 		"tilmeldt pressenævnet",
 		"pressenævnet",
@@ -214,8 +262,8 @@ func extractGenericContent(doc *goquery.Document) string {
 	var paragraphs []string
 	seen := make(map[string]struct{})
 
-	// Strip non-content and layout containers so footers, sidebars and legal notices never leak
-	doc.Find("footer, .footer, .site-footer, .prose-footer, [role='contentinfo'], nav, aside, .sidebar, .cookie-banner, .paywall-banner, .advertisement").Remove()
+	// Strip non-content and layout containers so scripts, templates, footers, sidebars and paywall boxes never leak
+	doc.Find("script, style, noscript, template, form, footer, .footer, .site-footer, .prose-footer, [role='contentinfo'], nav, aside, .sidebar, .cookie-banner, .paywall-banner, .pw-subscribe-button, .advertisement").Remove()
 
 	// Limits chosen to feed LLM enough context but avoid capturing whole page/footer.
 	const (
@@ -270,34 +318,69 @@ func extractGenericContent(doc *goquery.Document) string {
 		return false
 	}
 
-	// Try most popular selectors
-	selectors := []string{
-		"article p",
-		".article p",
-		".content p",
-		".post-content p",
-		".entry-content p",
-		"main p",
-		"#content p",
-		".text p",
-		"p",
+	// Try article body containers one container at a time so infinite-scroll or sidebar <article> cards never leak.
+	containerSelectors := []string{
+		"[itemprop='articleBody']",
+		".article-body",
+		"article",
+		".article",
+		".content",
+		".post-content",
+		".entry-content",
+		"main",
+		"#content",
+		".text",
 	}
 
-	for _, selector := range selectors {
-		stop := false
-		doc.Find(selector).EachWithBreak(func(i int, s *goquery.Selection) bool {
+	extractFromSelection := func(container *goquery.Selection, maxCount int) {
+		container.Find("p").EachWithBreak(func(i int, s *goquery.Selection) bool {
+			if maxCount > 0 && len(paragraphs) >= maxCount {
+				return false
+			}
 			text := strings.TrimSpace(s.Text())
 			if shouldStop := addParagraph(text); shouldStop {
-				stop = true
 				return false
 			}
 			return true
 		})
+	}
 
-		// If a specific article container was found, don't fall back to broader selectors like page-wide "p"
-		if stop || len(paragraphs) >= 2 || (len(paragraphs) >= 1 && currentChars >= 250) {
+	for _, containerSel := range containerSelectors {
+		containers := doc.Find(containerSel)
+		if containers.Length() == 0 {
+			continue
+		}
+
+		// On pages with multiple <article> blocks, prefer one containing <h1> (main story) if present.
+		var target *goquery.Selection
+		if containers.Length() > 1 {
+			containers.EachWithBreak(func(i int, c *goquery.Selection) bool {
+				if c.Find("h1").Length() > 0 {
+					target = c
+					return false
+				}
+				return true
+			})
+		}
+
+		if target != nil {
+			extractFromSelection(target, 0)
+		} else {
+			containers.EachWithBreak(func(i int, c *goquery.Selection) bool {
+				extractFromSelection(c, 0)
+				// Stop immediately once a single container yields real paragraphs.
+				return len(paragraphs) == 0
+			})
+		}
+
+		if len(paragraphs) > 0 {
 			break
 		}
+	}
+
+	// Last-resort fallback when no semantic container yielded text; keep tightly capped.
+	if len(paragraphs) == 0 {
+		extractFromSelection(doc.Selection, 12)
 	}
 
 	return strings.Join(paragraphs, "\n\n")

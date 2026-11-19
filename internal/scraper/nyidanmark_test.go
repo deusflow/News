@@ -87,5 +87,15 @@ func TestParseNyidanmarkDate(t *testing.T) {
 			t.Errorf("two-day-old article age = %v, expected > 24h", age)
 		}
 	})
+
+	t.Run("handles updated suffix without parse error", func(t *testing.T) {
+		got, err := parseNyidanmarkDate("09-10-2026 - Senest opdateret: 28-10-2026", morningRun)
+		if err != nil {
+			t.Fatalf("unexpected error with Senest opdateret suffix: %v", err)
+		}
+		if got.Year() != 2026 || got.Month() != time.October || got.Day() != 9 {
+			t.Errorf("got %v, want 2026-10-09", got)
+		}
+	})
 }
 

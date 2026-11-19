@@ -15,7 +15,10 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
-var nyidanmarkURLDateRe = regexp.MustCompile(`/da/Nyheder/(\d{4})/(\d{2})/`)
+var (
+	nyidanmarkURLDateRe = regexp.MustCompile(`/da/Nyheder/(\d{4})/(\d{2})/`)
+	nyidanmarkDateRe    = regexp.MustCompile(`\b(\d{2}-\d{2}-\d{4})\b`)
+)
 
 func danishLocation() *time.Location {
 	loc, err := time.LoadLocation("Europe/Copenhagen")
@@ -51,7 +54,11 @@ func isRecentNyidanmarkURL(link string, now time.Time) bool {
 // для сегодняшней даты возвращается now, а для прошлых дат — 12:00 по времени Копенгагена.
 func parseNyidanmarkDate(pubDateStr string, now time.Time) (time.Time, error) {
 	loc := danishLocation()
-	parsed, err := time.ParseInLocation("02-01-2006", strings.TrimSpace(pubDateStr), loc)
+	cleanStr := strings.TrimSpace(pubDateStr)
+	if m := nyidanmarkDateRe.FindStringSubmatch(cleanStr); len(m) == 2 {
+		cleanStr = m[1]
+	}
+	parsed, err := time.ParseInLocation("02-01-2006", cleanStr, loc)
 	if err != nil {
 		return time.Time{}, err
 	}
