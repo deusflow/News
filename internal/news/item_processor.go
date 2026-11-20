@@ -63,7 +63,34 @@ func processItemWithContent(ctx context.Context, item *rss.FeedItem, index int, 
 		systemPrompt := GenerateNewsSystemPrompt()
 		userPrompt := GenerateNewsUserContent(title, content)
 
-		resp, aiErr = opts.AI.Generate(ctx, title, content, systemPrompt, userPrompt)
+		validateCandidate := func(candidate *ai.Response) error {
+			if candidate == nil {
+				return nil
+			}
+			if err := candidate.Validate(); err != nil {
+				return err
+			}
+			// Don't burn fallback providers retrying paywall stubs or low-relevance stories.
+			if isStubOrApology(candidate) || candidate.AudienceScore <= 2 {
+				return nil
+			}
+			fullUA := candidate.Ukrainian + " " + candidate.TitleUkrainian + " " + candidate.TLDR + " " + candidate.WhyItMatters + " " + candidate.FunFact
+			if err := VerifyUkrainian(fullUA); err != nil {
+				return err
+			}
+			dkSrc := title + "\n" + content + "\n" + candidate.TitleDanish + "\n" + candidate.Danish
+			uaArticle := candidate.TitleUkrainian + "\n" + candidate.Ukrainian + "\n" + candidate.TLDR
+			if err := VerifyNumbers(dkSrc, uaArticle); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		if vp, ok := opts.AI.(ai.ValidatingProvider); ok {
+			resp, aiErr = vp.GenerateValidated(ctx, title, content, systemPrompt, userPrompt, validateCandidate)
+		} else {
+			resp, aiErr = opts.AI.Generate(ctx, title, content, systemPrompt, userPrompt)
+		}
 		if aiErr != nil {
 			logger.Error("all AI providers failed", "title", title, "error", aiErr)
 			return nil, aiErr

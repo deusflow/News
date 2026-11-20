@@ -499,3 +499,59 @@ func TestManager_PerProviderMaxRequestsAllowsFallback(t *testing.T) {
 		t.Fatalf("Call 4 expected error when all providers reached limit, got nil")
 	}
 }
+
+func TestManager_GenerateValidated_FallsBackOnValidationError(t *testing.T) {
+	t.Setenv("AI_REQUEST_DELAY_SECONDS", "0")
+	m := metrics.New()
+
+	p1 := &mockProvider{
+		name: "gemini",
+		response: &ai.Response{
+			Danish:        "Regeringen i Danmark vedtager ny lov.",
+			Ukrainian:     "Уряд Денмарки ухвалює новий закон.",
+			TLDR:          "Новий закон",
+			AudienceScore: 9,
+		},
+	}
+	p2 := &mockProvider{
+		name: "groq",
+		response: &ai.Response{
+			Danish:        "Regeringen i Danmark vedtager ny lov.",
+			Ukrainian:     "Уряд Данії ухвалює новий закон.",
+			TLDR:          "Новий закон",
+			AudienceScore: 9,
+		},
+	}
+
+	mgr := ai.NewManager(m, 5, p1, p2)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	got, err := mgr.GenerateValidated(ctx, "T", "C", "sys", "user", func(r *ai.Response) error {
+		if r.Ukrainian == "Уряд Денмарки ухвалює новий закон." {
+			return errors.New("broken calque Денмарки")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GenerateValidated() unexpected error = %v", err)
+	}
+	if got.Ukrainian != "Уряд Данії ухвалює новий закон." {
+		t.Fatalf("expected fallback response from groq, got %q", got.Ukrainian)
+	}
+	if p1.calls != 1 || p2.calls != 1 {
+		t.Fatalf("expected p1=1 and p2=1 calls, got p1=%d p2=%d", p1.calls, p2.calls)
+	}
+
+	// Ensure p1 was NOT banned on cooldown because of a single content validation miss.
+	p1.response.Ukrainian = "Уряд Данії ухвалює новий закон."
+	got2, err := mgr.GenerateValidated(ctx, "T2", "C2", "sys", "user", func(r *ai.Response) error { return nil })
+	if err != nil || got2 == nil {
+		t.Fatalf("expected p1 to remain available on next call, got err=%v", err)
+	}
+	if p1.calls != 2 {
+		t.Fatalf("expected p1 to be reused (not put on cooldown), got p1.calls=%d", p1.calls)
+	}
+}

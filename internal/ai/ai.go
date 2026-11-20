@@ -85,6 +85,17 @@ type Provider interface {
 	Close()
 }
 
+// ResponseValidator validates a generated AI response (e.g. Ukrainian purity, number grounding).
+// Returning a non-nil error causes a ValidatingProvider to fall back to the next provider.
+type ResponseValidator func(*Response) error
+
+// ValidatingProvider is an optional extension implemented by Manager that automatically retries
+// the next provider in the fallback chain when the caller's quality validator rejects a response.
+type ValidatingProvider interface {
+	Provider
+	GenerateValidated(ctx context.Context, title, content, systemPrompt, userPrompt string, validate ResponseValidator) (*Response, error)
+}
+
 // ErrorKind classifies provider failures for resilient fallback decisions.
 type ErrorKind string
 

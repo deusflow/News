@@ -32,6 +32,7 @@ type aiJob struct {
 	systemPrompt string
 	userPrompt   string
 	rawMode      bool
+	validate     ResponseValidator
 	result       chan aiResult
 }
 
@@ -258,7 +259,7 @@ func (m *Manager) worker(ctx context.Context) {
 			if job.rawMode {
 				rawText, err = m.executeRawWithFallback(jobCtx, job.systemPrompt, job.userPrompt)
 			} else {
-				resp, err = m.executeWithFallback(jobCtx, job.title, job.content, job.systemPrompt, job.userPrompt)
+				resp, err = m.executeWithFallback(jobCtx, job.title, job.content, job.systemPrompt, job.userPrompt, job.validate)
 			}
 
 			stopWatch()
@@ -282,7 +283,9 @@ func (m *Manager) worker(ctx context.Context) {
 // executeWithFallback пробует каждого провайдера по очереди.
 // Если провайдер вернул 429 с Retry-After — ждём ровно столько, сколько просят,
 // и повторяем этого же провайдера один раз перед переходом к следующему.
-func (m *Manager) executeWithFallback(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error) {
+// Если передан validate и ответ не проходит проверку качества (например, брак украинского
+// или галлюцинация числа), провайдер не банится, а выполняется автоматический фоллбэк на следующий.
+func (m *Manager) executeWithFallback(ctx context.Context, title, content, systemPrompt, userPrompt string, validate ResponseValidator) (*Response, error) {
 	var lastErr error
 
 	for _, provider := range m.providers {
@@ -307,6 +310,16 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 		rsp, err := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 		m.lastCallByProvider[provider.Name()] = time.Now()
 		if err == nil {
+			if validate != nil {
+				if valErr := validate(rsp); valErr != nil {
+					logger.Warn("AI response rejected by quality validator, trying next provider",
+						"provider", provider.Name(),
+						"title", title,
+						"error", valErr)
+					lastErr = valErr
+					continue
+				}
+			}
 			logger.Info("AI success", "provider", provider.Name(), "ai_request_count", m.requestCount, "provider_request_count", m.providerRequestCount[provider.Name()])
 			return rsp, nil
 		}
@@ -356,6 +369,16 @@ func (m *Manager) executeWithFallback(ctx context.Context, title, content, syste
 			resp2, err2 := provider.Generate(ctx, title, content, systemPrompt, userPrompt)
 			m.lastCallByProvider[provider.Name()] = time.Now()
 			if err2 == nil {
+				if validate != nil {
+					if valErr := validate(resp2); valErr != nil {
+						logger.Warn("AI response rejected by quality validator after rate-limit wait, trying next provider",
+							"provider", provider.Name(),
+							"title", title,
+							"error", valErr)
+						lastErr = valErr
+						continue
+					}
+				}
 				logger.Info("AI success after rate-limit wait", "provider", provider.Name(), "ai_request_count", m.requestCount, "provider_request_count", m.providerRequestCount[provider.Name()])
 				return resp2, nil
 			}
@@ -454,6 +477,12 @@ func (m *Manager) executeRawWithFallback(ctx context.Context, systemPrompt, user
 
 // Generate requests a standard JSON-parsed AI response.
 func (m *Manager) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*Response, error) {
+	return m.GenerateValidated(ctx, title, content, systemPrompt, userPrompt, nil)
+}
+
+// GenerateValidated requests a JSON-parsed AI response and automatically falls back to the next
+// provider if validate returns an error (e.g. broken Ukrainian or hallucinated numbers).
+func (m *Manager) GenerateValidated(ctx context.Context, title, content, systemPrompt, userPrompt string, validate ResponseValidator) (*Response, error) {
 	resultCh := make(chan aiResult, 1)
 
 	job := aiJob{
@@ -463,6 +492,7 @@ func (m *Manager) Generate(ctx context.Context, title, content, systemPrompt, us
 		systemPrompt: systemPrompt,
 		userPrompt:   userPrompt,
 		rawMode:      false,
+		validate:     validate,
 		result:       resultCh,
 	}
 
