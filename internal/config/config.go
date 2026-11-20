@@ -150,7 +150,7 @@ func Load() (*Config, error) {
 		},
 		Scraper: ScraperConfig{
 			Concurrency: 2,
-			MaxArticles: 8,
+			MaxArticles: 5,
 		},
 		Database: DatabaseConfig{
 			TTL: 840, // default 35 days (840 hours) for monthly calendar, 7-day digest & semantic dedup

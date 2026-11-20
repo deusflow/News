@@ -38,6 +38,7 @@ jobs:
       MAX_GEMINI_REQUESTS: 10
       BOT_MODE: single
       SCRAPE_CONCURRENCY: 3
+      SCRAPE_MAX_ARTICLES: '5'
 
       # Feature flags
       ENABLE_INLINE_BUTTONS: 'true'
