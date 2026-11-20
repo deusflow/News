@@ -1,9 +1,10 @@
 name: Danish News Bot - Breaking News
 
 on:
-  schedule:
-    # Check for acute Danish emergencies every 20 mins (off-peak offset :07, :27, :47 to avoid runner queue delays)
-    - cron: '7,27,47 5-21 * * *'
+  # Breaking news is triggered instantly via Cloudflare Worker (repository_dispatch)
+  # or manually (workflow_dispatch). The old 51/day GitHub `schedule` cron was removed
+  # because GitHub dropped 49/51 runs and delayed the remaining ones by ~9 hours,
+  # crowding the account's cron queue ahead of the 5 daily `news.yml` runs.
   repository_dispatch:
     types: [breaking_news]
   workflow_dispatch:
