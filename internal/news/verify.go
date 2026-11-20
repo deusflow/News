@@ -196,13 +196,25 @@ func VerifyNumbers(danishSource, ukrainianText string) error {
 	return nil
 }
 
+var forbiddenUkrainianCalques = []string{
+	"денмарк",
+	"джилянд",
+	"копенгагн",
+}
+
 // VerifyUkrainian confirms that the text is written in valid Ukrainian and not Russian
-// (rejects Russian letters: ы, э, ъ, ё).
+// (rejects Russian letters: ы, э, ъ, ё) and catches known broken country/region calques.
 func VerifyUkrainian(text string) error {
 	const russianLetters = "ыэъёЫЭЪЁ"
 	if idx := strings.IndexAny(text, russianLetters); idx != -1 {
 		r, _ := utf8.DecodeRuneInString(text[idx:])
 		return fmt.Errorf("text contains Russian character %q: %s", string(r), text)
+	}
+	lower := strings.ToLower(text)
+	for _, bad := range forbiddenUkrainianCalques {
+		if strings.Contains(lower, bad) {
+			return fmt.Errorf("text contains broken Ukrainian calque %q: %s", bad, text)
+		}
 	}
 	return nil
 }

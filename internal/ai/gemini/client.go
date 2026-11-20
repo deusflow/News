@@ -15,7 +15,7 @@ import (
 
 // perAttemptTimeout caps each single Gemini API call so a hung 503/connection
 // never stalls the entire GitHub Actions job.
-const perAttemptTimeout = 15 * time.Second
+const perAttemptTimeout = 20 * time.Second
 
 // Client wraps the Gemini unified genai SDK clients with API key rotation and model fallback.
 type Client struct {
@@ -107,13 +107,23 @@ func isQuotaOrRateLimit(err error) bool {
 		strings.Contains(lower, "resource_exhausted")
 }
 
+func isThinkingConfigUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return (strings.Contains(lower, "400") || strings.Contains(lower, "invalid_argument") || strings.Contains(lower, "unsupported")) &&
+		strings.Contains(lower, "thinking")
+}
+
 func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, userPrompt string) (*ai.Response, error) {
 	logger.Debug("🔄 Gemini Generate", "title", title, "content_length", len(content), "model", c.modelName)
 
 	modelsToTry := append([]string{c.modelName}, c.fallbackModels...)
 	attempts := len(c.clients)
 
-	for _, activeModel := range modelsToTry {
+	for modelIdx, activeModel := range modelsToTry {
+		isLastModel := modelIdx == len(modelsToTry)-1
 		for i := 0; i < attempts; i++ {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -123,6 +133,11 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			cfg := &genai.GenerateContentConfig{
 				Temperature:      genai.Ptr[float32](0.3),
 				ResponseMIMEType: "application/json",
+				// Keep thinking level low on Gemini 3.x thinking models so news translation finishes
+				// in a few seconds instead of burning 15-25s on deep reasoning and hitting 504 DEADLINE_EXCEEDED.
+				ThinkingConfig: &genai.ThinkingConfig{
+					ThinkingLevel: genai.ThinkingLevelLow,
+				},
 			}
 			if strings.TrimSpace(systemPrompt) != "" {
 				cfg.SystemInstruction = &genai.Content{
@@ -133,6 +148,14 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			attemptCtx, cancel := context.WithTimeout(ctx, perAttemptTimeout)
 			resp, err := client.Models.GenerateContent(attemptCtx, activeModel, genai.Text(userPrompt), cfg)
 			cancel()
+
+			if err != nil && isThinkingConfigUnsupported(err) {
+				logger.Warn("Gemini model rejected ThinkingConfig, retrying with default config", "model", activeModel)
+				cfg.ThinkingConfig = nil
+				attemptCtx, cancel = context.WithTimeout(ctx, perAttemptTimeout)
+				resp, err = client.Models.GenerateContent(attemptCtx, activeModel, genai.Text(userPrompt), cfg)
+				cancel()
+			}
 
 			if err == nil {
 				if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
@@ -156,9 +179,16 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			logger.Error("❌ Gemini API Error", "title", title, "model", activeModel, "key_idx", c.keyIdx, "error", err)
 
 			// If Google's model cluster is globally overloaded (503 / timeout), rotating keys on the same model
-			// wastes time. Switch key once and immediately jump to the next fallback Gemini model.
+			// wastes time — jump to the next fallback model. On the last fallback model, try one extra key
+			// before putting the entire Gemini provider on a 5m cooldown.
 			if isTransient503OrOverload(err) {
 				c.keyIdx = (c.keyIdx + 1) % len(c.clients)
+				if isLastModel && i == 0 && attempts > 1 {
+					logger.Warn("Gemini last fallback model hit transient 503/504; trying next key once before cooldown.",
+						"model", activeModel,
+						"next_key_idx", c.keyIdx)
+					continue
+				}
 				logger.Warn("Gemini model cluster overloaded/timed out (503). Switching to fallback Gemini model.",
 					"failed_model", activeModel,
 					"next_key_idx", c.keyIdx)
@@ -188,7 +218,8 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 	modelsToTry := append([]string{c.modelName}, c.fallbackModels...)
 	attempts := len(c.clients)
 
-	for _, activeModel := range modelsToTry {
+	for modelIdx, activeModel := range modelsToTry {
+		isLastModel := modelIdx == len(modelsToTry)-1
 		for i := 0; i < attempts; i++ {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
@@ -197,6 +228,10 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 
 			cfg := &genai.GenerateContentConfig{
 				Temperature: genai.Ptr[float32](0.2),
+				// Headline triage needs minimal thinking for fast latency.
+				ThinkingConfig: &genai.ThinkingConfig{
+					ThinkingLevel: genai.ThinkingLevelMinimal,
+				},
 			}
 			if strings.TrimSpace(systemPrompt) != "" {
 				cfg.SystemInstruction = &genai.Content{
@@ -208,6 +243,13 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 			resp, err := client.Models.GenerateContent(attemptCtx, activeModel, genai.Text(userPrompt), cfg)
 			cancel()
 
+			if err != nil && isThinkingConfigUnsupported(err) {
+				cfg.ThinkingConfig = nil
+				attemptCtx, cancel = context.WithTimeout(ctx, perAttemptTimeout)
+				resp, err = client.Models.GenerateContent(attemptCtx, activeModel, genai.Text(userPrompt), cfg)
+				cancel()
+			}
+
 			if err == nil {
 				if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
 					return "", fmt.Errorf("gemini returned empty response")
@@ -218,6 +260,9 @@ func (c *Client) GenerateRaw(ctx context.Context, systemPrompt, userPrompt strin
 
 			if isTransient503OrOverload(err) {
 				c.keyIdx = (c.keyIdx + 1) % len(c.clients)
+				if isLastModel && i == 0 && attempts > 1 {
+					continue
+				}
 				break
 			}
 

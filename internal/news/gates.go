@@ -128,9 +128,6 @@ func ComparePublishPriority(a, b News) bool {
 	if aGate != bGate {
 		return aGate
 	}
-	if a.CoreImpactScore != b.CoreImpactScore {
-		return a.CoreImpactScore > b.CoreImpactScore
-	}
 
 	aImpact := isImpactCandidate(a)
 	bImpact := isImpactCandidate(b)
@@ -145,6 +142,9 @@ func ComparePublishPriority(a, b News) bool {
 	}
 	if a.Score != b.Score {
 		return a.Score > b.Score
+	}
+	if a.CoreImpactScore != b.CoreImpactScore {
+		return a.CoreImpactScore > b.CoreImpactScore
 	}
 	aHasImage := a.ImageURL != ""
 	bHasImage := b.ImageURL != ""

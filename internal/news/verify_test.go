@@ -71,6 +71,16 @@ func TestVerifyUkrainian_RussianLettersRejected(t *testing.T) {
 	if err := VerifyUkrainian(validUkrainian); err != nil {
 		t.Errorf("expected valid Ukrainian to pass, got: %v", err)
 	}
+
+	brokenCalques := []string{
+		"Уряд Денмарки оголосив про нові правила.",
+		"Поліцейська операція пройшла у Джилянді.",
+	}
+	for _, sample := range brokenCalques {
+		if err := VerifyUkrainian(sample); err == nil {
+			t.Errorf("expected broken calque %q to be rejected", sample)
+		}
+	}
 }
 
 func TestGenerateNewsUserContent_TruncatesLongContent(t *testing.T) {

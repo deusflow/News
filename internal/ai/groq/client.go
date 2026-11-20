@@ -80,7 +80,9 @@ func NewClientWithKeys(name string, apiKeys []string, model, baseURL string) *Cl
 
 	reasoningEffort := os.Getenv("GROQ_REASONING_EFFORT")
 	if reasoningEffort == "" && (strings.Contains(model, "gpt-oss") || strings.Contains(model, "reasoning")) {
-		reasoningEffort = "medium"
+		// Keep reasoning effort low so gpt-oss-120b does not burn the completion budget on hidden thoughts
+		// and truncate JSON mid-document.
+		reasoningEffort = "low"
 	}
 	return &Client{
 		name:            name,
@@ -263,7 +265,7 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			maxTokens := 0
 			if !c.isOpenRouter() {
 				respFmt = &responseFormat{Type: "json_object"}
-				maxTokens = 2048
+				maxTokens = 3072
 			}
 
 			reqBody := groqRequest{
@@ -280,6 +282,9 @@ func (c *Client) Generate(ctx context.Context, title, content, systemPrompt, use
 			if err != nil && reqBody.ResponseFormat != nil && isJSONValidateFailed(status, bodyStr) {
 				logger.Warn("Groq json_validate_failed, retrying without response_format", "model", activeModel)
 				reqBody.ResponseFormat = nil
+				if strings.Contains(strings.ToLower(bodyStr), "max completion tokens") && reqBody.MaxCompletionTokens < 4096 {
+					reqBody.MaxCompletionTokens = 4096
+				}
 				rawText, status, bodyStr, err = c.sendChatRequest(ctx, title, activeKey, reqBody)
 			}
 

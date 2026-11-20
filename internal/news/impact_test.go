@@ -313,4 +313,28 @@ func TestHasDomesticDanishSourceContext(t *testing.T) {
 	}
 }
 
+func TestComparePublishPriority_HigherImpactAndScoreBeatsRawCoreImpact(t *testing.T) {
+	majorStory := News{
+		Title:           "To mænd sigtes for at planlægge drab på ukrainsk rapper i Charlottenlund",
+		Category:        string(CategoryCrime),
+		Score:           376,
+		ImpactScore:     85,
+		AudienceScore:   9,
+		CoreImpactScore: 100,
+	}
+	regionalProtest := News{
+		Title:           "Flere hundrede unge demonstrerede mod oprustning",
+		Category:        string(CategorySociety),
+		Score:           223,
+		ImpactScore:     70,
+		AudienceScore:   6,
+		CoreImpactScore: 143,
+	}
+
+	if !ComparePublishPriority(majorStory, regionalProtest) {
+		t.Fatalf("expected majorStory (score=%d, impact=%d, audience=%d) to outrank regionalProtest (score=%d, coreImpact=%d)",
+			majorStory.Score, majorStory.ImpactScore, majorStory.AudienceScore, regionalProtest.Score, regionalProtest.CoreImpactScore)
+	}
+}
+
 

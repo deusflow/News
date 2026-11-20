@@ -116,3 +116,25 @@ func TestGenerateRaw_UsesLowReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestGenerate_GptOssDefaultsToLowReasoningAndAdequateTokenBudget(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &captured)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"danish\":\"Dansk\",\"ukrainian\":\"Укр\",\"tldr\":\"TLDR\",\"mood\":\"neutral\",\"audience_score\":7}"}}]}`))
+	}))
+	defer srv.Close()
+
+	client := NewClientWithOptions("groq", "test-key", "openai/gpt-oss-120b", srv.URL)
+	if _, err := client.Generate(context.Background(), "Title", "Content", "sys", "user"); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if got := captured["reasoning_effort"]; got != "low" {
+		t.Errorf("expected reasoning_effort=low for gpt-oss-120b Generate, got %v", got)
+	}
+	if got, ok := captured["max_completion_tokens"].(float64); !ok || got < 3072 {
+		t.Errorf("expected max_completion_tokens >= 3072, got %v", captured["max_completion_tokens"])
+	}
+}
+
